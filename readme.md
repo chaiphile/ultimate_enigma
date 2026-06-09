@@ -176,6 +176,17 @@ The project is structured as follows:
 
 ---
 
+## 🤖 Model Context Protocol (MCP)
+
+Ultimate Enigma supports the **Model Context Protocol (MCP)**, an open standard for connecting AI applications to external systems [[1]]. This allows Large Language Models (LLMs) to securely interact with the application's cryptographic functions and data sources.
+
+### Features
+- **Secure Context**: Provides LLMs with secure access to encryption/decryption tools without exposing raw keys.
+- **Automated Workflows**: Enables AI agents to perform complex cryptographic tasks like batch file encryption or key management.
+- **Standardized Integration**: Follows the MCP specification for seamless compatibility with various AI assistants and development environments [[5]].
+
+---
+
 ## 🔒 Security Considerations
 
 - **Master Password** – The master password is never stored; it is used only to derive an encryption key for the private key and shared secrets. If lost, data cannot be recovered.
