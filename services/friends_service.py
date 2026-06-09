@@ -145,3 +145,21 @@ class FriendsService:
         pem = pubkey_to_pem(self._ks.my_pub)
         fp = sha256_fingerprint(pem.encode())
         return {"fingerprint": fp, "public_key_pem": pem}
+
+    # ------------------------------------------------------------------
+    # Utility methods for views (avoid direct model access)
+    # ------------------------------------------------------------------
+    def verify_password(self, password: str) -> bool:
+        """Verify master password. Allows views to check auth without accessing KeyStore."""
+        return self._ks.verify_password(password)
+
+    def get_friend_names(self) -> List[str]:
+        """Return list of all friend names."""
+        return [name for name, _, _ in self._ks.friends]
+
+    def friend_has_secret(self, name: str) -> bool:
+        """Check if a specific friend has a shared secret configured."""
+        for fname, _, sec in self._ks.friends:
+            if fname == name:
+                return sec is not None
+        return False

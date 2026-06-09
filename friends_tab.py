@@ -1,4 +1,4 @@
-"""Friends management tab – using FriendsService for all friend operations."""
+"""Friends management tab – fully decoupled from app via dependency injection."""
 
 import tkinter as tk
 from tkinter import messagebox, simpledialog
@@ -6,19 +6,34 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import base64
 
-# Import the service
 from services.friends_service import FriendsService, FriendsServiceError
 from utils import password_dialog
 
 
 class FriendsTab:
-    def __init__(self, parent, app):
-        self.app = app
+    def __init__(self, parent, friends_service: FriendsService, style_config=None):
+        """
+        Args:
+            parent: Notebook or parent widget
+            friends_service: Injected FriendsService instance
+            style_config: Dict with 'bg', 'fg' keys (optional, falls back to ttk.Style)
+        """
+        self.service = friends_service
         self.frame = ttk.Frame(parent)
+        
+        # Store style config for dialogs
+        if style_config:
+            self._bg = style_config.get('bg')
+            self._fg = style_config.get('fg')
+        else:
+            s = ttk.Style()
+            self._bg = s.colors.bg
+            self._fg = s.colors.fg
+            
         self.all_friend_names = []
         self._build_ui()
 
-    # ---- UI construction (unchanged) ----
+    # ---- UI construction ----
     def _build_ui(self):
         # Top button bar
         top_bar = ttk.Frame(self.frame, padding=(10, 5))
@@ -90,9 +105,8 @@ class FriendsTab:
 
     # ---- Data refresh ----
     def refresh_list(self):
-        # Use the service to get names
         self.all_friend_names = [
-            friend["name"] for friend in self.app.friends_service.get_all_friends()
+            friend["name"] for friend in self.service.get_all_friends()
         ]
         self.filter_list()
 
@@ -101,8 +115,7 @@ class FriendsTab:
         for item in self.tree.get_children():
             self.tree.delete(item)
 
-        # Iterate over service data – every dict already has rsa_fingerprint
-        for friend in self.app.friends_service.get_all_friends():
+        for friend in self.service.get_all_friends():
             name = friend["name"]
             if query in name.lower():
                 status = "🔑" if friend["has_shared_secret"] else "   "
@@ -119,8 +132,7 @@ class FriendsTab:
         item = self.tree.item(selected[0])
         name = item['values'][1]
 
-        # Fetch details directly from service
-        details = self.app.friends_service.get_friend_details(name)
+        details = self.service.get_friend_details(name)
         if not details:
             return
 
@@ -144,13 +156,16 @@ class FriendsTab:
 
     # ---- Dialogs ----
     def add_friend_dialog(self):
-        dlg = tk.Toplevel(self.app.root)
+        # Use frame's winfo_toplevel as parent for dialog
+        parent = self.frame.winfo_toplevel()
+        
+        dlg = tk.Toplevel(parent)
         dlg.title("Add Friend")
         dlg.geometry("550x530")
         dlg.resizable(False, False)
-        dlg.transient(self.app.root)
+        dlg.transient(parent)
         dlg.grab_set()
-        dlg.configure(bg=self.app.style.colors.bg)
+        dlg.configure(bg=self._bg)
 
         ttk.Label(dlg, text="Friend's Name:").pack(pady=(15, 5))
         name_var = tk.StringVar()
@@ -177,6 +192,7 @@ class FriendsTab:
                   bootstyle="warning").pack()
 
         def update_x25519_fp(*args):
+            """UX-only preview of X25519 fingerprint. Validation happens in service."""
             b64 = x25519_var.get().strip()
             if not b64:
                 x25519_fp_var.set("")
@@ -221,31 +237,16 @@ class FriendsTab:
                                      confirm=False)
                 if not pw:
                     return
-                if not self.app.ks.verify_password(pw):
+                # Use service for password verification instead of direct model access
+                if not self.service.verify_password(pw):
                     messagebox.showerror("Wrong Password",
                                          "Master password incorrect.",
                                          parent=dlg)
                     return
 
-            # Optional X25519 validation is handled by the service,
-            # but we do a quick length check for immediate feedback.
-            if x_b64:
-                try:
-                    raw = base64.b64decode(x_b64)
-                    if len(raw) != 32:
-                        messagebox.showerror("Invalid",
-                                             "X25519 key must be 32 bytes.",
-                                             parent=dlg)
-                        return
-                except Exception:
-                    messagebox.showerror("Invalid",
-                                         "X25519 key is not valid Base64.",
-                                         parent=dlg)
-                    return
-
+            # X25519 validation is handled entirely by the service
             try:
-                # Delegate to service – it validates and saves
-                self.app.friends_service.add_friend(
+                self.service.add_friend(
                     name=name,
                     public_key_pem=pem,
                     shared_secret=shared_secret,
@@ -253,7 +254,6 @@ class FriendsTab:
                     x25519_pub_b64=x_b64,
                 )
                 self.refresh_list()
-                self.app.encrypt_tab._update_friend_list()
                 dlg.destroy()
                 messagebox.showinfo("Success", f"Friend '{name}' added.")
             except FriendsServiceError as e:
@@ -263,17 +263,15 @@ class FriendsTab:
                    bootstyle="success").pack(pady=10)
 
     def remove_friend_dialog(self):
-        # Use service to get names
-        names = [friend["name"] for friend in self.app.friends_service.get_all_friends()]
+        names = self.service.get_friend_names()
         if not names:
             messagebox.showinfo("No Friends", "You have no friends to remove.")
             return
         choice = simpledialog.askstring("Remove Friend",
                                         f"Enter friend name to remove:\n{', '.join(names)}")
         if choice and choice in names:
-            self.app.friends_service.remove_friend(choice)
+            self.service.remove_friend(choice)
             self.refresh_list()
-            self.app.encrypt_tab._update_friend_list()
             messagebox.showinfo("Removed", f"Friend '{choice}' removed.")
         else:
             messagebox.showerror("Not Found", "Name not found in friend list.")
@@ -286,35 +284,35 @@ class FriendsTab:
         item = self.tree.item(selected[0])
         friend_name = item['values'][1]
 
-        # Make sure friend exists (service will check later but we need PEM for info)
-        friend_details = self.app.friends_service.get_friend_details(friend_name)
+        friend_details = self.service.get_friend_details(friend_name)
         if not friend_details:
             messagebox.showerror("Error", "Friend not found in database")
             return
 
         from ecdh import perform_ecdh
-        result = perform_ecdh(self.app.root, purpose=f"friend: {friend_name}")
+        parent = self.frame.winfo_toplevel()
+        result = perform_ecdh(parent, purpose=f"friend: {friend_name}")
         if result is None:
             return
+            
         new_secret, friend_x25519_b64 = result
         if new_secret:
-            pw = password_dialog(self.app.root,
+            pw = password_dialog(parent,
                                  "Enter master password to encrypt new shared secret",
                                  confirm=False)
             if pw:
-                if not self.app.ks.verify_password(pw):
+                # Use service for verification
+                if not self.service.verify_password(pw):
                     messagebox.showerror("Wrong Password", "Master password incorrect.")
                     return
                 try:
-                    # Use update_shared_secret (friend already exists)
-                    self.app.friends_service.update_shared_secret(
+                    self.service.update_shared_secret(
                         name=friend_name,
                         new_secret=new_secret,
                         master_password=pw,
                         x25519_pub_b64=friend_x25519_b64,
                     )
                     self.refresh_list()
-                    self.app.encrypt_tab._update_friend_list()
                     messagebox.showinfo(
                         "Success",
                         f"Shared secret for {friend_name} updated via ECDH.\n"
@@ -324,9 +322,8 @@ class FriendsTab:
                     messagebox.showerror("Error", str(e))
 
     def show_my_pubkey(self):
-        # Use service – it will raise an error if no key loaded
         try:
-            info = self.app.friends_service.get_my_public_info()
+            info = self.service.get_my_public_info()
         except FriendsServiceError as e:
             messagebox.showerror("Error", str(e))
             return
@@ -334,26 +331,25 @@ class FriendsTab:
         pem = info["public_key_pem"]
         fp = info["fingerprint"]
 
-        top = tk.Toplevel(self.app.root)
+        parent = self.frame.winfo_toplevel()
+        top = tk.Toplevel(parent)
         top.title("My Public Key")
         top.geometry("700x600")
         top.resizable(True, True)
         top.minsize(500, 400)
-        top.configure(bg=self.app.style.colors.bg)
+        top.configure(bg=self._bg)
 
-        # --- Bottom button bar (packed FIRST so it's always visible) ---
         btn_bar = ttk.Frame(top)
         btn_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
 
         def copy_pubkey():
-            self.app.root.clipboard_clear()
-            self.app.root.clipboard_append(pem)
+            parent.clipboard_clear()
+            parent.clipboard_append(pem)
             messagebox.showinfo("Copied", "Public key copied to clipboard.", parent=top)
 
         ttk.Button(btn_bar, text="📋 Copy Public Key", command=copy_pubkey,
                    bootstyle="info").pack()
 
-        # --- Top content area (fills remaining space) ---
         content = ttk.Frame(top)
         content.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 0))
 
@@ -367,3 +363,8 @@ class FriendsTab:
         txt.insert("1.0", pem)
         txt.config(state='disabled')
         txt.pack(fill=tk.BOTH, expand=True)
+
+    # ---- External notification hook ----
+    def notify_friend_list_changed(self):
+        """Called by app when external changes affect friend list."""
+        self.refresh_list()

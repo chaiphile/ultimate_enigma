@@ -1,16 +1,26 @@
-"""Shared Secret & ECDH tab."""
+"""Shared Secret & ECDH tab – decoupled via dependency injection."""
 
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-import base64
-from crypto import sha256_fingerprint
+
+from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
+from services.clipboard_service import ClipboardService
 from utils import password_dialog
 
+
 class SecretTab:
-    def __init__(self, parent, app):
-        self.app = app
+    def __init__(self, parent, global_secret_service: GlobalSecretService,
+                 clipboard_service: ClipboardService):
+        """
+        Args:
+            parent: Notebook widget
+            global_secret_service: Handles global secret operations
+            clipboard_service: Handles clipboard operations
+        """
+        self.service = global_secret_service
+        self.clipboard_service = clipboard_service
         self.frame = ttk.Frame(parent)
         self._build_ui()
 
@@ -45,50 +55,57 @@ class SecretTab:
         self._update_display()
 
     def _update_display(self):
-        if self.app.ks.global_secret:
-            fp = sha256_fingerprint(self.app.ks.global_secret)
+        fp = self.service.get_fingerprint()
+        if fp:
             self.secret_fp_var.set(fp)
         else:
             self.secret_fp_var.set("No global secret loaded")
 
     def _verify_master_password(self):
-        pw = password_dialog(self.app.root, "Enter master password", confirm=False)
+        """Prompt for password and verify via service."""
+        parent = self.frame.winfo_toplevel()
+        pw = password_dialog(parent, "Enter master password", confirm=False)
         if not pw:
             return None
-        if not self.app.ks.verify_password(pw):
+        if not self.service.verify_password(pw):
             messagebox.showerror("Wrong Password", "Master password incorrect.")
             return None
         return pw
 
     def export_global(self):
-        if not self.app.ks.global_secret:
+        if not self.service.has_secret():
             messagebox.showwarning("No Secret", "No global secret available.")
             return
         if not messagebox.askyesno("Warning", "This will expose your raw global shared secret. Continue?"):
             return
-        b64 = base64.b64encode(self.app.ks.global_secret).decode('ascii')
-        ok = self.app.clipboard_service.copy(b64)
-        if ok:
-            messagebox.showinfo(
-                "Exported",
-                "Global shared secret copied to clipboard.\n"
-                "Clipboard will be cleared automatically in 30 seconds."
-            )
-        else:
-            messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+        try:
+            b64 = self.service.export_secret_b64()
+            ok = self.clipboard_service.copy(b64)
+            if ok:
+                messagebox.showinfo(
+                    "Exported",
+                    "Global shared secret copied to clipboard.\n"
+                    "Clipboard will be cleared automatically in 30 seconds."
+                )
+            else:
+                messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+        except GlobalSecretServiceError as e:
+            messagebox.showerror("Error", str(e))
 
     def import_global(self):
         b64 = simpledialog.askstring("Import Global Secret", "Paste Base64 shared secret:")
         if not b64:
             return
+        
         try:
-            new_key = base64.b64decode(b64)
-            if len(new_key) != 32:
-                raise ValueError("Key must be 32 bytes")
-        except Exception as e:
-            messagebox.showerror("Invalid", f"Invalid secret: {e}")
+            new_key = self.service.validate_secret_b64(b64)
+        except ValueError as e:
+            messagebox.showerror("Invalid", str(e))
             return
+            
+        from crypto import sha256_fingerprint
         fp = sha256_fingerprint(new_key)
+        
         ok = messagebox.askyesno(
             "⚠️ Replace Global Secret",
             f"New secret fingerprint:\n{fp}\n\n"
@@ -99,23 +116,29 @@ class SecretTab:
         )
         if not ok:
             return
+            
         pw = self._verify_master_password()
         if not pw:
             return
+            
         try:
-            self.app.ks.update_global_secret(new_key, pw)
+            self.service.update_secret(new_key, pw)
             self._update_display()
             messagebox.showinfo("Success", "Global shared secret updated.")
-        except Exception as e:
-            messagebox.showerror("Error", f"Failed: {e}")
+        except GlobalSecretServiceError as e:
+            messagebox.showerror("Error", str(e))
 
     def start_ecdh(self):
         from ecdh import perform_ecdh
-        result = perform_ecdh(self.app.root, purpose="global")
+        parent = self.frame.winfo_toplevel()
+        result = perform_ecdh(parent, purpose="global")
         if result:
             new_key = result[0]
             pw = self._verify_master_password()
             if pw:
-                self.app.ks.update_global_secret(new_key, pw)
-                self._update_display()
-                messagebox.showinfo("Success", "Global secret updated via ECDH.")
+                try:
+                    self.service.update_secret(new_key, pw)
+                    self._update_display()
+                    messagebox.showinfo("Success", "Global secret updated via ECDH.")
+                except GlobalSecretServiceError as e:
+                    messagebox.showerror("Error", str(e))

@@ -1,4 +1,4 @@
-"""Encrypt & Send tab."""
+"""Encrypt & Send tab – decoupled via dependency injection."""
 
 import tkinter as tk
 from tkinter import messagebox
@@ -8,13 +8,29 @@ import threading
 import datetime
 import logging
 from services.encryption_service import EncryptionService, EncryptionError
+from services.friends_service import FriendsService
+from services.clipboard_service import ClipboardService
 
 logger = logging.getLogger(__name__)
 
+
 class EncryptTab:
-    def __init__(self, parent, app, encryption_service: EncryptionService):
-        self.app = app
-        self.service = encryption_service   # clean separation
+    def __init__(self, parent, encryption_service: EncryptionService,
+                 friends_service: FriendsService, clipboard_service: ClipboardService):
+        """
+        Args:
+            parent: Notebook widget
+            encryption_service: Handles crypto operations
+            friends_service: Provides friend data (no direct KeyStore access)
+            clipboard_service: Handles clipboard operations
+        """
+        self.service = encryption_service
+        self.friends_service = friends_service
+        self.clipboard_service = clipboard_service
+        
+        # Store last sent message locally instead of on app instance
+        self.last_sent_b64 = ""
+        
         self.frame = ttk.Frame(parent)
         self._build_ui()
 
@@ -92,7 +108,8 @@ class EncryptTab:
                    bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
 
     def _update_friend_list(self):
-        names = ["(none)"] + [name for name, _, _ in self.app.ks.friends]
+        """Fetch friend names from service instead of direct model access."""
+        names = ["(none)"] + self.friends_service.get_friend_names()
         self.friend_combo['values'] = names
         self.friend_combo.current(0)
 
@@ -103,15 +120,14 @@ class EncryptTab:
             self.mode_combo.set("Shared Secret (time‑based)")
             return
 
-        for name, pub, sec in self.app.ks.friends:
-            if name == choice:
-                if sec:   # friend has a shared secret
-                    self.mode_combo.config(state="readonly")
-                    self.mode_combo.set("Shared Secret (time‑based)")
-                else:     # friend without shared secret → only RSA allowed
-                    self.mode_combo.config(state="disabled")
-                    self.mode_combo.set("Public Key (RSA)")
-                return
+        # Use service to check secret existence
+        has_secret = self.friends_service.friend_has_secret(choice)
+        if has_secret:
+            self.mode_combo.config(state="readonly")
+            self.mode_combo.set("Shared Secret (time‑based)")
+        else:
+            self.mode_combo.config(state="disabled")
+            self.mode_combo.set("Public Key (RSA)")
 
     def clear_input(self):
         self.msg_input.delete("1.0", tk.END)
@@ -157,11 +173,12 @@ class EncryptTab:
                     sign=sign,
                     self_destruct_seconds=self_destruct_seconds,
                 )
-                self.app.last_sent_b64 = b64
-                self.app.task_queue.put(lambda: self._log_sent(b64))
+                self.last_sent_b64 = b64
+                # Schedule UI update on main thread
+                self.frame.after(0, lambda: self._log_sent(b64))
             except EncryptionError as exc:
                 logger.exception("Encryption failed")
-                self.app.task_queue.put(lambda: messagebox.showerror(
+                self.frame.after(0, lambda: messagebox.showerror(
                     "Encryption Error", str(exc)))
 
         threading.Thread(target=task, daemon=True).start()
@@ -173,8 +190,8 @@ class EncryptTab:
         self.msg_input.delete("1.0", tk.END)
 
     def copy_last_sent(self):
-        if self.app.last_sent_b64:
-            ok = self.app.clipboard_service.copy(self.app.last_sent_b64)
+        if self.last_sent_b64:
+            ok = self.clipboard_service.copy(self.last_sent_b64)
             if ok:
                 messagebox.showinfo(
                     "Copied",
@@ -185,3 +202,8 @@ class EncryptTab:
                 messagebox.showerror("Clipboard Error", "Could not access clipboard.")
         else:
             messagebox.showwarning("Nothing", "No message sent yet.")
+
+    # ---- External notification hook ----
+    def notify_friend_list_changed(self):
+        """Called by app when friend list changes externally."""
+        self._update_friend_list()

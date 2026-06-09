@@ -20,6 +20,7 @@ from services.encryption_service import EncryptionService
 from services.file_service import FileService  # new service
 from services.friends_service import FriendsService
 from services.clipboard_service import ClipboardService
+from services.global_secret_service import GlobalSecretService
 from services.totp_service import TOTPService
 from services.hotkey_service import HotkeyService, MOD_CTRL, MOD_SHIFT, VK_L, VK_U
 from encrypt_tab import EncryptTab
@@ -75,6 +76,7 @@ class EnigmaApp:
         self.file_service = FileService(self.ks)
         self.friends_service = FriendsService(self.ks)
         self.clipboard_service = ClipboardService(root)
+        self.global_secret_service = GlobalSecretService(self.ks)
 
         # TOTP service
         self.totp_service = TOTPService()
@@ -273,20 +275,35 @@ class EnigmaApp:
         notebook = ttk.Notebook(self.root, bootstyle="dark")
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
 
-        self.encrypt_tab = EncryptTab(notebook, self, self.encryption_service)
+        # Inject services into tabs instead of passing entire app instance
+        style_config = {'bg': self.bg, 'fg': self.fg}
+        
+        self.encrypt_tab = EncryptTab(
+            notebook, 
+            self.encryption_service, 
+            self.friends_service,
+            self.clipboard_service
+        )
         notebook.add(self.encrypt_tab.frame, text="✉️ Encrypt & Send")
 
         self.decrypt_tab = DecryptTab(notebook, self)
         notebook.add(self.decrypt_tab.frame, text="📥 Decrypt & Receive")
 
-        self.secret_tab = SecretTab(notebook, self)
+        self.secret_tab = SecretTab(
+            notebook, 
+            self.global_secret_service,
+            self.clipboard_service
+        )
         notebook.add(self.secret_tab.frame, text="🔗 Shared Secret")
 
-        # Pass the file service to FileTab
         self.file_tab = FileTab(notebook, self, self.file_service)
         notebook.add(self.file_tab.frame, text="🔐 File Encryption")
 
-        self.friends_tab = FriendsTab(notebook, self)
+        self.friends_tab = FriendsTab(
+            notebook, 
+            self.friends_service,
+            style_config
+        )
         notebook.add(self.friends_tab.frame, text="👥 Friends")
 
         self.ntp_tab = NtpTab(notebook, self)
@@ -403,9 +420,17 @@ class EnigmaApp:
         self.friends_service = FriendsService(self.ks)
         self.clipboard_service = ClipboardService(self.root)
 
+        # Rebuild secret service with restored keys
+        self.global_secret_service = GlobalSecretService(self.ks)
+        
         # Update tab service references
         self.encrypt_tab.service = self.encryption_service
+        self.encrypt_tab.friends_service = self.friends_service
+        self.encrypt_tab.clipboard_service = self.clipboard_service
         self.file_tab.file_service = self.file_service
+        self.secret_tab.service = self.global_secret_service
+        self.secret_tab.clipboard_service = self.clipboard_service
+        self.friends_tab.service = self.friends_service
 
         self._is_locked = False
         self.lock_screen.unlock()
@@ -416,51 +441,15 @@ class EnigmaApp:
 
     def _unlock_password_dialog(self) -> str | None:
         """Show a password dialog specifically for unlocking.
-        Ensures the dialog is above the lock screen overlay."""
-        dlg = tk.Toplevel(self.root, bg="#1a1a1a")
-        dlg.title("Unlock – Master Password")
-        dlg.geometry("380x180")
-        dlg.resizable(False, False)
-        dlg.transient(self.root)
-        dlg.attributes("-topmost", True)  # Ensure above lock screen
-        dlg.grab_set()
-
-        tk.Label(
-            dlg, text="🔓 Enter Master Password", font=("Segoe UI", 14, "bold"),
-            bg="#1a1a1a", fg="#ffffff"
-        ).pack(pady=(15, 10))
-
-        pwd_var = tk.StringVar()
-        pwd_entry = ttk.Entry(dlg, textvariable=pwd_var, show="•", width=35,
-                              bootstyle="primary", font=("Segoe UI", 12))
-        pwd_entry.pack(pady=5)
-        pwd_entry.focus_set()
-
-        result = []
-
-        def ok():
-            pw = pwd_var.get()
-            if not pw:
-                messagebox.showerror("Error", "Password is required.", parent=dlg)
-                return
-            result.append(pw)
-            dlg.destroy()
-
-        def cancel():
-            dlg.destroy()
-
-        btn_frame = tk.Frame(dlg, bg="#1a1a1a")
-        btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="OK", command=ok,
-                   bootstyle="success").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=cancel,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
-
-        dlg.bind("<Return>", lambda e: ok())
-        dlg.bind("<Escape>", lambda e: cancel())
-
-        self.root.wait_window(dlg)
-        return result[0] if result else None
+        Uses consolidated password_dialog with topmost flag for lock screen."""
+        return password_dialog(
+            self.root,
+            "Unlock – Master Password",
+            confirm=False,
+            topmost=True,
+            bg="#1a1a1a",
+            fg="#ffffff"
+        )
 
     def _totp_verify_dialog(self, totp_service: TOTPService) -> bool:
         """Show a TOTP verification dialog using the centralized component."""
