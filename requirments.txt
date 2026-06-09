@@ -1,0 +1,5 @@
+# Required Python packages for Ultimate Enigma Messenger
+
+ttkbootstrap>=1.10.0
+cryptography>=41.0.0
+pytest>=7.0.0      # optional, only needed for running tests
