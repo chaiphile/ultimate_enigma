@@ -84,9 +84,15 @@ class LockScreen:
         )
         unlock_btn.pack()
 
-        # Also bind Enter and the hotkey
+        # Give focus to the unlock button so Enter works immediately
+        unlock_btn.focus_set()
+
+        # Also bind Enter on both the overlay and the button for redundancy
         self._overlay.bind("<Return>", lambda e: self._on_unlock_request())
         self._overlay.bind("<KP_Enter>", lambda e: self._on_unlock_request())
+        unlock_btn.bind("<Return>", lambda e: self._on_unlock_request())
+        unlock_btn.bind("<KP_Enter>", lambda e: self._on_unlock_request())
+        unlock_btn.bind("<space>", lambda e: self._on_unlock_request())
 
         # Prevent tab focus escape
         self._overlay.bind("<Tab>", lambda e: "break")

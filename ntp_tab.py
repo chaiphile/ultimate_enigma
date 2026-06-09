@@ -28,17 +28,33 @@ class NtpTab:
         self._start_auto_refresh()
 
     def _build_ui(self):
-        f = ttkb.Frame(self.frame, padding=30)
-        f.pack(expand=True)
+        # --- Bottom action bar (packed FIRST so it's always visible) ---
+        bottom_bar = ttkb.Frame(self.frame, padding=(15, 10))
+        bottom_bar.pack(side=tk.BOTTOM, fill=tk.X)
+
+        self.sync_btn = ttkb.Button(bottom_bar, text="🔄 Sync Now",
+                                    command=self._manual_sync,
+                                    bootstyle="success",
+                                    width=18)
+        self.sync_btn.pack(side=tk.LEFT, padx=8)
+
+        self.status_indicator = ttkb.Label(bottom_bar, text="",
+                                           font=("Segoe UI", 10),
+                                           bootstyle="inverse-secondary")
+        self.status_indicator.pack(side=tk.LEFT, padx=10)
+
+        # --- Main scrollable content area ---
+        f = ttkb.Frame(self.frame, padding=(15, 15, 15, 5))
+        f.pack(fill=tk.BOTH, expand=True)
 
         # Title
         ttkb.Label(f, text="🕐 NTP Synchronization",
                    font=("Segoe UI", 18, "bold"),
-                   bootstyle="inverse-primary").pack(pady=(0, 10))
+                   bootstyle="inverse-primary").pack(pady=(0, 5))
 
         ttkb.Label(f, text="Network Time Protocol Status & Manual Sync",
                    font=("Segoe UI", 10),
-                   bootstyle="inverse-secondary").pack(pady=(0, 25))
+                   bootstyle="inverse-secondary").pack(pady=(0, 15))
 
         # Status frame
         status_frame = ttkb.Labelframe(f, text="Current Status", padding=20, bootstyle="dark")
@@ -136,20 +152,7 @@ class NtpTab:
                                        bootstyle="inverse-info")
         self.server_label.pack(side=tk.LEFT, padx=5)
 
-        # Action buttons
-        btn_frame = ttkb.Frame(f)
-        btn_frame.pack(pady=10)
 
-        self.sync_btn = ttkb.Button(btn_frame, text="🔄 Sync Now",
-                                    command=self._manual_sync,
-                                    bootstyle="success",
-                                    width=18)
-        self.sync_btn.pack(side=tk.LEFT, padx=8)
-
-        self.status_indicator = ttkb.Label(f, text="",
-                                           font=("Segoe UI", 10),
-                                           bootstyle="inverse-secondary")
-        self.status_indicator.pack(pady=(10, 0))
 
     def _start_auto_refresh(self):
         """Refresh local time display every second."""

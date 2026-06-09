@@ -336,24 +336,34 @@ class FriendsTab:
 
         top = tk.Toplevel(self.app.root)
         top.title("My Public Key")
-        top.geometry("500x380")
+        top.geometry("700x600")
+        top.resizable(True, True)
+        top.minsize(500, 400)
         top.configure(bg=self.app.style.colors.bg)
 
-        ttk.Label(top, text="My Public Key Fingerprint:",
-                  font=("Segoe UI", 10, "bold"),
-                  bootstyle="inverse-primary").pack(pady=(10, 0))
-        ttk.Label(top, text=fp, font=("Consolas", 11),
-                  bootstyle="inverse-secondary").pack(pady=(0, 10))
-
-        txt = ttk.ScrolledText(top, wrap=tk.WORD)
-        txt.insert("1.0", pem)
-        txt.config(state='disabled')
-        txt.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # --- Bottom button bar (packed FIRST so it's always visible) ---
+        btn_bar = ttk.Frame(top)
+        btn_bar.pack(side=tk.BOTTOM, fill=tk.X, padx=10, pady=10)
 
         def copy_pubkey():
             self.app.root.clipboard_clear()
             self.app.root.clipboard_append(pem)
             messagebox.showinfo("Copied", "Public key copied to clipboard.", parent=top)
 
-        ttk.Button(top, text="Copy Public Key", command=copy_pubkey,
-                   bootstyle="info").pack(pady=10)
+        ttk.Button(btn_bar, text="📋 Copy Public Key", command=copy_pubkey,
+                   bootstyle="info").pack()
+
+        # --- Top content area (fills remaining space) ---
+        content = ttk.Frame(top)
+        content.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 0))
+
+        ttk.Label(content, text="My Public Key Fingerprint:",
+                  font=("Segoe UI", 10, "bold"),
+                  bootstyle="inverse-primary").pack(pady=(0, 0))
+        ttk.Label(content, text=fp, font=("Consolas", 11),
+                  bootstyle="inverse-secondary").pack(pady=(0, 10))
+
+        txt = ttk.ScrolledText(content, wrap=tk.WORD)
+        txt.insert("1.0", pem)
+        txt.config(state='disabled')
+        txt.pack(fill=tk.BOTH, expand=True)
