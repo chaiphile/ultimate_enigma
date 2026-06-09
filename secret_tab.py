@@ -67,9 +67,15 @@ class SecretTab:
         if not messagebox.askyesno("Warning", "This will expose your raw global shared secret. Continue?"):
             return
         b64 = base64.b64encode(self.app.ks.global_secret).decode('ascii')
-        self.app.root.clipboard_clear()
-        self.app.root.clipboard_append(b64)
-        messagebox.showinfo("Exported", "Global shared secret copied to clipboard.")
+        ok = self.app.clipboard_service.copy(b64)
+        if ok:
+            messagebox.showinfo(
+                "Exported",
+                "Global shared secret copied to clipboard.\n"
+                "Clipboard will be cleared automatically in 30 seconds."
+            )
+        else:
+            messagebox.showerror("Clipboard Error", "Could not access clipboard.")
 
     def import_global(self):
         b64 = simpledialog.askstring("Import Global Secret", "Paste Base64 shared secret:")

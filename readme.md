@@ -34,6 +34,7 @@ The app provides an intuitive dark-themed GUI for encryption, decryption, contac
 - **File Encryption** – Encrypt/decrypt any file with a password using AES‑GCM + PBKDF2.
 - **Global Shared Secret** – A fallback symmetric key usable with all users who know it.
 - **Secure Memory Wipe** – Keys are zeroed from memory on app close.
+- **Clipboard Auto-Clear** – Sensitive data copied to clipboard is automatically cleared after 30 seconds and on app exit.
 - **Master Password Protection** – All long‑term secrets are encrypted at rest (PBKDF2‑HMAC‑SHA256 + AES‑GCM).
 
 ---
@@ -124,6 +125,13 @@ The application is organized into tabs:
 - Perform **ECDH key exchange** with a selected friend to derive a shared secret directly inside the app.
 - Remove friends, view public key details, and fingerprints.
 
+#### 🕐 NTP
+- View real-time local system time and NTP server time.
+- Manually synchronize with an NTP server to check clock offset.
+- Choose from six pre-listed public NTP servers or enter a custom server hostname.
+- Displays time offset in milliseconds and last successful sync timestamp.
+- Successful syncs automatically update the encryption service’s time-based key derivation.
+
 #### ℹ️ About
 - Displays app version, author, and a brief privacy statement.
 
@@ -146,6 +154,8 @@ The tests cover:
 - KeyStore operations (load, save, wipe)
 - File encryption/decryption
 - Packet format and flag parsing
+- NTP client (query, timeout, error handling, fractional seconds, custom server/port)
+- Clipboard service (copy, get, clear, auto-clear timer, shutdown, timer cancellation)
 - Edge cases (corrupt data, wrong passwords, non‑UTF‑8 plaintext)
 
 ---
@@ -166,6 +176,9 @@ The project is structured as follows:
 | `friends_tab.py`   | Friend list management and ECDH              |
 | `secret_tab.py`    | Global secret management and ECDH            |
 | `file_tab.py`      | File encryption/decryption UI                |
+| `ntp_tab.py`       | NTP synchronization UI with preset/custom servers |
+| `ntp_client.py`    | Low-level NTP query over UDP                 |
+| `clipboard_service.py` | Clipboard operations with auto-clear scheduling |
 | `about_tab.py`     | About window                                 |
 | `ecdh.py`          | X25519 key exchange dialog                   |
 | `visual_enigma.py` | Rotor animation in the header                |

@@ -17,12 +17,14 @@ from utils import password_dialog
 from services.encryption_service import EncryptionService
 from services.file_service import FileService  # new service
 from services.friends_service import FriendsService
+from services.clipboard_service import ClipboardService
 from encrypt_tab import EncryptTab
 from decrypt_tab import DecryptTab
 from friends_tab import FriendsTab
 from secret_tab import SecretTab
 from file_tab import FileTab
 from about_tab import AboutTab
+from ntp_tab import NtpTab
 from ntp_client import get_ntp_time
 
 logger = logging.getLogger(__name__)
@@ -57,6 +59,7 @@ class EnigmaApp:
         self.encryption_service = EncryptionService(self.ks)
         self.file_service = FileService(self.ks)
         self.friends_service = FriendsService(self.ks)
+        self.clipboard_service = ClipboardService(root)
 
     # 3. حالا نخ NTP را راه‌اندازی کنید (encryption_service وجود دارد)
         self._ntp_thread = threading.Thread(target=self._ntp_sync_loop, daemon=True)
@@ -76,6 +79,7 @@ class EnigmaApp:
     # Window close & queue processing
     # ------------------------------------------------------------------
     def on_close(self):
+        self.clipboard_service.shutdown()
         self.ks.wipe()
         self.root.destroy()
 
@@ -174,6 +178,9 @@ class EnigmaApp:
 
         self.friends_tab = FriendsTab(notebook, self)
         notebook.add(self.friends_tab.frame, text="👥 Friends")
+
+        self.ntp_tab = NtpTab(notebook, self)
+        notebook.add(self.ntp_tab.frame, text="🕐 NTP")
 
         self.about_tab = AboutTab(notebook, self)
         notebook.add(self.about_tab.frame, text="ℹ️ About")

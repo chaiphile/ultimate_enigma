@@ -62,9 +62,8 @@ class DecryptTab:
         self.warning_label.pack(pady=(0, 5))
 
     def paste_from_clipboard(self):
-        try:
-            text = self.app.root.clipboard_get()
-        except Exception:
+        text = self.app.clipboard_service.get()
+        if text is None:
             messagebox.showwarning("Clipboard",
                                    "Clipboard is empty or not accessible.")
             return

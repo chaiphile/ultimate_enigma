@@ -174,11 +174,14 @@ class EncryptTab:
 
     def copy_last_sent(self):
         if self.app.last_sent_b64:
-            try:
-                self.app.root.clipboard_clear()
-                self.app.root.clipboard_append(self.app.last_sent_b64)
-                messagebox.showinfo("Copied", "Last sent message copied to clipboard")
-            except Exception as e:
-                messagebox.showerror("Clipboard Error", f"Could not access clipboard: {e}")
+            ok = self.app.clipboard_service.copy(self.app.last_sent_b64)
+            if ok:
+                messagebox.showinfo(
+                    "Copied",
+                    "Last sent message copied to clipboard.\n"
+                    "Clipboard will be cleared automatically in 30 seconds."
+                )
+            else:
+                messagebox.showerror("Clipboard Error", "Could not access clipboard.")
         else:
             messagebox.showwarning("Nothing", "No message sent yet.")
