@@ -31,7 +31,7 @@ from about_tab import AboutTab
 from ntp_tab import NtpTab
 from ntp_client import get_ntp_time
 from lock_screen import LockScreen
-from unlock_dialog import unlock_dialog, totp_setup_dialog
+from components.totp_dialogs import TOTPVerifyDialog, TOTPSetupDialog
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,8 @@ class EnigmaApp:
 
         # 2b. TOTP verification on startup (only if user completed TOTP setup)
         if self._is_totp_setup_complete():
-            if not self._totp_verify_dialog(self.totp_service):
+            verify_dlg = TOTPVerifyDialog(root, self.totp_service)
+            if not verify_dlg.show():
                 messagebox.showerror("Access Denied", "TOTP verification failed.\nApplication will now exit.")
                 self.totp_service.clear_secret()
                 self.ks.wipe()
@@ -462,85 +463,9 @@ class EnigmaApp:
         return result[0] if result else None
 
     def _totp_verify_dialog(self, totp_service: TOTPService) -> bool:
-        """Show a TOTP verification dialog."""
-        dlg = tk.Toplevel(self.root, bg="#1a1a1a")
-        dlg.title("TOTP Verification")
-        dlg.geometry("380x260")
-        dlg.resizable(False, False)
-        dlg.transient(self.root)
-        dlg.attributes("-topmost", True)  # Ensure above lock screen
-        dlg.grab_set()
-
-        tk.Label(
-            dlg, text="🔐 TOTP Verification", font=("Segoe UI", 16, "bold"),
-            bg="#1a1a1a", fg="#ffffff"
-        ).pack(pady=(20, 10))
-
-        tk.Label(
-            dlg, text="Enter the 6-digit code from your authenticator app:",
-            font=("Segoe UI", 10), bg="#1a1a1a", fg="#cccccc"
-        ).pack()
-
-        totp_var = tk.StringVar()
-        totp_entry = ttk.Entry(dlg, textvariable=totp_var, width=20,
-                               bootstyle="warning", font=("Consolas", 18),
-                               justify="center")
-        totp_entry.pack(pady=10)
-        totp_entry.focus_set()
-
-        # Timer
-        timer_var = tk.StringVar()
-        timer_label = tk.Label(
-            dlg, textvariable=timer_var, font=("Segoe UI", 9),
-            bg="#1a1a1a", fg="#ffaa00"
-        )
-        timer_label.pack()
-
-        def update_timer():
-            if not dlg.winfo_exists():
-                return
-            try:
-                remaining = totp_service.time_remaining()
-                timer_var.set(f"⏱ Expires in: {remaining}s")
-                if remaining <= 5:
-                    timer_label.config(fg="#ff4444")
-                else:
-                    timer_label.config(fg="#ffaa00")
-                dlg.after(500, update_timer)
-            except Exception:
-                pass
-
-        update_timer()
-
-        result = {"ok": False}
-
-        def verify():
-            code = totp_var.get().strip()
-            if len(code) != 6 or not code.isdigit():
-                messagebox.showerror("Invalid", "Enter a 6-digit code.", parent=dlg)
-                return
-            if totp_service.verify(code):
-                result["ok"] = True
-                dlg.destroy()
-            else:
-                messagebox.showerror("Failed", "Invalid TOTP code.", parent=dlg)
-                totp_var.set("")
-
-        def cancel():
-            dlg.destroy()
-
-        btn_frame = tk.Frame(dlg, bg="#1a1a1a")
-        btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="✅ Verify", command=verify,
-                   bootstyle="success").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=cancel,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
-
-        dlg.bind("<Return>", lambda e: verify())
-        dlg.bind("<Escape>", lambda e: cancel())
-
-        self.root.wait_window(dlg)
-        return result["ok"]
+        """Show a TOTP verification dialog using the centralized component."""
+        verify_dlg = TOTPVerifyDialog(self.root, totp_service)
+        return verify_dlg.show()
 
     # ------------------------------------------------------------------
     # TOTP Setup Dialog
@@ -583,9 +508,9 @@ class EnigmaApp:
             messagebox.showerror("Error", "TOTP not initialised.")
             return
         uri = self.totp_service.provisioning_uri()
-        ok = totp_setup_dialog(self.root, self.totp_service, uri,
-                               on_regenerate=self._regenerate_totp)
-        if ok:
+        setup_dlg = TOTPSetupDialog(self.root, self.totp_service, uri,
+                                    on_regenerate=self._regenerate_totp)
+        if setup_dlg.show():
             self._set_totp_setup_complete(True)
 
     def _regenerate_totp(self) -> None:
