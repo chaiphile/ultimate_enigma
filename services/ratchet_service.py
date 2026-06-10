@@ -1,0 +1,332 @@
+"""
+Ratchet Service - Wrapper for Double Ratchet state management.
+
+Provides persistence and lifecycle management for Double Ratchet sessions,
+storing serialized ratchet states in the friends table of the database.
+Supports initialization as Alice (initiator) or Bob (responder) using
+shared secrets derived from Hybrid KEM or other key agreement protocols.
+"""
+
+import json
+import logging
+from typing import Optional, Tuple
+
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+
+from services.double_ratchet import RatchetState
+from database import get_connection, safe_execute, DatabaseError
+from contextlib import closing
+
+logger = logging.getLogger(__name__)
+
+
+class RatchetServiceError(Exception):
+    """Base exception for ratchet service errors."""
+
+
+class RatchetNotFoundError(RatchetServiceError):
+    """Raised when no active ratchet session exists for a friend."""
+
+
+class RatchetInitError(RatchetServiceError):
+    """Raised when ratchet initialization fails."""
+
+
+class RatchetService:
+    """Manages Double Ratchet session state persistence and lifecycle.
+
+    This service wraps the low-level RatchetState class and handles:
+    - Loading/saving serialized ratchet states from/to the database
+    - Initializing new ratchet sessions (Alice/Bob roles)
+    - Querying ratchet session existence
+    - Cleaning up expired or deleted sessions
+    """
+
+    @staticmethod
+    def has_active_ratchet(friend_name: str) -> bool:
+        """Check if a friend has an active Double Ratchet session.
+
+        Args:
+            friend_name: The name of the friend to check.
+
+        Returns:
+            True if a ratchet state exists for this friend, False otherwise.
+        """
+        try:
+            with closing(get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT ratchet_state_json FROM friends WHERE name=?",
+                    (friend_name,)
+                ).fetchone()
+                return row is not None and row[0] is not None
+        except DatabaseError as e:
+            logger.error("Failed to check ratchet state for '%s': %s", friend_name, e)
+            return False
+
+    @staticmethod
+    def get_ratchet_state(friend_name: str) -> RatchetState:
+        """Load and deserialize a ratchet state from the database.
+
+        Args:
+            friend_name: The name of the friend whose ratchet state to load.
+
+        Returns:
+            A deserialized RatchetState instance.
+
+        Raises:
+            RatchetNotFoundError: If no ratchet state exists for this friend.
+            RatchetServiceError: If deserialization or DB access fails.
+        """
+        try:
+            with closing(get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT ratchet_state_json FROM friends WHERE name=?",
+                    (friend_name,)
+                ).fetchone()
+
+                if row is None:
+                    raise RatchetNotFoundError(
+                        f"Friend '{friend_name}' not found in database"
+                    )
+                if row[0] is None:
+                    raise RatchetNotFoundError(
+                        f"No active ratchet session for '{friend_name}'"
+                    )
+
+                state_dict = json.loads(row[0])
+                return RatchetState.deserialize(state_dict)
+
+        except RatchetNotFoundError:
+            raise
+        except json.JSONDecodeError as e:
+            raise RatchetServiceError(
+                f"Corrupted ratchet state JSON for '{friend_name}': {e}"
+            ) from e
+        except DatabaseError as e:
+            raise RatchetServiceError(
+                f"Database error loading ratchet for '{friend_name}': {e}"
+            ) from e
+        except Exception as e:
+            raise RatchetServiceError(
+                f"Failed to deserialize ratchet state for '{friend_name}': {e}"
+            ) from e
+
+    @staticmethod
+    def save_ratchet_state(friend_name: str, state: RatchetState) -> None:
+        """Serialize and persist a ratchet state to the database.
+
+        Args:
+            friend_name: The name of the friend to associate the state with.
+            state: The RatchetState instance to serialize and save.
+
+        Raises:
+            RatchetServiceError: If serialization or DB write fails.
+        """
+        try:
+            state_json = json.dumps(state.serialize())
+            with closing(get_connection()) as conn:
+                safe_execute(
+                    conn,
+                    "UPDATE friends SET ratchet_state_json=? WHERE name=?",
+                    (state_json, friend_name)
+                )
+                conn.commit()
+            logger.debug("Saved ratchet state for '%s'", friend_name)
+        except DatabaseError as e:
+            raise RatchetServiceError(
+                f"Database error saving ratchet for '{friend_name}': {e}"
+            ) from e
+        except Exception as e:
+            raise RatchetServiceError(
+                f"Failed to serialize/save ratchet state for '{friend_name}': {e}"
+            ) from e
+
+    @staticmethod
+    def init_ratchet_alice(
+        friend_name: str,
+        bob_dh_pub_bytes: bytes,
+        shared_secret: bytes
+    ) -> RatchetState:
+        """Initialize a new Double Ratchet session as Alice (initiator).
+
+        Creates a new RatchetState, initializes it as Alice using Bob's
+        DH public key and the shared secret, persists it to the database,
+        and returns the initialized state.
+
+        Args:
+            friend_name: The name of the friend (Bob) to initialize with.
+            bob_dh_pub_bytes: Bob's X25519 DH public key as raw 32 bytes.
+            shared_secret: The initial shared secret from key agreement
+                          (e.g., derived from Hybrid KEM encapsulation).
+
+        Returns:
+            The initialized RatchetState instance.
+
+        Raises:
+            RatchetInitError: If initialization or persistence fails.
+        """
+        try:
+            bob_dh_pub = X25519PublicKey.from_public_bytes(bob_dh_pub_bytes)
+            state = RatchetState()
+            state.initialize_as_alice(bob_dh_pub, shared_secret)
+            RatchetService.save_ratchet_state(friend_name, state)
+            logger.info("Initialized ratchet as Alice for '%s'", friend_name)
+            return state
+        except ValueError as e:
+            raise RatchetInitError(
+                f"Invalid DH public key or shared secret for '{friend_name}': {e}"
+            ) from e
+        except RatchetServiceError:
+            raise
+        except Exception as e:
+            raise RatchetInitError(
+                f"Failed to initialize ratchet as Alice for '{friend_name}': {e}"
+            ) from e
+
+    @staticmethod
+    def init_ratchet_bob(
+        friend_name: str,
+        alice_dh_pub_bytes: bytes,
+        shared_secret: bytes
+    ) -> RatchetState:
+        """Initialize a new Double Ratchet session as Bob (responder).
+
+        Creates a new RatchetState, initializes it as Bob using Alice's
+        DH public key and the shared secret, persists it to the database,
+        and returns the initialized state.
+
+        Args:
+            friend_name: The name of the friend (Alice) to initialize with.
+            alice_dh_pub_bytes: Alice's X25519 DH public key as raw 32 bytes.
+            shared_secret: The initial shared secret from key agreement
+                          (e.g., derived from Hybrid KEM decapsulation).
+
+        Returns:
+            The initialized RatchetState instance.
+
+        Raises:
+            RatchetInitError: If initialization or persistence fails.
+        """
+        try:
+            alice_dh_pub = X25519PublicKey.from_public_bytes(alice_dh_pub_bytes)
+            state = RatchetState()
+            state.initialize_as_bob(alice_dh_pub, shared_secret)
+            RatchetService.save_ratchet_state(friend_name, state)
+            logger.info("Initialized ratchet as Bob for '%s'", friend_name)
+            return state
+        except ValueError as e:
+            raise RatchetInitError(
+                f"Invalid DH public key or shared secret for '{friend_name}': {e}"
+            ) from e
+        except RatchetServiceError:
+            raise
+        except Exception as e:
+            raise RatchetInitError(
+                f"Failed to initialize ratchet as Bob for '{friend_name}': {e}"
+            ) from e
+
+    @staticmethod
+    def delete_ratchet(friend_name: str) -> bool:
+        """Remove the ratchet state for a friend.
+
+        Sets the ratchet_state_json column to NULL for the specified friend.
+        This effectively terminates the Double Ratchet session.
+
+        Args:
+            friend_name: The name of the friend whose ratchet to delete.
+
+        Returns:
+            True if a ratchet state was removed, False if none existed.
+
+        Raises:
+            RatchetServiceError: If the database operation fails.
+        """
+        try:
+            with closing(get_connection()) as conn:
+                cursor = safe_execute(
+                    conn,
+                    "UPDATE friends SET ratchet_state_json=NULL "
+                    "WHERE name=? AND ratchet_state_json IS NOT NULL",
+                    (friend_name,)
+                )
+                conn.commit()
+                deleted = cursor.rowcount > 0
+                if deleted:
+                    logger.info("Deleted ratchet state for '%s'", friend_name)
+                else:
+                    logger.debug(
+                        "No ratchet state to delete for '%s'", friend_name
+                    )
+                return deleted
+        except DatabaseError as e:
+            raise RatchetServiceError(
+                f"Database error deleting ratchet for '{friend_name}': {e}"
+            ) from e
+
+    @staticmethod
+    def encrypt_message(friend_name: str, plaintext: bytes) -> Tuple[bytes, bytes]:
+        """Encrypt a message using the active ratchet session for a friend.
+
+        Loads the ratchet state, performs encryption (which advances the
+        send chain), saves the updated state, and returns the header and
+        ciphertext.
+
+        Args:
+            friend_name: The name of the friend to encrypt for.
+            plaintext: The message bytes to encrypt.
+
+        Returns:
+            A tuple of (header, ciphertext) where header contains the DH
+            public key, message number, and previous chain length.
+
+        Raises:
+            RatchetNotFoundError: If no active ratchet session exists.
+            RatchetServiceError: If encryption or state persistence fails.
+        """
+        state = RatchetService.get_ratchet_state(friend_name)
+        try:
+            header, ciphertext = state.encrypt(plaintext)
+        except ValueError as e:
+            raise RatchetServiceError(
+                f"Ratchet encryption failed for '{friend_name}': {e}"
+            ) from e
+
+        # Persist the advanced state
+        RatchetService.save_ratchet_state(friend_name, state)
+        return header, ciphertext
+
+    @staticmethod
+    def decrypt_message(
+        friend_name: str,
+        header: bytes,
+        ciphertext: bytes
+    ) -> bytes:
+        """Decrypt a message using the active ratchet session for a friend.
+
+        Loads the ratchet state, performs decryption (which may advance
+        the receive chain and/or perform DH ratchet steps), saves the
+        updated state, and returns the plaintext.
+
+        Args:
+            friend_name: The name of the friend who sent the message.
+            header: The message header (DH pub + msg_num + prev_chain_len).
+            ciphertext: The encrypted message (nonce + AES-GCM ciphertext).
+
+        Returns:
+            The decrypted plaintext bytes.
+
+        Raises:
+            RatchetNotFoundError: If no active ratchet session exists.
+            RatchetServiceError: If decryption or state persistence fails.
+        """
+        state = RatchetService.get_ratchet_state(friend_name)
+        try:
+            plaintext = state.decrypt(header, ciphertext)
+        except (ValueError, Exception) as e:
+            raise RatchetServiceError(
+                f"Ratchet decryption failed for '{friend_name}': {e}"
+            ) from e
+
+        # Persist the advanced state (including any skipped keys)
+        RatchetService.save_ratchet_state(friend_name, state)
+        return plaintext

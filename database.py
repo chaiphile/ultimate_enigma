@@ -169,11 +169,16 @@ def init_db():
                     x25519_public_key_b64 TEXT       -- NEW: raw 32-byte X25519 public key as Base64
                 );
             """)
-            # Ensure column exists even for older databases (ignore error if already present)
-            try:
-                conn.execute("ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT")
-            except sqlite3.OperationalError:
-                pass  # column already exists
+            # Ensure columns exist even for older databases (ignore error if already present)
+            for col_sql in [
+                "ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT",
+                "ALTER TABLE friends ADD COLUMN ratchet_state_json TEXT",
+                "ALTER TABLE friends ADD COLUMN capabilities_json TEXT",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             conn.commit()
     except DatabaseError:
         raise

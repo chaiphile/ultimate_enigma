@@ -1,5 +1,6 @@
 import time
 import base64
+import struct
 import logging
 from typing import Optional, Tuple
 
@@ -9,6 +10,11 @@ from crypto import (
     peek_flags,
     AES_KEY_SIZE,
     SELF_DESTRUCT_FLAG,
+)
+from services.ratchet_service import (
+    RatchetService,
+    RatchetNotFoundError,
+    RatchetServiceError,
 )
 
 logger = logging.getLogger(__name__)
@@ -22,8 +28,18 @@ class DecryptionError(Exception):
     """Raised when decryption fails."""
 
 
+# Magic byte identifying a Double Ratchet envelope
+RATCHET_ENVELOPE_MAGIC = 0xD0
+
+
 class EncryptionService:
-    """Thin wrapper around crypto module that holds a reference to the key store."""
+    """Thin wrapper around crypto module that holds a reference to the key store.
+
+    Supports dual-mode encryption:
+    - Legacy: static shared-secret or RSA-based encryption via crypto module
+    - Double Ratchet: per-message forward-secret encryption when an active
+      ratchet session exists for the target friend
+    """
 
     def __init__(self, key_store):
         """
@@ -31,7 +47,7 @@ class EncryptionService:
             - global_secret      : bytes (32 bytes for AES)
             - my_priv            : RSA private key object or None
             - friends            : list of (name, public_key, shared_secret) tuples
-            - get_decryption_snapshot()  : returns (my_priv, friends, secrets_to_try)
+            - get_decryption_snapshot()  : returns (my_priv, friends, secrets_to_try, legacy_priv)
         """
         self._ks = key_store
         self._ntp_time: Optional[float] = None
@@ -55,6 +71,16 @@ class EncryptionService:
         Returns (raw_packet_bytes, timestamp).
         Raises EncryptionError on failure.
         """
+        # --- Double Ratchet path ---
+        if (
+            friend_name
+            and mode == "shared"
+            and self._friend_supports_ratchet(friend_name)
+            and RatchetService.has_active_ratchet(friend_name)
+        ):
+            return self._encrypt_with_ratchet(plaintext, friend_name)
+
+        # --- Legacy encryption path ---
         const_key, encrypt_for_friend_pub = self._resolve_encryption_key(
             friend_name, mode
         )
@@ -90,16 +116,27 @@ class EncryptionService:
     def decrypt(self, b64_text: str) -> str:
         """
         Decrypt a Base64‑encoded message and return the plaintext string.
+
+        Automatically detects Double Ratchet envelopes (magic byte 0xD0)
+        and routes to ratchet decryption. Falls back to legacy decryption
+        for standard packets.
+
         Raises DecryptionError on failure.
         """
         packet = self._decode_base64_packet(b64_text)
+
+        # --- Double Ratchet path ---
+        if len(packet) > 1 and packet[0] == RATCHET_ENVELOPE_MAGIC:
+            return self._decrypt_with_ratchet(packet)
+
+        # --- Legacy decryption path ---
         flags = self._peek_flags(packet)
         friend_encrypted = bool(flags & 2)
 
-        my_priv, friends_for_crypto, secrets_to_try = self._ks.get_decryption_snapshot()
+        my_priv, friends_for_crypto, secrets_to_try, legacy_priv = self._ks.get_decryption_snapshot()
 
         if friend_encrypted:
-            plaintext = self._decrypt_with_rsa(packet, my_priv, friends_for_crypto)
+            plaintext = self._decrypt_with_rsa(packet, my_priv, friends_for_crypto, legacy_priv)
         else:
             plaintext = self._decrypt_with_shared_secrets(
                 packet, secrets_to_try, friends_for_crypto
@@ -168,21 +205,36 @@ class EncryptionService:
         except Exception:
             raise DecryptionError("Corrupted packet.")
 
-    def _decrypt_with_rsa(self, packet, my_priv, friends_for_crypto):
-        """Try RSA decryption; returns plaintext or None."""
-        if not my_priv:
+    def _decrypt_with_rsa(self, packet, my_priv, friends_for_crypto, legacy_priv=None):
+        """Try RSA decryption with current key, then legacy key; returns plaintext or None."""
+        if not my_priv and not legacy_priv:
             raise DecryptionError("Your private key is required for this message.")
         now = int(self._ntp_time) if self._ntp_time else None
-        try:
-            return decrypt_message(
-                packet,
-                b"",  # shared secret not used
-                my_priv=my_priv,
-                friends=friends_for_crypto,
-                now=now,
-            )
-        except Exception:
-            return None
+        # Try current key first
+        if my_priv:
+            try:
+                return decrypt_message(
+                    packet,
+                    b"",  # shared secret not used
+                    my_priv=my_priv,
+                    friends=friends_for_crypto,
+                    now=now,
+                )
+            except Exception:
+                pass
+        # Fall back to legacy key (for messages encrypted before key rotation)
+        if legacy_priv:
+            try:
+                return decrypt_message(
+                    packet,
+                    b"",
+                    my_priv=legacy_priv,
+                    friends=friends_for_crypto,
+                    now=now,
+                )
+            except Exception:
+                pass
+        return None
 
     def _decrypt_with_shared_secrets(self, packet, secrets_to_try, friends_for_crypto):
         """Attempt decryption with a list of shared secrets; returns plaintext or None."""
@@ -199,6 +251,95 @@ class EncryptionService:
             except Exception:
                 continue
         return None
+
+    # ------------------------------------------------------------------
+    # Double Ratchet helpers
+    # ------------------------------------------------------------------
+    def _friend_supports_ratchet(self, friend_name: str) -> bool:
+        """Check if a friend has advertised Double Ratchet capability."""
+        caps = getattr(self._ks, "friends_capabilities", {})
+        friend_caps = caps.get(friend_name, {})
+        return bool(friend_caps.get("double_ratchet", False))
+
+    def _encrypt_with_ratchet(
+        self, plaintext: str, friend_name: str
+    ) -> Tuple[bytes, int]:
+        """Encrypt using Double Ratchet and wrap in a ratchet envelope.
+
+        Envelope format:
+            0xD0 | name_len(1B) | name(UTF-8) | hdr_len(2B BE) | header | ciphertext
+        """
+        try:
+            header, ciphertext = RatchetService.encrypt_message(
+                friend_name, plaintext.encode("utf-8")
+            )
+        except RatchetNotFoundError:
+            raise EncryptionError(
+                f"No active ratchet session for '{friend_name}'. "
+                "Re-establish the ratchet before sending."
+            )
+        except RatchetServiceError as exc:
+            raise EncryptionError(
+                f"Ratchet encryption failed for '{friend_name}': {exc}"
+            ) from exc
+
+        # Build envelope
+        name_bytes = friend_name.encode("utf-8")
+        if len(name_bytes) > 255:
+            raise EncryptionError("Friend name too long for ratchet envelope.")
+        envelope = (
+            bytes([RATCHET_ENVELOPE_MAGIC])
+            + bytes([len(name_bytes)])
+            + name_bytes
+            + struct.pack(">H", len(header))
+            + header
+            + ciphertext
+        )
+
+        current_time = self._ntp_time if self._ntp_time is not None else time.time()
+        logger.debug("Encrypted message via Double Ratchet for '%s'", friend_name)
+        return envelope, int(current_time)
+
+    def _decrypt_with_ratchet(self, packet: bytes) -> str:
+        """Parse a ratchet envelope and decrypt using Double Ratchet."""
+        try:
+            offset = 1  # skip magic byte
+            name_len = packet[offset]
+            offset += 1
+            sender_name = packet[offset : offset + name_len].decode("utf-8")
+            offset += name_len
+            header_len = struct.unpack(">H", packet[offset : offset + 2])[0]
+            offset += 2
+            header = packet[offset : offset + header_len]
+            offset += header_len
+            ciphertext = packet[offset:]
+        except Exception as exc:
+            raise DecryptionError(
+                "Malformed Double Ratchet envelope."
+            ) from exc
+
+        if not self._friend_supports_ratchet(sender_name):
+            raise DecryptionError(
+                f"Received ratchet message from '{sender_name}' who has no "
+                "ratchet capability registered. Possible protocol mismatch."
+            )
+
+        try:
+            plaintext_bytes = RatchetService.decrypt_message(
+                sender_name, header, ciphertext
+            )
+        except RatchetNotFoundError:
+            raise DecryptionError(
+                f"No active ratchet session for '{sender_name}'. "
+                "The session may need to be re-established."
+            )
+        except RatchetServiceError as exc:
+            raise DecryptionError(
+                f"Ratchet decryption failed from '{sender_name}': {exc}"
+            ) from exc
+
+        logger.debug("Decrypted message via Double Ratchet from '%s'", sender_name)
+        return plaintext_bytes.decode("utf-8")
 
     @staticmethod
     def _build_decryption_error(flags) -> DecryptionError:

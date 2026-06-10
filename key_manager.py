@@ -25,8 +25,19 @@ logger = logging.getLogger(__name__)
 
 FILE_MAGIC = b'ENIGMA\x01'   # 7‑byte magic for shared‑secret encrypted files
 
+# RSA key rotation constants
+_MIN_RSA_KEY_SIZE = 4096       # CNSA 2.0 minimum
+_LEGACY_KEY_RETENTION_DAYS = 30  # Keep old key for legacy message decryption
+
 def _pem_to_pubkey(pem: str):
     return serialization.load_pem_public_key(pem.encode(), backend=default_backend())
+
+def _get_rsa_key_size(pub_key) -> int:
+    """Return the bit size of an RSA public key."""
+    try:
+        return pub_key.key_size
+    except AttributeError:
+        return 0
 
 def _pem_to_privkey(pem: bytes, password: bytes):
     return serialization.load_pem_private_key(pem, password=password, backend=default_backend())
@@ -50,7 +61,7 @@ def init_db(password: str) -> bool:
     with closing(database.get_connection()) as conn:
         cur = conn.execute("SELECT value FROM settings WHERE key='private_key_encrypted'")
         if cur.fetchone() is None:
-            priv = rsa.generate_private_key(65537, 3072, default_backend())
+            priv = rsa.generate_private_key(65537, 4096, default_backend())
             pub = priv.public_key()
             encrypted_priv = _privkey_to_encrypted_pem(priv, password.encode())
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("public_key", pubkey_to_pem(pub)))
@@ -74,12 +85,15 @@ class KeyStore:
         self.failed_attempts = 0          # global brute-force counter
         self.locked_until = 0.0           # epoch timestamp; 0 means not locked
         self._duress_mode = False
+        self._needs_rotation = False
         self._load_lockout_state()
         self.my_pub = None
         self.my_priv = None
+        self.legacy_priv = None          # Previous RSA private key (kept for 30-day legacy decryption)
         self.global_secret: Optional[bytearray] = None   # changed to bytearray for secure wiping
         self.friends: List[Tuple[str, object, Optional[bytearray]]] = []   # (name, pub, shared_secret or None)
         self.friends_x25519: Dict[str, str] = {}   # name -> Base64 of raw X25519 public key
+        self.friends_capabilities: Dict[str, dict] = {}  # name -> {"double_ratchet": bool, ...}
 
     # ---------- Persistent lockout helpers ----------
 
@@ -156,9 +170,47 @@ class KeyStore:
             if not row: return False
             self.my_pub = _pem_to_pubkey(row[0])
 
+            # Check if RSA key meets CNSA 2.0 minimum size
+            current_key_size = _get_rsa_key_size(self.my_pub)
+            if current_key_size < _MIN_RSA_KEY_SIZE:
+                self._needs_rotation = True
+                logger.warning(
+                    "RSA key size %d-bit is below CNSA 2.0 minimum (%d-bit). "
+                    "Key rotation recommended.",
+                    current_key_size, _MIN_RSA_KEY_SIZE
+                )
+            else:
+                self._needs_rotation = False
+
             row = conn.execute("SELECT value FROM settings WHERE key='private_key_encrypted'").fetchone()
             if not row: return False
             self.my_priv = _pem_to_privkey(row[0].encode(), password.encode())
+
+            # Load legacy private key if present and not expired
+            self.legacy_priv = None
+            row_legacy = conn.execute(
+                "SELECT value FROM settings WHERE key='legacy_private_key_encrypted'"
+            ).fetchone()
+            if row_legacy:
+                try:
+                    row_expiry = conn.execute(
+                        "SELECT value FROM settings WHERE key='legacy_key_expiry'"
+                    ).fetchone()
+                    expiry = float(row_expiry[0]) if row_expiry else 0.0
+                    if time.time() < expiry:
+                        self.legacy_priv = _pem_to_privkey(
+                            row_legacy[0].encode(), password.encode()
+                        )
+                        logger.debug("Legacy RSA key loaded (expires in %.1f days)",
+                                     (expiry - time.time()) / 86400)
+                    else:
+                        # Legacy key expired — remove from database
+                        conn.execute("DELETE FROM settings WHERE key='legacy_private_key_encrypted'")
+                        conn.execute("DELETE FROM settings WHERE key='legacy_key_expiry'")
+                        conn.commit()
+                        logger.info("Expired legacy RSA key removed from database")
+                except Exception as e:
+                    logger.warning("Could not load legacy private key: %s", e)
 
             row = conn.execute("SELECT value FROM settings WHERE key='global_secret'").fetchone()
             if row:
@@ -169,12 +221,14 @@ class KeyStore:
                 self.global_secret = None
 
             rows = conn.execute(
-                "SELECT name, public_key_pem, has_shared_secret, shared_secret_encrypted, x25519_public_key_b64 "
+                "SELECT name, public_key_pem, has_shared_secret, shared_secret_encrypted, "
+                "x25519_public_key_b64, capabilities_json "
                 "FROM friends"
             ).fetchall()
             self.friends.clear()
             self.friends_x25519.clear()
-            for name, pem, has_sec, sec_json, x_b64 in rows:
+            self.friends_capabilities.clear()
+            for name, pem, has_sec, sec_json, x_b64, cap_json in rows:
                 pub = _pem_to_pubkey(pem)
                 secret = None
                 if has_sec and sec_json:
@@ -187,6 +241,13 @@ class KeyStore:
                 self.friends.append((name, pub, secret))
                 if x_b64:
                     self.friends_x25519[name] = x_b64
+                if cap_json:
+                    try:
+                        self.friends_capabilities[name] = json.loads(cap_json)
+                    except (json.JSONDecodeError, TypeError):
+                        self.friends_capabilities[name] = {}
+                else:
+                    self.friends_capabilities[name] = {}
         except Exception as e:
             logger.error("Key loading failed: %s", e)
             return False
@@ -305,9 +366,11 @@ class KeyStore:
         self.global_secret = bytearray(new_secret)
 
     def save_friend(self, name: str, pem: str, shared_secret: Optional[bytes] = None,
-                    password: str = "", x25519_pub_b64: Optional[str] = None) -> None:
+                    password: str = "", x25519_pub_b64: Optional[str] = None,
+                    capabilities: Optional[dict] = None) -> None:
         """Save a friend; if shared_secret is provided, password must be the master password (non-empty).
-        x25519_pub_b64 is the Base64 of the raw 32-byte X25519 public key."""
+        x25519_pub_b64 is the Base64 of the raw 32-byte X25519 public key.
+        capabilities is an optional dict of supported features (e.g. {"double_ratchet": True})."""
         if shared_secret:
             if not password:
                 raise ValueError("Master password required to encrypt friend shared secret")
@@ -318,12 +381,14 @@ class KeyStore:
             has_sec = 0
             sec_enc_json = None
 
+        cap_json = json.dumps(capabilities) if capabilities else None
         with closing(database.get_connection()) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO friends "
-                "(name, public_key_pem, has_shared_secret, shared_secret_encrypted, x25519_public_key_b64) "
-                "VALUES (?,?,?,?,?)",
-                (name, pem, has_sec, sec_enc_json, x25519_pub_b64)
+                "(name, public_key_pem, has_shared_secret, shared_secret_encrypted, "
+                "x25519_public_key_b64, capabilities_json) "
+                "VALUES (?,?,?,?,?,?)",
+                (name, pem, has_sec, sec_enc_json, x25519_pub_b64, cap_json)
             )
             conn.commit()
         pub = _pem_to_pubkey(pem)
@@ -335,6 +400,10 @@ class KeyStore:
             self.friends_x25519[name] = x25519_pub_b64
         else:
             self.friends_x25519.pop(name, None)
+        if capabilities:
+            self.friends_capabilities[name] = capabilities
+        else:
+            self.friends_capabilities.pop(name, None)
 
     def remove_friend(self, name: str) -> None:
         with closing(database.get_connection()) as conn:
@@ -342,6 +411,7 @@ class KeyStore:
             conn.commit()
         self.friends = [(n, p, s) for (n, p, s) in self.friends if n != name]
         self.friends_x25519.pop(name, None)
+        self.friends_capabilities.pop(name, None)
 
     def get_friend_secret(self, name: str) -> Optional[bytes]:
         for n, _, s in self.friends:
@@ -350,10 +420,109 @@ class KeyStore:
                 return bytes(s) if s is not None else None
         return None
 
+    @property
+    def needs_key_rotation(self) -> bool:
+        """True if the current RSA key is below CNSA 2.0 minimum size (4096-bit)."""
+        return self._needs_rotation
+
+    def rotate_rsa_key(self, password: str) -> bool:
+        """Generate a new 4096-bit RSA key pair and retire the current key.
+
+        The old private key is stored encrypted as 'legacy_private_key_encrypted'
+        with a 30-day expiry so that messages encrypted to the old public key can
+        still be decrypted during the transition period.
+
+        Args:
+            password: Master password used to encrypt the new and legacy keys.
+
+        Returns:
+            True on success, False on failure (database rolled back).
+        """
+        with self._lock:
+            conn = database.get_connection()
+            try:
+                # Verify current password works before making changes
+                row = conn.execute(
+                    "SELECT value FROM settings WHERE key='global_secret'"
+                ).fetchone()
+                if not row:
+                    logger.error("rotate_rsa_key: global_secret not found")
+                    return False
+                enc_dict = json.loads(row[0])
+                try:
+                    database.decrypt_secret(enc_dict, password)
+                except Exception:
+                    logger.error("rotate_rsa_key: password verification failed")
+                    return False
+
+                # Store current private key as legacy (if not already legacy)
+                row_current_pk = conn.execute(
+                    "SELECT value FROM settings WHERE key='private_key_encrypted'"
+                ).fetchone()
+                if not row_current_pk:
+                    logger.error("rotate_rsa_key: current private key not found")
+                    return False
+
+                # Calculate legacy key expiry (30 days from now)
+                legacy_expiry = time.time() + (_LEGACY_KEY_RETENTION_DAYS * 86400)
+
+                # Save current key as legacy
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ("legacy_private_key_encrypted", row_current_pk[0])
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ("legacy_key_expiry", str(legacy_expiry))
+                )
+
+                # Generate new 4096-bit RSA key pair
+                new_priv = rsa.generate_private_key(65537, _MIN_RSA_KEY_SIZE, default_backend())
+                new_pub = new_priv.public_key()
+                new_encrypted_priv = _privkey_to_encrypted_pem(new_priv, password.encode())
+
+                # Update primary key pair in database
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='public_key'",
+                    (pubkey_to_pem(new_pub),)
+                )
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='private_key_encrypted'",
+                    (new_encrypted_priv,)
+                )
+
+                conn.commit()
+
+                # Update in-memory state
+                self.my_priv = new_priv
+                self.my_pub = new_pub
+                self.legacy_priv = _pem_to_privkey(
+                    row_current_pk[0].encode(), password.encode()
+                )
+                self._needs_rotation = False
+
+                logger.info(
+                    "RSA key rotated to %d-bit. Legacy key retained for %d days.",
+                    _MIN_RSA_KEY_SIZE, _LEGACY_KEY_RETENTION_DAYS
+                )
+                return True
+
+            except Exception as e:
+                conn.rollback()
+                logger.error("rotate_rsa_key failed (rolled back): %s", e)
+                return False
+            finally:
+                conn.close()
+
     def get_decryption_snapshot(self):
-        """Thread-safe snapshot for background decryption."""
+        """Thread-safe snapshot for background decryption.
+
+        Returns a tuple of (my_priv, friends_for_sig, secrets, legacy_priv).
+        legacy_priv may be None if no legacy key exists or it has expired.
+        """
         with self._lock:
             my_priv = self.my_priv
+            legacy_priv = self.legacy_priv
             friends_for_sig = [(name, pub) for name, pub, _ in self.friends]
             # Build secrets list: global_secret (bytes-like) and each friend secret (bytes-like)
             secrets = []
@@ -362,7 +531,7 @@ class KeyStore:
             for _, _, sec in self.friends:
                 if sec is not None:
                     secrets.append(sec)
-            return my_priv, friends_for_sig, secrets
+            return my_priv, friends_for_sig, secrets, legacy_priv
 
     def change_password(self, old_password: str, new_password: str) -> bool:
         """Re-encrypt all stored secrets with a new master password.
@@ -517,6 +686,7 @@ class KeyStore:
             self.friends = wiped_friends
 
             self.friends_x25519.clear()
+            self.friends_capabilities.clear()
             self.my_priv = None
             self.my_pub = None
             gc.collect()
