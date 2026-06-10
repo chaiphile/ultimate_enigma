@@ -4,11 +4,19 @@ Provides a standalone verification dialog and a setup dialog that can be
 used by the main application or the lock screen flow without duplicating UI logic.
 """
 
+import time
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import logging
+
+try:
+    import qrcode
+    from PIL import ImageTk
+    HAS_QRCODE = True
+except ImportError:
+    HAS_QRCODE = False
 
 from services.totp_service import TOTPService
 
@@ -27,7 +35,7 @@ class TOTPVerifyDialog:
         """Display the dialog and return True if verification succeeds."""
         dlg = tk.Toplevel(self.parent, bg="#1a1a1a")
         dlg.title("TOTP Verification")
-        dlg.geometry("380x260")
+        dlg.geometry("380x300")
         dlg.resizable(False, False)
         dlg.transient(self.parent)
         dlg.attributes("-topmost", True)
@@ -118,7 +126,7 @@ class TOTPSetupDialog:
         """Display the setup dialog and return True if acknowledged."""
         dlg = tk.Toplevel(self.parent, bg="#1a1a1a")
         dlg.title("TOTP Setup")
-        dlg.geometry("580x720")
+        dlg.geometry("580x920")
         dlg.resizable(False, False)
         dlg.transient(self.parent)
         dlg.attributes("-topmost", True)
@@ -147,6 +155,9 @@ class TOTPSetupDialog:
                 secret_text.insert("1.0", new_b32)
                 secret_text.config(state="disabled")
                 code_var.set(self.totp_service.generate())
+                # Update QR code if available
+                if qr_label is not None and HAS_QRCODE:
+                    self._update_qr(qr_label, new_uri)
                 messagebox.showinfo("Regenerated", "New TOTP secret generated.\n"
                                     "Please re-scan with your authenticator app.", parent=dlg)
 
@@ -192,6 +203,26 @@ class TOTPSetupDialog:
             font=("Segoe UI", 9), bg="#1a1a1a", fg="#888888",
             justify="center"
         ).pack(pady=(0, 10))
+
+        # QR Code display
+        self._qr_photo = None
+        qr_label = None
+        if HAS_QRCODE:
+            try:
+                qr_label = tk.Label(content, bg="#1a1a1a")
+                qr_label.pack(pady=(0, 10))
+                self._update_qr(qr_label, self.provisioning_uri)
+            except Exception as e:
+                logger.warning("Failed to generate QR code: %s", e)
+                tk.Label(
+                    content, text="(QR code unavailable – use URI below)",
+                    font=("Segoe UI", 9, "italic"), bg="#1a1a1a", fg="#ff6666"
+                ).pack(pady=(0, 10))
+        else:
+            tk.Label(
+                content, text="(Install qrcode[pil] for QR display – use URI below)",
+                font=("Segoe UI", 9, "italic"), bg="#1a1a1a", fg="#ffaa00"
+            ).pack(pady=(0, 10))
 
         # Provisioning URI
         tk.Label(
@@ -241,13 +272,14 @@ class TOTPSetupDialog:
         ttk.Button(content, text="📋 Copy Secret", command=copy_secret,
                    bootstyle="info-outline").pack(pady=(0, 10))
 
-        # Live code preview
+        # Live code preview – shows the CURRENT code that an authenticator
+        # app would generate with the same secret.  Updates every 500 ms.
         tk.Label(
-            content, text="Current Code (for verification):",
+            content, text="Current Code (matches your authenticator app):",
             font=("Segoe UI", 10), bg="#1a1a1a", fg="#cccccc"
         ).pack()
 
-        code_var = tk.StringVar(value=self.totp_service.generate())
+        code_var = tk.StringVar()
         code_label = tk.Label(
             content, textvariable=code_var, font=("Consolas", 28, "bold"),
             bg="#1a1a1a", fg="#00ff88"
@@ -261,12 +293,24 @@ class TOTPSetupDialog:
         )
         timer_label.pack()
 
+        # Track previous code to detect transitions
+        _prev_code = [None]
+
         def update_code_display():
             if not dlg.winfo_exists():
                 return
             try:
-                code_var.set(self.totp_service.generate())
+                new_code = self.totp_service.generate()
                 remaining = self.totp_service.time_remaining()
+
+                # Visual flash when code changes
+                if _prev_code[0] is not None and new_code != _prev_code[0]:
+                    code_label.config(fg="#ffffff")  # brief white flash
+                    dlg.after(150, lambda: code_label.config(
+                        fg="#ff4444" if remaining <= 5 else "#00ff88"))
+                _prev_code[0] = new_code
+
+                code_var.set(new_code)
                 timer_var.set(f"(expires in {remaining}s)")
                 if remaining <= 5:
                     code_label.config(fg="#ff4444")
@@ -275,9 +319,14 @@ class TOTPSetupDialog:
                     code_label.config(fg="#00ff88")
                     timer_label.config(fg="#888888")
                 dlg.after(500, update_code_display)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("update_code_display error: %s", e)
 
+        # Set initial value immediately before starting the loop
+        try:
+            code_var.set(self.totp_service.generate())
+        except Exception:
+            code_var.set("------")
         update_code_display()
 
         dlg.bind("<Escape>", lambda e: dlg.destroy())
@@ -285,3 +334,14 @@ class TOTPSetupDialog:
 
         self.parent.wait_window(dlg)
         return self.result
+
+    @staticmethod
+    def _update_qr(label_widget: tk.Label, uri: str) -> None:
+        """Generate a QR code from *uri* and display it on *label_widget*."""
+        qr = qrcode.QRCode(version=1, box_size=6, border=2)
+        qr.add_data(uri)
+        qr.make(fit=True)
+        qr_img = qr.make_image(fill_color="#ffffff", back_color="#1a1a1a")
+        photo = ImageTk.PhotoImage(qr_img)
+        label_widget.configure(image=photo)
+        label_widget.image = photo  # prevent garbage collection

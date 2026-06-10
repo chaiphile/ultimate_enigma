@@ -13,6 +13,9 @@ from services.clipboard_service import ClipboardService
 
 logger = logging.getLogger(__name__)
 
+# Maximum message size (1 MB) to prevent memory issues
+MAX_MESSAGE_SIZE = 1024 * 1024
+
 
 class EncryptTab:
     def __init__(self, parent, encryption_service: EncryptionService,
@@ -35,50 +38,55 @@ class EncryptTab:
         self._build_ui()
 
     def _build_ui(self):
-        # Options bar
+        # Options bar – use grid to guarantee buttons stay visible
         opts = ttk.Frame(self.frame, padding=(10, 5))
         opts.pack(fill=tk.X, padx=10, pady=(10, 0))
+        opts.columnconfigure(9, weight=1)  # spacer column expands
 
+        # Row 0: main options + action buttons
         self.sign_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(opts, text="Sign with my private key",
                         variable=self.sign_var,
-                        bootstyle="round-toggle").pack(side=tk.LEFT, padx=5)
+                        bootstyle="round-toggle").grid(row=0, column=0, padx=5, sticky=tk.W)
 
-        ttk.Label(opts, text="Encrypt for:").pack(side=tk.LEFT, padx=(20, 5))
+        ttk.Label(opts, text="Encrypt for:").grid(row=0, column=1, padx=(15, 5), sticky=tk.W)
         self.friend_combo = ttk.Combobox(opts, state="readonly", width=15,
                                          bootstyle="primary")
-        self.friend_combo.pack(side=tk.LEFT, padx=5)
+        self.friend_combo.grid(row=0, column=2, padx=5, sticky=tk.W)
         self.friend_combo.bind('<<ComboboxSelected>>', self._on_friend_changed)
         self._update_friend_list()
 
         # Encryption mode
-        ttk.Label(opts, text="Mode:").pack(side=tk.LEFT, padx=(10, 5))
+        ttk.Label(opts, text="Mode:").grid(row=0, column=3, padx=(10, 5), sticky=tk.W)
         self.mode_combo = ttk.Combobox(
             opts, state="readonly", width=22,
             values=["Shared Secret (time‑based)", "Public Key (RSA)"],
             bootstyle="secondary"
         )
-        self.mode_combo.pack(side=tk.LEFT, padx=5)
+        self.mode_combo.grid(row=0, column=4, padx=5, sticky=tk.W)
         self.mode_combo.current(0)
 
         # Self-destruct controls
         self.destruct_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(opts, text="⏳ Self-destruct",
                         variable=self.destruct_var,
-                        bootstyle="round-toggle").pack(side=tk.LEFT, padx=(20, 5))
+                        bootstyle="round-toggle").grid(row=0, column=5, padx=(15, 5), sticky=tk.W)
         self.destruct_combo = ttk.Combobox(opts,
                                            values=["5 min", "10 min", "30 min",
                                                    "1 hour", "6 hours", "24 hours"],
                                            state="readonly", width=8,
                                            bootstyle="secondary")
-        self.destruct_combo.pack(side=tk.LEFT, padx=5)
+        self.destruct_combo.grid(row=0, column=6, padx=5, sticky=tk.W)
         self.destruct_combo.current(0)
 
-        # Buttons
+        # Spacer so buttons stay pinned right
+        ttk.Frame(opts).grid(row=0, column=9, padx=5)
+
+        # Buttons – always visible on the right
         ttk.Button(opts, text="Clear", command=self.clear_input,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+                   bootstyle="secondary-outline").grid(row=0, column=11, padx=5, sticky=tk.E)
         ttk.Button(opts, text="Encrypt & Send", command=self.send_message,
-                   bootstyle="success").pack(side=tk.RIGHT, padx=5)
+                   bootstyle="success").grid(row=0, column=12, padx=5, sticky=tk.E)
 
         # Message input
         msg_frame = ttk.Labelframe(self.frame, text="Write your message",
@@ -136,6 +144,16 @@ class EncryptTab:
         plaintext = self.msg_input.get("1.0", tk.END).strip()
         if not plaintext:
             messagebox.showwarning("Empty", "Please type a message.")
+            return
+        
+        # Validate message size
+        msg_size = len(plaintext.encode('utf-8'))
+        if msg_size > MAX_MESSAGE_SIZE:
+            messagebox.showwarning(
+                "Message Too Large",
+                f"Message size ({msg_size:,} bytes) exceeds maximum allowed "
+                f"({MAX_MESSAGE_SIZE:,} bytes).\nPlease reduce the message length."
+            )
             return
 
         friend_choice = self.friend_combo.get()

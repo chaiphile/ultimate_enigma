@@ -132,3 +132,109 @@ class TestSecretEncryption:
         enc["ct"] = base64.b64encode(bytes(ct)).decode()
         with pytest.raises(Exception):
             database.decrypt_secret(enc, "pw")
+
+
+# ---------------------------------------------------------------------------
+# Tests: Granular Error Handling
+# ---------------------------------------------------------------------------
+
+class TestGranularErrorHandling:
+    def test_exception_hierarchy(self):
+        """All custom DB exceptions inherit from DatabaseError."""
+        assert issubclass(database.DatabaseCorruptedError, database.DatabaseError)
+        assert issubclass(database.DatabaseLockedError, database.DatabaseError)
+        assert issubclass(database.DatabaseIntegrityError, database.DatabaseError)
+        assert issubclass(database.DatabaseConnectionError, database.DatabaseError)
+
+    def test_classify_integrity_error(self):
+        import sqlite3
+        exc = sqlite3.IntegrityError("UNIQUE constraint failed")
+        classified = database._classify_sqlite_error(exc)
+        assert isinstance(classified, database.DatabaseIntegrityError)
+        assert "constraint" in str(classified).lower()
+
+    def test_classify_locked_error(self):
+        import sqlite3
+        exc = sqlite3.OperationalError("database is locked")
+        classified = database._classify_sqlite_error(exc)
+        assert isinstance(classified, database.DatabaseLockedError)
+
+    def test_classify_busy_error(self):
+        import sqlite3
+        exc = sqlite3.OperationalError("database is busy")
+        classified = database._classify_sqlite_error(exc)
+        assert isinstance(classified, database.DatabaseLockedError)
+
+    def test_classify_corrupt_operational_error(self):
+        import sqlite3
+        exc = sqlite3.OperationalError("file is not a database")
+        classified = database._classify_sqlite_error(exc)
+        assert isinstance(classified, database.DatabaseCorruptedError)
+
+    def test_classify_malformed_error(self):
+        import sqlite3
+        exc = sqlite3.DatabaseError("malformed database schema")
+        classified = database._classify_sqlite_error(exc)
+        assert isinstance(classified, database.DatabaseCorruptedError)
+
+    def test_classify_generic_operational_error(self):
+        import sqlite3
+        exc = sqlite3.OperationalError("no such table: foo")
+        classified = database._classify_sqlite_error(exc)
+        assert isinstance(classified, database.DatabaseError)
+        assert not isinstance(classified, database.DatabaseLockedError)
+        assert not isinstance(classified, database.DatabaseCorruptedError)
+
+    def test_safe_execute_success(self, initialized_db):
+        database.safe_execute(
+            initialized_db,
+            "INSERT INTO settings (key, value) VALUES (?, ?)",
+            ("test_key", "test_value"),
+        )
+        row = initialized_db.execute(
+            "SELECT value FROM settings WHERE key='test_key'"
+        ).fetchone()
+        assert row[0] == "test_value"
+
+    def test_safe_execute_integrity_error(self, initialized_db):
+        # Insert duplicate primary key
+        database.safe_execute(
+            initialized_db,
+            "INSERT INTO settings (key, value) VALUES (?, ?)",
+            ("dup_key", "v1"),
+        )
+        with pytest.raises(database.DatabaseIntegrityError):
+            database.safe_execute(
+                initialized_db,
+                "INSERT INTO settings (key, value) VALUES (?, ?)",
+                ("dup_key", "v2"),
+            )
+
+
+# ---------------------------------------------------------------------------
+# Tests: Integrity Check
+# ---------------------------------------------------------------------------
+
+class TestIntegrityCheck:
+    def test_healthy_database_passes(self):
+        database.init_db()
+        ok, detail = database.check_integrity()
+        assert ok is True
+        assert detail == "ok"
+
+    def test_corrupted_database_fails(self, tmp_path):
+        """Writing garbage to the DB file should cause integrity check to fail."""
+        db_file = tmp_path / "corrupt.db"
+        db_file.write_bytes(b"THIS IS NOT A SQLITE DATABASE")
+        with patch.object(database, "DB_PATH", db_file):
+            ok, detail = database.check_integrity()
+            assert ok is False
+            assert len(detail) > 0
+
+    def test_nonexistent_database_fails(self, tmp_path):
+        """A missing DB file should report failure gracefully."""
+        missing = tmp_path / "nonexistent" / "deep" / "enigma.db"
+        with patch.object(database, "DB_PATH", missing):
+            ok, detail = database.check_integrity()
+            # Should not raise, just return False
+            assert ok is False

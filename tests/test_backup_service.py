@@ -199,3 +199,119 @@ class TestInternalHelpers:
         payload = {"test": "data"}
         key = BackupService._derive_hmac_key("pw")
         assert backup_service._verify_hmac(payload, "wrong_hmac", key) is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: Versioned File Backups
+# ---------------------------------------------------------------------------
+
+class TestVersionedBackups:
+    def test_export_backup_to_file_creates_file(self, backup_service, password, tmp_path):
+        backup_dir = tmp_path / "backups"
+        filepath = backup_service.export_backup_to_file(password, backup_dir=backup_dir)
+        assert filepath.exists()
+        assert filepath.suffix == ".json"
+        assert "enigma_backup_" in filepath.name
+
+    def test_export_backup_to_file_valid_json(self, backup_service, password, tmp_path):
+        import json
+        backup_dir = tmp_path / "backups"
+        filepath = backup_service.export_backup_to_file(password, backup_dir=backup_dir)
+        with open(filepath, "r") as f:
+            data = json.load(f)
+        assert data["version"] == BACKUP_VERSION
+        assert "hmac" in data
+
+    def test_list_backups_sorted_newest_first(self, backup_service, password, tmp_path):
+        import time as _time
+        backup_dir = tmp_path / "backups"
+        paths = []
+        for _ in range(3):
+            p = backup_service.export_backup_to_file(password, backup_dir=backup_dir)
+            paths.append(p)
+            _time.sleep(1.1)  # ensure distinct timestamps
+        listed = backup_service.list_backups(backup_dir=backup_dir)
+        assert len(listed) == 3
+        # Newest first
+        assert listed[0] == paths[-1]
+        assert listed[-1] == paths[0]
+
+    def test_prune_old_backups(self, password, tmp_path, key_store):
+        backup_dir = tmp_path / "backups"
+        svc = BackupService(key_store, backup_dir=backup_dir, max_backups=2)
+        import time as _time
+        for _ in range(5):
+            svc.export_backup_to_file(password, backup_dir=backup_dir)
+            _time.sleep(1.1)
+        remaining = svc.list_backups(backup_dir=backup_dir)
+        assert len(remaining) == 2
+
+    def test_import_backup_from_file_roundtrip(self, backup_service, password, key_store, tmp_path):
+        original_secret = bytes(key_store.global_secret)
+        backup_dir = tmp_path / "backups"
+        filepath = backup_service.export_backup_to_file(password, backup_dir=backup_dir)
+
+        key_store.wipe()
+        backup_service.import_backup_from_file(filepath, password)
+        assert bytes(key_store.global_secret) == original_secret
+
+    def test_import_from_nonexistent_file_raises(self, backup_service, password, tmp_path):
+        fake_path = tmp_path / "nonexistent.json"
+        with pytest.raises(BackupServiceError, match="Cannot read backup file"):
+            backup_service.import_backup_from_file(fake_path, password)
+
+    def test_import_from_invalid_json_raises(self, backup_service, password, tmp_path):
+        bad_file = tmp_path / "bad.json"
+        bad_file.write_text("NOT JSON {{{")
+        with pytest.raises(BackupServiceError, match="Cannot read backup file"):
+            backup_service.import_backup_from_file(bad_file, password)
+
+    def test_list_backups_empty_dir(self, backup_service, tmp_path):
+        empty_dir = tmp_path / "empty"
+        result = backup_service.list_backups(backup_dir=empty_dir)
+        assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Tests: Backup Reminder
+# ---------------------------------------------------------------------------
+
+class TestBackupReminder:
+    def test_should_remind_when_never_backed_up(self, backup_service):
+        remind, days = backup_service.should_remind_backup()
+        assert remind is True
+        assert days is None
+
+    def test_should_not_remind_after_recent_backup(self, backup_service, password, tmp_path):
+        backup_dir = tmp_path / "backups"
+        backup_service.export_backup_to_file(password, backup_dir=backup_dir)
+        remind, days = backup_service.should_remind_backup()
+        assert remind is False
+
+    def test_should_remind_after_expired_interval(self, password, tmp_path, key_store):
+        backup_dir = tmp_path / "backups"
+        svc = BackupService(key_store, backup_dir=backup_dir, reminder_days=1)
+        # Manually set last backup to 2 days ago
+        old_ts = int(time.time()) - (2 * 86400)
+        svc._record_backup_timestamp(old_ts)
+        remind, days = svc.should_remind_backup()
+        assert remind is True
+        assert days >= 2
+
+    def test_get_last_backup_timestamp_none_initially(self, backup_service):
+        assert backup_service.get_last_backup_timestamp() is None
+
+    def test_get_last_backup_timestamp_after_export(self, backup_service, password, tmp_path):
+        backup_dir = tmp_path / "backups"
+        before = int(time.time())
+        backup_service.export_backup_to_file(password, backup_dir=backup_dir)
+        after = int(time.time())
+        ts = backup_service.get_last_backup_timestamp()
+        assert ts is not None
+        assert before <= ts <= after
+
+    def test_record_backup_timestamp_persists(self, backup_service):
+        ts = 1700000000
+        backup_service._record_backup_timestamp(ts)
+        retrieved = backup_service.get_last_backup_timestamp()
+        assert retrieved == ts

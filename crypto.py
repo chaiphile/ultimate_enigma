@@ -14,11 +14,12 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
 import hashlib
 
-AES_KEY_SIZE = 32
-NONCE_SIZE = 12
-TIME_STEP = 30          # seconds
-WINDOW_SIZE = 20         # try ±20 steps (±600 seconds)
-SELF_DESTRUCT_FLAG = 4  # bit 2
+# Cryptographic constants
+AES_KEY_SIZE = 32       # 256-bit AES key
+NONCE_SIZE = 12         # 96-bit nonce for AES-GCM
+TIME_STEP = 30          # Time-based key rotation interval (seconds)
+WINDOW_SIZE = 20        # Sliding window size: ±20 steps (±600 seconds tolerance)
+SELF_DESTRUCT_FLAG = 4  # Bit flag for self-destruct messages
 
 def _pack_bytes(data: bytes) -> bytes:
     return struct.pack(">H", len(data)) + data

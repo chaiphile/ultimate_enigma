@@ -20,7 +20,9 @@ import time
 import hmac
 import hashlib
 import logging
-from typing import Dict, Any, List
+import shutil
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Tuple
 from contextlib import closing
 
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -33,6 +35,9 @@ from key_manager import KeyStore
 logger = logging.getLogger(__name__)
 
 BACKUP_VERSION = 1
+DEFAULT_BACKUP_DIR = Path.home() / ".ultimate_enigma" / "backups"
+DEFAULT_MAX_BACKUPS = 10
+DEFAULT_REMINDER_DAYS = 7
 
 
 class BackupServiceError(Exception):
@@ -42,8 +47,17 @@ class BackupServiceError(Exception):
 class BackupService:
     """Export / import the entire Enigma identity and friend store."""
 
-    def __init__(self, key_store: KeyStore):
+    def __init__(
+        self,
+        key_store: KeyStore,
+        backup_dir: Optional[Path] = None,
+        max_backups: int = DEFAULT_MAX_BACKUPS,
+        reminder_days: int = DEFAULT_REMINDER_DAYS,
+    ):
         self._ks = key_store
+        self._backup_dir = backup_dir or DEFAULT_BACKUP_DIR
+        self._max_backups = max_backups
+        self._reminder_days = reminder_days
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -238,3 +252,126 @@ class BackupService:
             raise BackupServiceError(
                 "Import succeeded but failed to reload keys – database may be corrupted"
             )
+
+    # ------------------------------------------------------------------
+    # Versioned File Backups
+    # ------------------------------------------------------------------
+    def export_backup_to_file(
+        self, password: str, backup_dir: Optional[Path] = None
+    ) -> Path:
+        """
+        Export a timestamped backup file and prune old versions.
+
+        Returns the path to the newly created backup file.
+        """
+        target_dir = backup_dir or self._backup_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        data = self.export_backup(password)
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        filename = f"enigma_backup_{timestamp}.json"
+        filepath = target_dir / filename
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=True)
+        except OSError as exc:
+            raise BackupServiceError(f"Failed to write backup file: {exc}") from exc
+
+        # Record last backup timestamp in settings
+        self._record_backup_timestamp(int(time.time()))
+
+        # Prune old backups
+        self._prune_old_backups(target_dir)
+
+        logger.info("Versioned backup saved to %s", filepath)
+        return filepath
+
+    def import_backup_from_file(
+        self, filepath: Path, password: str
+    ) -> None:
+        """Load a backup JSON file and restore it."""
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise BackupServiceError(f"Cannot read backup file: {exc}") from exc
+        self.import_backup(data, password)
+
+    def list_backups(self, backup_dir: Optional[Path] = None) -> List[Path]:
+        """Return sorted list of existing backup files (newest first)."""
+        target_dir = backup_dir or self._backup_dir
+        if not target_dir.exists():
+            return []
+        files = sorted(
+            target_dir.glob("enigma_backup_*.json"),
+            reverse=True,
+        )
+        return files
+
+    def _prune_old_backups(self, backup_dir: Path) -> None:
+        """Keep only the N most recent backup files."""
+        files = self.list_backups(backup_dir)
+        for old_file in files[self._max_backups:]:
+            try:
+                old_file.unlink()
+                logger.info("Pruned old backup: %s", old_file.name)
+            except OSError as exc:
+                logger.warning("Could not prune %s: %s", old_file, exc)
+
+    # ------------------------------------------------------------------
+    # Backup Reminder
+    # ------------------------------------------------------------------
+    def get_last_backup_timestamp(self) -> Optional[int]:
+        """Return the Unix timestamp of the last recorded backup, or None."""
+        try:
+            conn = database.get_connection()
+        except Exception:
+            return None
+        try:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='last_backup_ts'"
+            ).fetchone()
+            if row:
+                return int(row[0])
+            return None
+        except Exception:
+            return None
+        finally:
+            conn.close()
+
+    def _record_backup_timestamp(self, ts: int) -> None:
+        """Persist the last backup timestamp into the settings table."""
+        try:
+            conn = database.get_connection()
+        except Exception as exc:
+            logger.warning("Could not record backup timestamp: %s", exc)
+            return
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('last_backup_ts', ?)",
+                (str(ts),),
+            )
+            conn.commit()
+        except Exception as exc:
+            logger.warning("Could not save backup timestamp: %s", exc)
+        finally:
+            conn.close()
+
+    def should_remind_backup(self) -> Tuple[bool, Optional[int]]:
+        """
+        Check whether the user should be reminded to create a backup.
+
+        Returns:
+            (True, days_since) if a reminder is warranted.
+            (False, None) if no reminder needed or no previous backup exists.
+        """
+        last_ts = self.get_last_backup_timestamp()
+        if last_ts is None:
+            # Never backed up – always remind
+            return True, None
+        elapsed_seconds = time.time() - last_ts
+        elapsed_days = int(elapsed_seconds // 86400)
+        if elapsed_days >= self._reminder_days:
+            return True, elapsed_days
+        return False, None

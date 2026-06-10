@@ -1,5 +1,6 @@
 import time
 import base64
+import logging
 from typing import Optional, Tuple
 
 from crypto import (
@@ -9,6 +10,8 @@ from crypto import (
     AES_KEY_SIZE,
     SELF_DESTRUCT_FLAG,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class EncryptionError(Exception):
@@ -71,7 +74,8 @@ class EncryptionService:
                 self_destruct_seconds=self_destruct_seconds,
             )
         except Exception as exc:
-            raise EncryptionError(f"Encryption failed: {exc}") from exc
+            logger.error("Encryption failed: %s", exc, exc_info=True)
+            raise EncryptionError("Encryption failed. Please check your keys and try again.") from exc
 
         return packet, ts
 
@@ -199,8 +203,6 @@ class EncryptionService:
     @staticmethod
     def _build_decryption_error(flags) -> DecryptionError:
         """Craft a user-friendly error based on the last known failure context."""
-        return DecryptionError(
-            "This message has self-destructed and is no longer readable."
-            if flags & SELF_DESTRUCT_FLAG
-            else "Could not decrypt. Wrong key or message expired."
-        )
+        if flags & SELF_DESTRUCT_FLAG:
+            return DecryptionError("This message has self-destructed and is no longer readable.")
+        return DecryptionError("Could not decrypt. Wrong key or message expired.")

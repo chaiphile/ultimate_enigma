@@ -4,8 +4,8 @@ Uses HMAC-SHA1 with 30-second time steps and 6-digit codes.
 The TOTP secret is derived from the global_secret stored in KeyStore.
 """
 
-import hmac
 import hashlib
+import hmac
 import struct
 import time
 import base64
@@ -30,13 +30,24 @@ class TOTPService:
     # Secret management
     # ------------------------------------------------------------------
     def set_secret(self, secret: bytes) -> None:
-        """Set the TOTP secret (should be at least 20 bytes)."""
+        """Set the TOTP secret (must be at least 20 bytes).
+        
+        Uses the first 20 bytes directly as the TOTP key.
+        The secret should be cryptographically random (from secrets.token_bytes).
+        """
         if len(secret) < 20:
             raise ValueError("TOTP secret must be at least 20 bytes")
-        # Derive a dedicated TOTP key from the first 20 bytes via HMAC
-        self._secret = hmac.new(
-            b"enigma-totp-v1", secret[:32], hashlib.sha256
-        ).digest()[:20]
+        # Use first 20 bytes directly – secret is already cryptographically random
+        self._secret = bytes(secret[:20])
+
+    def set_raw_secret(self, secret: bytes) -> None:
+        """Set an exact 20-byte TOTP secret without any transformation.
+        
+        Used when loading a previously-stored derived secret from the database.
+        """
+        if len(secret) != 20:
+            raise ValueError(f"Raw TOTP secret must be exactly 20 bytes, got {len(secret)}")
+        self._secret = bytes(secret)
 
     def clear_secret(self) -> None:
         """Wipe the secret from memory."""
@@ -52,6 +63,10 @@ class TOTPService:
         if self._secret is None:
             return "N/A"
         return base64.b32encode(self._secret).decode().rstrip("=")
+
+    def get_raw_secret(self) -> Optional[bytes]:
+        """Return the raw 20-byte secret (for persistence to database)."""
+        return self._secret
 
     # ------------------------------------------------------------------
     # TOTP generation / verification

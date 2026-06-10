@@ -4,14 +4,16 @@ import tkinter as tk
 from tkinter import messagebox
 from pathlib import Path
 from queue import Queue, Empty
+import base64
 import logging
 import gc
 import time
 import threading
 import json
-import hashlib
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
+from argon2 import PasswordHasher
+from argon2.exceptions import VerifyMismatchError
 
 from visual_enigma import VisualEnigma
 from key_manager import KeyStore, init_db
@@ -43,13 +45,14 @@ HOTKEY_ID_UNLOCK = 2
 # Path for storing TOTP secret in database settings
 TOTP_SECRET_KEY = "totp_secret_encrypted"
 TOTP_SETUP_KEY = "totp_setup_complete"
+TOTP_ENABLED_KEY = "totp_enabled"
 
 
 class EnigmaApp:
     def __init__(self, root):
         self.root = root
-        root.geometry("1100x750")
-        root.minsize(900, 600)
+        root.geometry("1400x850")
+        root.minsize(1200, 750)
 
         icon = tk.PhotoImage(width=1, height=1)
         root.iconphoto(True, icon)
@@ -66,6 +69,11 @@ class EnigmaApp:
         self.task_queue = Queue()
         self.process_queue()
         self._master_password_hash = None
+        self._ph = PasswordHasher()
+        self._service_lock = threading.RLock()  # Protects service replacement during unlock
+
+        # TOTP service must exist BEFORE _load_keys() since _init_totp() uses it
+        self.totp_service = TOTPService()
 
         if not self._load_keys():
             root.destroy()
@@ -78,12 +86,10 @@ class EnigmaApp:
         self.clipboard_service = ClipboardService(root)
         self.global_secret_service = GlobalSecretService(self.ks)
 
-        # TOTP service
-        self.totp_service = TOTPService()
-        self._init_totp()
-
-        # 2b. TOTP verification on startup (only if user completed TOTP setup)
-        if self._is_totp_setup_complete():
+        # 2b. TOTP verification on startup (only if TOTP is enabled AND setup complete)
+        #     The TOTP secret was already loaded by _init_totp() during _load_keys().
+        #     If the secret is missing (DB corruption, etc.), skip verification gracefully.
+        if self._is_totp_enabled() and self._is_totp_setup_complete() and self.totp_service.has_secret():
             verify_dlg = TOTPVerifyDialog(root, self.totp_service)
             if not verify_dlg.show():
                 messagebox.showerror("Access Denied", "TOTP verification failed.\nApplication will now exit.")
@@ -91,6 +97,8 @@ class EnigmaApp:
                 self.ks.wipe()
                 root.destroy()
                 return
+        elif self._is_totp_enabled() and self._is_totp_setup_complete() and not self.totp_service.has_secret():
+            logger.warning("TOTP setup marked complete but secret not loaded – skipping verification")
 
         # 3. NTP sync thread
         self._ntp_thread = threading.Thread(target=self._ntp_sync_loop, daemon=True)
@@ -134,9 +142,12 @@ class EnigmaApp:
         while True:
             t = get_ntp_time()
             if t is not None:
-                self.encryption_service.update_ntp_time(t)
+                with self._service_lock:
+                    self.encryption_service.update_ntp_time(t)
             else:
-                self.encryption_service.update_ntp_time(None)
+                logger.warning("NTP sync failed, falling back to system time")
+                with self._service_lock:
+                    self.encryption_service.update_ntp_time(None)
             time.sleep(1800)
 
     def process_queue(self):
@@ -163,8 +174,10 @@ class EnigmaApp:
                 messagebox.showerror("Error", "Failed to load new keys.")
                 pw = None; gc.collect()
                 return False
-            # Store a password verifier for unlock
-            self._master_password_hash = hashlib.sha256(pw.encode()).hexdigest()
+            # Store a password verifier for unlock using Argon2id
+            self._master_password_hash = self._ph.hash(pw)
+            # Initialize TOTP with master password
+            self._init_totp(pw)
             logger.info("Master password hash set (first run)")
             pw = None; gc.collect()
             return True
@@ -178,7 +191,9 @@ class EnigmaApp:
                     messagebox.showerror("Wrong Password", "Incorrect password.")
                     continue
                 if self.ks.load(pw):
-                    self._master_password_hash = hashlib.sha256(pw.encode()).hexdigest()
+                    self._master_password_hash = self._ph.hash(pw)
+                    # Initialize TOTP with master password
+                    self._init_totp(pw)
                     logger.info("Master password hash set (existing DB)")
                     pw = None; gc.collect()
                     return True
@@ -191,41 +206,160 @@ class EnigmaApp:
     # ------------------------------------------------------------------
     # TOTP initialisation
     # ------------------------------------------------------------------
-    def _init_totp(self) -> None:
-        """Initialise TOTP: load secret from DB or generate a new one."""
+    def _load_totp_secret(self, totp_service: TOTPService, password: str = None,
+                          ks=None) -> bool:
+        """Load TOTP secret from DB, trying multiple decryption strategies.
+        
+        The stored value is the exact 20-byte secret used for TOTP generation.
+        On load, it is set directly via set_raw_secret() to avoid any
+        transformation mismatch.
+        
+        Tries in order:
+          1. Decrypt with master password
+          2. Decrypt with global_secret hex (used when regenerated while unlocked)
+          3. Legacy: use first 20 bytes of global_secret
+        
+        Returns True if an existing secret was loaded, False otherwise.
+        """
         import database
-        conn = database.get_connection()
-        try:
+        from contextlib import closing
+
+        if ks is None:
+            ks = self.ks
+
+        with closing(database.get_connection()) as conn:
             row = conn.execute(
                 "SELECT value FROM settings WHERE key=?", (TOTP_SECRET_KEY,)
             ).fetchone()
-            if row:
-                # Decrypt the stored TOTP secret
-                enc_dict = json.loads(row[0])
-                # We need the master password to decrypt – use global_secret as proxy
-                # The TOTP secret is encrypted with the same master password
-                # We'll derive it from global_secret instead (simpler & more secure)
-                if self.ks.global_secret:
-                    self.totp_service.set_secret(bytes(self.ks.global_secret))
-                else:
-                    self._generate_new_totp()
-            else:
-                self._generate_new_totp()
+
+        if row:
+            enc_dict = json.loads(row[0])
+            
+            # Strategy 1: decrypt with master password
+            if password:
+                try:
+                    totp_secret = database.decrypt_secret(enc_dict, password)
+                    logger.debug("Strategy 1 (password): decrypted %d bytes", len(totp_secret))
+                    if len(totp_secret) == 20:
+                        totp_service.set_raw_secret(totp_secret)
+                    else:
+                        # Older format: 32-byte raw secret, take first 20
+                        totp_service.set_secret(totp_secret)
+                    # Self-test: generate and verify a code
+                    test_code = totp_service.generate()
+                    if totp_service.verify(test_code):
+                        logger.info("TOTP secret loaded (password) – self-test OK, b32=%s",
+                                    totp_service.get_b32_secret()[:8] + "...")
+                        return True
+                    else:
+                        logger.error("TOTP self-test FAILED after password decrypt")
+                except Exception as e:
+                    logger.debug("Strategy 1 (password) failed: %s", e)
+
+            # Strategy 2: decrypt with global_secret hex
+            if ks.global_secret:
+                try:
+                    gs_key = bytes(ks.global_secret).hex()
+                    totp_secret = database.decrypt_secret(enc_dict, gs_key)
+                    logger.debug("Strategy 2 (gs_hex): decrypted %d bytes", len(totp_secret))
+                    if len(totp_secret) == 20:
+                        totp_service.set_raw_secret(totp_secret)
+                    else:
+                        totp_service.set_secret(totp_secret)
+                    test_code = totp_service.generate()
+                    if totp_service.verify(test_code):
+                        logger.info("TOTP secret loaded (global_secret) – self-test OK, b32=%s",
+                                    totp_service.get_b32_secret()[:8] + "...")
+                        return True
+                    else:
+                        logger.error("TOTP self-test FAILED after global_secret decrypt")
+                except Exception as e:
+                    logger.debug("Strategy 2 (gs_hex) failed: %s", e)
+
+            logger.warning("All decryption strategies failed for stored TOTP secret")
+        else:
+            logger.debug("No TOTP secret found in database")
+
+        # Strategy 3: legacy – use global_secret directly (only if no DB row)
+        if ks.global_secret and not row:
+            try:
+                totp_service.set_secret(bytes(ks.global_secret))
+                logger.info("TOTP secret derived from global_secret (legacy mode)")
+                return True
+            except Exception as e:
+                logger.warning("Legacy TOTP derivation failed: %s", e)
+
+        return False
+
+    def _persist_totp_secret(self, secret_bytes: bytes, password: str = None) -> None:
+        """Encrypt and store the exact 20-byte TOTP secret in the database.
+        
+        Stores the actual secret used for TOTP generation (not the original
+        random input), ensuring perfect roundtrip consistency.
+        
+        Uses master password if available, otherwise falls back to
+        global_secret hex so the secret can still be persisted while
+        the app is unlocked (password already wiped from memory).
+        """
+        import database
+        from contextlib import closing
+
+        enc_key = None
+        key_label = "none"
+        if password:
+            enc_key = password
+            key_label = "password"
+        elif self.ks.global_secret:
+            enc_key = bytes(self.ks.global_secret).hex()
+            key_label = "global_secret_hex"
+
+        if enc_key is None:
+            logger.warning("TOTP secret NOT persisted – no encryption key available")
+            return
+
+        try:
+            enc_dict = database.encrypt_secret(secret_bytes, enc_key)
+            with closing(database.get_connection()) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (TOTP_SECRET_KEY, json.dumps(enc_dict))
+                )
+                conn.commit()
+            logger.info("TOTP secret persisted (%d bytes, key=%s, b32=%s...)",
+                        len(secret_bytes), key_label,
+                        base64.b32encode(secret_bytes).decode().rstrip("=")[:8])
+        except Exception as e:
+            logger.error("Failed to persist TOTP secret: %s", e)
+
+    def _init_totp(self, password: str = None) -> None:
+        """Initialise TOTP: load secret from DB or generate a new one.
+        
+        Args:
+            password: Master password for decrypting/generating TOTP secret.
+                      Required for first-time setup or loading existing secret.
+        """
+        try:
+            loaded = self._load_totp_secret(self.totp_service, password)
+            if not loaded:
+                self._generate_new_totp(password)
         except Exception as e:
             logger.warning("TOTP init failed, generating new secret: %s", e)
-            self._generate_new_totp()
-        finally:
-            conn.close()
+            self._generate_new_totp(password)
 
-    def _generate_new_totp(self) -> None:
-        """Generate a new TOTP secret and store it."""
-        import database
-        if self.ks.global_secret:
-            self.totp_service.set_secret(bytes(self.ks.global_secret))
-        else:
-            # Fallback: generate random secret
-            secret = TOTPService.generate_random_secret()
-            self.totp_service.set_secret(secret)
+    def _generate_new_totp(self, password: str = None) -> None:
+        """Generate a new independent TOTP secret and store it encrypted.
+        
+        Generates 32 random bytes, sets them in the TOTP service (which uses
+        the first 20 bytes), then persists the exact 20-byte secret that will
+        be used for code generation.
+        """
+        new_secret = TOTPService.generate_random_secret(32)
+        self.totp_service.set_secret(new_secret)
+        # Persist the EXACT 20-byte secret used for TOTP (not the 32-byte input)
+        actual_secret = self.totp_service.get_raw_secret()
+        self._persist_totp_secret(actual_secret, password)
+        logger.info("New TOTP secret generated and persisted (b32=%s...)",
+                    self.totp_service.get_b32_secret()[:8])
 
     # ------------------------------------------------------------------
     # Header & tab setup
@@ -254,14 +388,23 @@ class EnigmaApp:
         lock_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
 
         # ── TOTP Setup Button ──
-        totp_btn = tk.Button(
+        self._totp_setup_btn = tk.Button(
             header, text="🔑 TOTP\nSetup",
             font=("Segoe UI", 9, "bold"),
             bg="#2266aa", fg="white", activebackground="#3388cc",
             activeforeground="white", bd=0, padx=10, pady=5,
             cursor="hand2", command=self._show_totp_setup
         )
-        totp_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
+        self._totp_setup_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
+
+        # ── TOTP Enable/Disable Toggle Button ──
+        self._totp_toggle_btn = tk.Button(
+            header, font=("Segoe UI", 9, "bold"),
+            bd=0, padx=10, pady=5, cursor="hand2",
+            command=self._toggle_totp
+        )
+        self._totp_toggle_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
+        self._update_totp_toggle_button()
 
         self.header_canvas = tk.Canvas(
             header,
@@ -356,7 +499,7 @@ class EnigmaApp:
             # Try to load keys directly
             temp_ks = KeyStore()
             if temp_ks.verify_password(pw) and temp_ks.load(pw):
-                self._master_password_hash = hashlib.sha256(pw.encode()).hexdigest()
+                self._master_password_hash = self._ph.hash(pw)
                 logger.info("Password hash recovered successfully")
                 temp_ks.wipe()
                 pw = None; gc.collect()
@@ -372,11 +515,16 @@ class EnigmaApp:
         if not pw:
             return
 
-        # Step 2: Verify password hash
-        entered_hash = hashlib.sha256(pw.encode('utf-8')).hexdigest()
-        if entered_hash != self._master_password_hash:
+        # Step 2: Verify password hash using Argon2
+        try:
+            self._ph.verify(self._master_password_hash, pw)
+        except VerifyMismatchError:
             messagebox.showerror("Failed", "Incorrect master password.")
             logger.warning("Unlock failed: incorrect password")
+            return
+        except Exception as e:
+            messagebox.showerror("Error", f"Password verification failed: {e}")
+            logger.error("Unlock failed: Argon2 verification error: %s", e)
             return
 
         # Step 3: Reload keys with the verified password
@@ -386,14 +534,16 @@ class EnigmaApp:
             logger.error("Unlock failed: KeyStore.load() returned False")
             return
 
-        # Step 4: TOTP verification (only if user completed TOTP setup)
+        # Step 4: TOTP verification (only if TOTP is enabled AND setup complete)
         temp_totp = TOTPService()
-        if self._is_totp_setup_complete():
-            try:
-                temp_totp.set_secret(bytes(temp_ks.global_secret))
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to initialize TOTP: {e}")
-                logger.error("Unlock failed: TOTP init error: %s", e)
+        if self._is_totp_enabled() and self._is_totp_setup_complete():
+            # Load the independent TOTP secret from DB (same logic as _init_totp)
+            loaded = self._load_totp_secret(temp_totp, password=pw, ks=temp_ks)
+            if not loaded:
+                messagebox.showerror("Error",
+                    "Failed to load TOTP secret from database.\n"
+                    "TOTP may need to be reconfigured.")
+                logger.error("Unlock failed: could not load TOTP secret from DB")
                 temp_ks.wipe()
                 return
 
@@ -405,32 +555,30 @@ class EnigmaApp:
                 return
         else:
             # TOTP not set up – still need the service instance but skip verification
-            try:
-                temp_totp.set_secret(bytes(temp_ks.global_secret))
-            except Exception:
-                pass  # Non-critical if TOTP wasn't configured
+            self._load_totp_secret(temp_totp, password=pw, ks=temp_ks)
 
         # Step 6: Success – restore keys and rebuild services
         self.ks = temp_ks
         self.totp_service = temp_totp  # reuse instance (already has secret)
 
-        # Rebuild services with restored keys
-        self.encryption_service = EncryptionService(self.ks)
-        self.file_service = FileService(self.ks)
-        self.friends_service = FriendsService(self.ks)
-        self.clipboard_service = ClipboardService(self.root)
+        # Rebuild services with restored keys (thread-safe)
+        with self._service_lock:
+            self.encryption_service = EncryptionService(self.ks)
+            self.file_service = FileService(self.ks)
+            self.friends_service = FriendsService(self.ks)
+            self.clipboard_service = ClipboardService(self.root)
 
-        # Rebuild secret service with restored keys
-        self.global_secret_service = GlobalSecretService(self.ks)
-        
-        # Update tab service references
-        self.encrypt_tab.service = self.encryption_service
-        self.encrypt_tab.friends_service = self.friends_service
-        self.encrypt_tab.clipboard_service = self.clipboard_service
-        self.file_tab.file_service = self.file_service
-        self.secret_tab.service = self.global_secret_service
-        self.secret_tab.clipboard_service = self.clipboard_service
-        self.friends_tab.service = self.friends_service
+            # Rebuild secret service with restored keys
+            self.global_secret_service = GlobalSecretService(self.ks)
+            
+            # Update tab service references
+            self.encrypt_tab.service = self.encryption_service
+            self.encrypt_tab.friends_service = self.friends_service
+            self.encrypt_tab.clipboard_service = self.clipboard_service
+            self.file_tab.file_service = self.file_service
+            self.secret_tab.service = self.global_secret_service
+            self.secret_tab.clipboard_service = self.clipboard_service
+            self.friends_tab.service = self.friends_service
 
         self._is_locked = False
         self.lock_screen.unlock()
@@ -462,13 +610,13 @@ class EnigmaApp:
     def _is_totp_setup_complete(self) -> bool:
         """Check whether the user has completed TOTP setup (scanned QR / saved secret)."""
         import database
+        from contextlib import closing
         try:
-            conn = database.get_connection()
-            row = conn.execute(
-                "SELECT value FROM settings WHERE key=?", (TOTP_SETUP_KEY,)
-            ).fetchone()
-            conn.close()
-            return row is not None and row[0] == "1"
+            with closing(database.get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT value FROM settings WHERE key=?", (TOTP_SETUP_KEY,)
+                ).fetchone()
+                return row is not None and row[0] == "1"
         except Exception as e:
             logger.warning("Failed to check TOTP setup status: %s", e)
             return False
@@ -476,17 +624,107 @@ class EnigmaApp:
     def _set_totp_setup_complete(self, value: bool) -> None:
         """Mark TOTP setup as complete (or reset it)."""
         import database
+        from contextlib import closing
         try:
-            conn = database.get_connection()
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (TOTP_SETUP_KEY, "1" if value else "0")
-            )
-            conn.commit()
-            conn.close()
+            with closing(database.get_connection()) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (TOTP_SETUP_KEY, "1" if value else "0")
+                )
+                conn.commit()
             logger.info("TOTP setup complete flag set to %s", value)
         except Exception as e:
             logger.error("Failed to set TOTP setup status: %s", e)
+
+    def _is_totp_enabled(self) -> bool:
+        """Check whether TOTP verification is currently enabled."""
+        import database
+        from contextlib import closing
+        try:
+            with closing(database.get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT value FROM settings WHERE key=?", (TOTP_ENABLED_KEY,)
+                ).fetchone()
+                # Default to True if key doesn't exist (backward compat: existing setups stay enabled)
+                if row is None:
+                    return True
+                return row[0] == "1"
+        except Exception as e:
+            logger.warning("Failed to check TOTP enabled status: %s", e)
+            return True
+
+    def _set_totp_enabled(self, value: bool) -> None:
+        """Enable or disable TOTP verification."""
+        import database
+        from contextlib import closing
+        try:
+            with closing(database.get_connection()) as conn:
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (TOTP_ENABLED_KEY, "1" if value else "0")
+                )
+                conn.commit()
+            logger.info("TOTP enabled flag set to %s", value)
+        except Exception as e:
+            logger.error("Failed to set TOTP enabled status: %s", e)
+
+    def _update_totp_toggle_button(self) -> None:
+        """Update the TOTP toggle button appearance based on current state."""
+        enabled = self._is_totp_enabled()
+        if enabled:
+            self._totp_toggle_btn.config(
+                text="✅ TOTP\nON",
+                bg="#28a745", fg="white",
+                activebackground="#34d058", activeforeground="white"
+            )
+        else:
+            self._totp_toggle_btn.config(
+                text="❌ TOTP\nOFF",
+                bg="#6c757d", fg="white",
+                activebackground="#5a6268", activeforeground="white"
+            )
+
+    def _toggle_totp(self) -> None:
+        """Toggle TOTP verification on/off with confirmation."""
+        if self._is_locked:
+            messagebox.showwarning("Locked", "Unlock the app first.")
+            return
+
+        currently_enabled = self._is_totp_enabled()
+
+        if currently_enabled:
+            # Disabling TOTP
+            if not messagebox.askyesno(
+                "Disable TOTP",
+                "Are you sure you want to DISABLE TOTP verification?\n\n"
+                "This will remove the two-factor authentication requirement\n"
+                "on startup and unlock. Your TOTP secret will be preserved\n"
+                "so you can re-enable it later without re-scanning.",
+                icon="warning"
+            ):
+                return
+            self._set_totp_enabled(False)
+            logger.warning("TOTP verification DISABLED by user")
+            messagebox.showinfo("TOTP Disabled", "TOTP verification has been disabled.\n"
+                                "You can re-enable it at any time.")
+        else:
+            # Enabling TOTP
+            if not self.totp_service.has_secret():
+                # No secret exists – need to run setup first
+                messagebox.showinfo("TOTP Setup Required",
+                                    "No TOTP secret found. Please set up TOTP first.")
+                self._show_totp_setup()
+                # After setup, enable TOTP
+                if self._is_totp_setup_complete() and self.totp_service.has_secret():
+                    self._set_totp_enabled(True)
+                    logger.info("TOTP verification ENABLED by user (after setup)")
+            else:
+                self._set_totp_enabled(True)
+                logger.info("TOTP verification ENABLED by user")
+                messagebox.showinfo("TOTP Enabled", "TOTP verification has been enabled.\n"
+                                    "You will be required to enter a TOTP code on startup and unlock.")
+
+        self._update_totp_toggle_button()
 
     def _show_totp_setup(self) -> None:
         """Show the TOTP setup dialog with provisioning URI."""
@@ -503,13 +741,20 @@ class EnigmaApp:
             self._set_totp_setup_complete(True)
 
     def _regenerate_totp(self) -> None:
-        """Regenerate the TOTP secret (called from setup dialog)."""
-        import database
-        import secrets
-        # Generate a new random secret
-        new_secret = secrets.token_bytes(32)
+        """Regenerate the TOTP secret (called from setup dialog).
+        
+        Generates a new cryptographically secure secret, sets it in the
+        TOTP service, and persists the exact 20-byte secret to the database.
+        Uses global_secret for encryption since the master password is
+        not available while the app is unlocked.
+        """
+        new_secret = TOTPService.generate_random_secret(32)
         self.totp_service.set_secret(new_secret)
-        logger.info("TOTP secret regenerated")
+        # Persist the EXACT 20-byte secret used for TOTP
+        actual_secret = self.totp_service.get_raw_secret()
+        self._persist_totp_secret(actual_secret)
+        logger.info("TOTP secret regenerated and persisted (b32=%s...)",
+                    self.totp_service.get_b32_secret()[:8])
 
     # ------------------------------------------------------------------
     # Header rotor animation
