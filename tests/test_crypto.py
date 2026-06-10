@@ -310,10 +310,19 @@ class TestEncryptDecryptMessage:
             decrypt_message(packet, const_key, now=int(time.time()))
 
     def test_message_outside_time_window(self, const_key, sample_plaintext):
-        old_ts = int(time.time()) - TIME_STEP * (WINDOW_SIZE + 10)
+        # With WINDOW_SIZE=2, messages older than ±2 steps (±60s) must be rejected
+        old_ts = int(time.time()) - TIME_STEP * (WINDOW_SIZE + 5)
         packet, _ = encrypt_message(sample_plaintext, const_key, old_ts)
         with pytest.raises(ValueError, match="outside acceptable window"):
             decrypt_message(packet, const_key, now=int(time.time()))
+
+    def test_message_within_narrow_window(self, const_key, sample_plaintext):
+        # Verify that messages within ±2 steps (±60s) are still accepted
+        now = int(time.time())
+        recent_ts = now - TIME_STEP * WINDOW_SIZE  # exactly at boundary
+        packet, _ = encrypt_message(sample_plaintext, const_key, recent_ts)
+        result = decrypt_message(packet, const_key, now=now)
+        assert sample_plaintext.decode() in result
 
     def test_wrong_shared_secret_fails(self, sample_plaintext):
         key1 = secrets.token_bytes(AES_KEY_SIZE)

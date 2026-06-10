@@ -18,7 +18,7 @@ import hashlib
 AES_KEY_SIZE = 32       # 256-bit AES key
 NONCE_SIZE = 12         # 96-bit nonce for AES-GCM
 TIME_STEP = 30          # Time-based key rotation interval (seconds)
-WINDOW_SIZE = 20        # Sliding window size: ±20 steps (±600 seconds tolerance)
+WINDOW_SIZE = 2         # Sliding window size: ±2 steps (±60 seconds tolerance)
 SELF_DESTRUCT_FLAG = 4  # Bit flag for self-destruct messages
 
 def _pack_bytes(data: bytes) -> bytes:
