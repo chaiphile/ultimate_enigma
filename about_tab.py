@@ -66,6 +66,26 @@ class AboutTab:
                    bootstyle="danger",
                    width=18).pack(side=tk.LEFT, padx=8)
 
+        # ── Password Change section ───────────────────────────────
+        sep2 = ttkb.Separator(f, orient="horizontal")
+        sep2.pack(fill="x", pady=(25, 15))
+
+        ttkb.Label(f, text="Security",
+                  font=("Segoe UI", 12, "bold"),
+                  bootstyle="inverse-primary").pack(pady=(0, 10))
+
+        ttkb.Button(f, text="🔑 Change Master Password",
+                   command=self._change_password,
+                   bootstyle="info",
+                   width=24).pack(pady=(0, 5))
+
+    # ------------------------------------------------------------------
+    # Change Password
+    # ------------------------------------------------------------------
+    def _change_password(self):
+        """Delegate to the app's password change handler."""
+        self.app._change_password()
+
     # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------

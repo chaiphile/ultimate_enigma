@@ -757,6 +757,79 @@ class EnigmaApp:
                     self.totp_service.get_b32_secret()[:8])
 
     # ------------------------------------------------------------------
+    # Change Master Password
+    # ------------------------------------------------------------------
+    def _change_password(self) -> None:
+        """Orchestrate master password change with verification and strength enforcement."""
+        if self._is_locked:
+            messagebox.showwarning("Locked", "Unlock the app first.")
+            return
+
+        # Step 1: Verify current password
+        old_pw = password_dialog(
+            self.root,
+            "Change Password – Verify Current",
+            confirm=False
+        )
+        if not old_pw:
+            return
+
+        if not self.ks.verify_password(old_pw):
+            messagebox.showerror("Verification Failed", "Current password is incorrect.")
+            old_pw = None; gc.collect()
+            return
+
+        # Step 2: Enter new password with confirmation + strength enforcement
+        new_pw = password_dialog(
+            self.root,
+            "Change Password – Set New Password",
+            confirm=True,
+            enforce_strength=True
+        )
+        if not new_pw:
+            old_pw = None; gc.collect()
+            return
+
+        # Prevent reusing the same password
+        if new_pw == old_pw:
+            messagebox.showwarning(
+                "Same Password",
+                "New password must be different from the current password."
+            )
+            old_pw = None; new_pw = None; gc.collect()
+            return
+
+        # Step 3: Perform the password change (re-encrypts all secrets)
+        success = self.ks.change_password(old_pw, new_pw)
+        if not success:
+            messagebox.showerror(
+                "Password Change Failed",
+                "An error occurred while changing the password.\n"
+                "Your original password is still valid.\n"
+                "Check the log for details."
+            )
+            old_pw = None; new_pw = None; gc.collect()
+            return
+
+        # Step 4: Update in-memory password hash for lock/unlock
+        self._master_password_hash = self._ph.hash(new_pw)
+
+        # Step 5: Re-persist TOTP secret with new password
+        if self.totp_service.has_secret():
+            actual_secret = self.totp_service.get_raw_secret()
+            self._persist_totp_secret(actual_secret, new_pw)
+
+        old_pw = None; new_pw = None; gc.collect()
+
+        messagebox.showinfo(
+            "Password Changed",
+            "Master password has been changed successfully.\n\n"
+            "All secrets have been re-encrypted with the new password.\n"
+            "Use the new password for future unlocks."
+        )
+        logger.info("Master password changed successfully via UI")
+
+    # ------------------------------------------------------------------
     # Header rotor animation
     # ------------------------------------------------------------------
     def _start_rotor_animation(self):

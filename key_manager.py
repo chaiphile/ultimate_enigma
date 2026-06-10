@@ -218,6 +218,139 @@ class KeyStore:
                     secrets.append(sec)
             return my_priv, friends_for_sig, secrets
 
+    def change_password(self, old_password: str, new_password: str) -> bool:
+        """Re-encrypt all stored secrets with a new master password.
+
+        Steps:
+          1. Verify old_password can decrypt global_secret.
+          2. Decrypt every secret (global, friends, private key, TOTP).
+          3. Re-encrypt each with new_password.
+          4. Update in-memory state.
+
+        Returns True on success, False on failure.
+        On failure the database is left unchanged (atomic via transaction).
+        """
+        with self._lock:
+            conn = database.get_connection()
+            try:
+                # --- 1. Verify old password ---
+                row = conn.execute(
+                    "SELECT value FROM settings WHERE key='global_secret'"
+                ).fetchone()
+                if not row:
+                    logger.error("change_password: global_secret not found")
+                    return False
+                enc_dict = json.loads(row[0])
+                try:
+                    database.decrypt_secret(enc_dict, old_password)
+                except Exception:
+                    logger.warning("change_password: old password verification failed")
+                    return False
+
+                # --- 2. Decrypt all secrets with old password ---
+                # Global secret
+                gs_plain = database.decrypt_secret(enc_dict, old_password)
+
+                # Private key
+                row_pk = conn.execute(
+                    "SELECT value FROM settings WHERE key='private_key_encrypted'"
+                ).fetchone()
+                if not row_pk:
+                    logger.error("change_password: private_key_encrypted not found")
+                    return False
+                try:
+                    priv_key = _pem_to_privkey(row_pk[0].encode(), old_password.encode())
+                except Exception as e:
+                    logger.error("change_password: cannot decrypt private key: %s", e)
+                    return False
+
+                # Friend shared secrets
+                friend_rows = conn.execute(
+                    "SELECT name, shared_secret_encrypted FROM friends "
+                    "WHERE has_shared_secret=1 AND shared_secret_encrypted IS NOT NULL"
+                ).fetchall()
+                friend_secrets = {}  # name -> plaintext bytes
+                for fname, sec_json in friend_rows:
+                    if not sec_json:
+                        continue
+                    try:
+                        sec_dict = json.loads(sec_json)
+                        friend_secrets[fname] = database.decrypt_secret(sec_dict, old_password)
+                    except Exception as e:
+                        logger.warning(
+                            "change_password: could not decrypt secret for '%s': %s",
+                            fname, e
+                        )
+
+                # TOTP secret (optional)
+                totp_plain = None
+                row_totp = conn.execute(
+                    "SELECT value FROM settings WHERE key='totp_secret_encrypted'"
+                ).fetchone()
+                if row_totp:
+                    try:
+                        totp_dict = json.loads(row_totp[0])
+                        totp_plain = database.decrypt_secret(totp_dict, old_password)
+                    except Exception as e:
+                        logger.warning("change_password: could not decrypt TOTP secret: %s", e)
+
+                # --- 3. Re-encrypt everything with new password ---
+                # Global secret
+                new_gs_enc = database.encrypt_secret(gs_plain, new_password)
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='global_secret'",
+                    (json.dumps(new_gs_enc),)
+                )
+
+                # Private key
+                new_pk_pem = _privkey_to_encrypted_pem(priv_key, new_password.encode())
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='private_key_encrypted'",
+                    (new_pk_pem,)
+                )
+
+                # Friend shared secrets
+                for fname, sec_plain in friend_secrets.items():
+                    new_sec_enc = database.encrypt_secret(sec_plain, new_password)
+                    conn.execute(
+                        "UPDATE friends SET shared_secret_encrypted=? WHERE name=?",
+                        (json.dumps(new_sec_enc), fname)
+                    )
+
+                # TOTP secret
+                if totp_plain is not None:
+                    new_totp_enc = database.encrypt_secret(totp_plain, new_password)
+                    conn.execute(
+                        "UPDATE settings SET value=? WHERE key='totp_secret_encrypted'",
+                        (json.dumps(new_totp_enc),)
+                    )
+
+                conn.commit()
+
+                # --- 4. Update in-memory state ---
+                self.global_secret = bytearray(gs_plain)
+                # Reload private key reference (already decrypted above)
+                self.my_priv = priv_key
+                # Update friend secrets in memory
+                updated_friends = []
+                for name, pub, sec in self.friends:
+                    if name in friend_secrets:
+                        updated_friends.append((name, pub, bytearray(friend_secrets[name])))
+                    else:
+                        updated_friends.append((name, pub, sec))
+                self.friends = updated_friends
+
+                logger.info("Master password changed successfully (%d friend secrets re-encrypted)",
+                            len(friend_secrets))
+                return True
+
+            except Exception as e:
+                conn.rollback()
+                logger.error("change_password failed (rolled back): %s", e)
+                return False
+            finally:
+                conn.close()
+
     def wipe(self):
         """Securely erase all sensitive keys from memory."""
         with self._lock:
