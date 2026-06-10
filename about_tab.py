@@ -79,12 +79,24 @@ class AboutTab:
                    bootstyle="info",
                    width=24).pack(pady=(0, 5))
 
+        ttkb.Button(f, text="🚨 Set Duress Password",
+                   command=self._set_duress_password,
+                   bootstyle="danger-outline",
+                   width=24).pack(pady=(0, 5))
+
     # ------------------------------------------------------------------
     # Change Password
     # ------------------------------------------------------------------
     def _change_password(self):
         """Delegate to the app's password change handler."""
         self.app._change_password()
+
+    # ------------------------------------------------------------------
+    # Duress Password
+    # ------------------------------------------------------------------
+    def _set_duress_password(self):
+        """Delegate to the app's duress password setup handler."""
+        self.app._set_duress_password()
 
     # ------------------------------------------------------------------
     # Export

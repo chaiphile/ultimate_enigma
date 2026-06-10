@@ -66,11 +66,17 @@ class KeyStore:
     def __init__(self):
         self._lock = threading.RLock()
         self.failed_attempts = 0          # global brute‑force counter
+        self._duress_mode = False
         self.my_pub = None
         self.my_priv = None
         self.global_secret: Optional[bytearray] = None   # changed to bytearray for secure wiping
         self.friends: List[Tuple[str, object, Optional[bytearray]]] = []   # (name, pub, shared_secret or None)
         self.friends_x25519: Dict[str, str] = {}   # name -> Base64 of raw X25519 public key
+
+    @property
+    def is_duress_mode(self) -> bool:
+        """True if the last successful authentication used the duress password."""
+        return self._duress_mode
 
     def load(self, password: str) -> bool:
         """Load all keys from database. Password is used for decryption and then discarded."""
@@ -129,26 +135,70 @@ class KeyStore:
             conn.close()
         return True
 
-    def verify_password(self, password: str) -> bool:
-        """Check if `password` can decrypt the stored global secret.
-        Implements a global brute‑force delay after 5 cumulative failures.
+    def verify_password(self, password: str) -> tuple:
+        """Check if `password` matches master or duress password.
+
+        Implements a global brute-force delay after 5 cumulative failures.
+
+        Returns:
+            (is_valid: bool, is_duress: bool)
         """
         with self._lock:
             if self.failed_attempts >= 5:
                 time.sleep(5)   # slow down repeated guesses
+
+            # Check master password first
             try:
                 conn = database.get_connection()
-                row = conn.execute("SELECT value FROM settings WHERE key='global_secret'").fetchone()
+                row = conn.execute(
+                    "SELECT value FROM settings WHERE key='global_secret'"
+                ).fetchone()
                 conn.close()
-                if not row:
-                    return False
-                enc_dict = json.loads(row[0])
-                database.decrypt_secret(enc_dict, password)
-                self.failed_attempts = 0
-                return True
+                if row:
+                    enc_dict = json.loads(row[0])
+                    database.decrypt_secret(enc_dict, password)
+                    self.failed_attempts = 0
+                    self._duress_mode = False
+                    return True, False
             except Exception:
-                self.failed_attempts += 1
-                return False
+                pass
+
+            # Check duress password
+            try:
+                conn = database.get_connection()
+                row = conn.execute(
+                    "SELECT value FROM settings WHERE key='duress_verifier'"
+                ).fetchone()
+                conn.close()
+                if row:
+                    duress_data = json.loads(row[0])
+                    database.decrypt_secret(duress_data, password)
+                    self.failed_attempts = 0
+                    self._duress_mode = True
+                    logger.warning("DURESS PASSWORD USED - entering decoy mode")
+                    return True, True
+            except Exception:
+                pass
+
+            self.failed_attempts += 1
+            return False, False
+
+    def set_duress_password(self, duress_password: str) -> None:
+        """Set up a duress password that triggers decoy mode.
+
+        Creates a dummy secret encrypted with the duress password.
+        When this password is entered at login, verify_password() will
+        succeed and flag duress mode, causing the app to load decoy data.
+        """
+        dummy_secret = secrets.token_bytes(32)
+        enc = database.encrypt_secret(dummy_secret, duress_password)
+        with closing(database.get_connection()) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("duress_verifier", json.dumps(enc))
+            )
+            conn.commit()
+        logger.info("Duress password configured")
 
     def update_global_secret(self, new_secret: bytes, password: str) -> None:
         enc = database.encrypt_secret(new_secret, password)
@@ -374,6 +424,32 @@ class KeyStore:
             self.my_priv = None
             self.my_pub = None
             gc.collect()
+
+    def load_duress_decoy(self) -> bool:
+        """Load decoy/empty state for duress mode.
+
+        Wipes all real keys and populates the store with empty/fake data
+        so the application appears functional but contains no real information.
+
+        Returns True on success.
+        """
+        with self._lock:
+            # Wipe all real secrets first
+            self.wipe()
+
+            # Generate a throwaway RSA key pair so the app doesn't crash
+            # when code paths expect my_pub/my_priv to exist
+            decoy_priv = rsa.generate_private_key(65537, 2048, default_backend())
+            self.my_priv = decoy_priv
+            self.my_pub = decoy_priv.public_key()
+
+            # Empty friends list (already cleared by wipe)
+            # Empty global secret replaced with random bytes so length checks pass
+            self.global_secret = bytearray(secrets.token_bytes(32))
+
+            self._duress_mode = True
+            logger.warning("Duress decoy state loaded - no real data accessible")
+            return True
 
 
 # KDF version tag for password-based file encryption

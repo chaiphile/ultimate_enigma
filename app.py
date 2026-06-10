@@ -187,9 +187,17 @@ class EnigmaApp:
                 if not pw:
                     logger.warning("User cancelled password dialog (attempt %d)", attempt + 1)
                     return False
-                if not self.ks.verify_password(pw):
+                is_valid, is_duress = self.ks.verify_password(pw)
+                if not is_valid:
                     messagebox.showerror("Wrong Password", "Incorrect password.")
                     continue
+
+                if is_duress:
+                    # Enter decoy mode - app appears functional with no real data
+                    self._enter_duress_mode()
+                    pw = None; gc.collect()
+                    return True
+
                 if self.ks.load(pw):
                     self._master_password_hash = self._ph.hash(pw)
                     # Initialize TOTP with master password
@@ -757,6 +765,86 @@ class EnigmaApp:
                     self.totp_service.get_b32_secret()[:8])
 
     # ------------------------------------------------------------------
+    # Duress Mode
+    # ------------------------------------------------------------------
+    def _enter_duress_mode(self) -> None:
+        """Enter decoy mode with fake data when duress password is used.
+
+        The application will appear fully functional but contain no real
+        keys, friends, or messages. All real secrets are wiped from memory.
+        """
+        logger.warning("Entering DURESS / DECOY mode")
+        self.ks.load_duress_decoy()
+        # Set a dummy password hash so unlock flow doesn't fail
+        self._master_password_hash = self._ph.hash("duress_placeholder")
+        # Clear any existing TOTP secret
+        self.totp_service.clear_secret()
+
+    def _set_duress_password(self) -> None:
+        """Orchestrate setting a duress password via UI dialogs."""
+        if self._is_locked:
+            messagebox.showwarning("Locked", "Unlock the app first.")
+            return
+
+        # Step 1: Verify master password before allowing duress setup
+        master_pw = password_dialog(
+            self.root,
+            "Set Duress Password - Verify Master",
+            confirm=False
+        )
+        if not master_pw:
+            return
+
+        is_valid, is_duress = self.ks.verify_password(master_pw)
+        if not is_valid or is_duress:
+            messagebox.showerror(
+                "Verification Failed",
+                "Master password is incorrect.\n"
+                "Duress password cannot be set without master verification."
+            )
+            master_pw = None; gc.collect()
+            return
+
+        # Step 2: Enter duress password with confirmation
+        duress_pw = password_dialog(
+            self.root,
+            "Set Duress Password",
+            confirm=True,
+            enforce_strength=True
+        )
+        if not duress_pw:
+            master_pw = None; gc.collect()
+            return
+
+        # Prevent duress password matching master password
+        if duress_pw == master_pw:
+            messagebox.showwarning(
+                "Invalid Choice",
+                "Duress password must be different from the master password."
+            )
+            master_pw = None; duress_pw = None; gc.collect()
+            return
+
+        # Step 3: Store the duress password verifier
+        try:
+            self.ks.set_duress_password(duress_pw)
+            messagebox.showinfo(
+                "Duress Password Set",
+                "Duress password has been configured successfully.\n\n"
+                "When entered at login, the application will appear\n"
+                "fully functional but will contain no real data."
+            )
+            logger.info("Duress password set via UI")
+        except Exception as e:
+            messagebox.showerror(
+                "Error",
+                f"Failed to set duress password:\n{e}"
+            )
+            logger.error("Failed to set duress password: %s", e)
+        finally:
+            master_pw = None; duress_pw = None; gc.collect()
+
+    # ------------------------------------------------------------------
     # Change Master Password
     # ------------------------------------------------------------------
     def _change_password(self) -> None:
@@ -774,7 +862,8 @@ class EnigmaApp:
         if not old_pw:
             return
 
-        if not self.ks.verify_password(old_pw):
+        is_valid, _ = self.ks.verify_password(old_pw)
+        if not is_valid:
             messagebox.showerror("Verification Failed", "Current password is incorrect.")
             old_pw = None; gc.collect()
             return
