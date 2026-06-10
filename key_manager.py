@@ -243,46 +243,62 @@ class KeyStore:
             gc.collect()
 
 
+# KDF version tag for password-based file encryption
+_FILE_KDF_VERSION_ARGON2ID = b'A2ID'  # 4-byte magic for Argon2id files
+_FILE_KDF_LEGACY_PBKDF2_ITERATIONS = 300_000
+
+
 # ---------- Password‑based file encryption ----------
 def file_encrypt(input_path: str, output_path: str, password: str) -> None:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    from cryptography.hazmat.primitives import hashes
-    salt = secrets.token_bytes(16)
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=300_000,
-        backend=default_backend()
-    )
-    key = kdf.derive(password.encode())
+    """Encrypt a file using AES-GCM with Argon2id-derived key.
+
+    File format: A2ID(4) + salt(16) + nonce(12) + ciphertext
+    """
+    salt = secrets.token_bytes(database.ARGON2_SALT_LEN)
+    key = database._derive_key_argon2id(password, salt)
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(12)
     with open(input_path, 'rb') as f:
         plaintext = f.read()
     ct = aesgcm.encrypt(nonce, plaintext, None)
     with open(output_path, 'wb') as f:
+        f.write(_FILE_KDF_VERSION_ARGON2ID)
         f.write(salt)
         f.write(nonce)
         f.write(ct)
 
+
 def file_decrypt(input_path: str, output_path: str, password: str) -> None:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    """Decrypt a file with automatic KDF detection.
+
+    Supports Argon2id (new, tagged with A2ID header) and
+    PBKDF2-HMAC-SHA256 (legacy, no header).
+    """
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from cryptography.hazmat.primitives import hashes
+
     with open(input_path, 'rb') as f:
-        salt = f.read(16)
-        nonce = f.read(12)
-        ct = f.read()
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=300_000,
-        backend=default_backend()
-    )
-    key = kdf.derive(password.encode())
+        header = f.read(4)
+        if header == _FILE_KDF_VERSION_ARGON2ID:
+            # New Argon2id format
+            salt = f.read(16)
+            nonce = f.read(12)
+            ct = f.read()
+            key = database._derive_key_argon2id(password, salt)
+        else:
+            # Legacy PBKDF2 format: header is actually first 4 bytes of salt
+            salt = header + f.read(12)  # remaining 12 bytes of 16-byte salt
+            nonce = f.read(12)
+            ct = f.read()
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=_FILE_KDF_LEGACY_PBKDF2_ITERATIONS,
+                backend=default_backend()
+            )
+            key = kdf.derive(password.encode())
+
     aesgcm = AESGCM(key)
     try:
         plaintext = aesgcm.decrypt(nonce, ct, None)

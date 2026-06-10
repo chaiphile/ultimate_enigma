@@ -1,5 +1,6 @@
 """SQLite database for Enigma Messenger."""
 
+import json
 import sqlite3
 import base64
 import secrets
@@ -12,13 +13,24 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
+from argon2.low_level import hash_secret_raw, Type
 
 logger = logging.getLogger(__name__)
 
 DB_PATH = Path.home() / ".ultimate_enigma" / "enigma.db"
 
-# KDF iterations for secret encryption (PBKDF2-HMAC-SHA256)
+# Legacy KDF iterations for secret encryption (PBKDF2-HMAC-SHA256)
+# Retained for backward-compatible decryption of existing databases
 SECRET_KDF_ITERATIONS = 300_000
+
+# Argon2id parameters (military-grade, memory-hard KDF)
+# time_cost=3, memory_cost=65536 (64 MB), parallelism=4
+ARGON2_TIME_COST = 3
+ARGON2_MEMORY_COST = 65536    # 64 MB
+ARGON2_PARALLELISM = 4
+ARGON2_HASH_LEN = 32
+ARGON2_SALT_LEN = 16
+ARGON2_TYPE = Type.ID          # Argon2id - best for password hashing
 
 
 # ---------------------------------------------------------------------------
@@ -52,29 +64,39 @@ class DatabaseConnectionError(DatabaseError):
 
 
 def _classify_sqlite_error(exc: sqlite3.Error) -> DatabaseError:
-    """Map a raw sqlite3 exception to a granular DatabaseError subclass."""
+    """Map a raw sqlite3 exception to a granular DatabaseError subclass.
+    
+    Note: 'raise ... from' cannot be used here because this is not inside
+    an except block. We set __cause__ manually to preserve the chain.
+    """
     msg = str(exc).lower()
+    classified: DatabaseError
     if isinstance(exc, sqlite3.IntegrityError):
-        return DatabaseIntegrityError(
+        classified = DatabaseIntegrityError(
             f"Database constraint violation: {exc}"
-        ) from exc
-    if isinstance(exc, sqlite3.OperationalError):
+        )
+    elif isinstance(exc, sqlite3.OperationalError):
         if "locked" in msg or "busy" in msg:
-            return DatabaseLockedError(
+            classified = DatabaseLockedError(
                 f"Database is locked by another operation. Please try again: {exc}"
-            ) from exc
-        if "corrupt" in msg or "malformed" in msg or "not a database" in msg:
-            return DatabaseCorruptedError(
+            )
+        elif "corrupt" in msg or "malformed" in msg or "not a database" in msg:
+            classified = DatabaseCorruptedError(
                 f"Database file appears corrupted. Restore from backup: {exc}"
-            ) from exc
-        return DatabaseError(f"Database operational error: {exc}") from exc
-    if isinstance(exc, sqlite3.DatabaseError):
+            )
+        else:
+            classified = DatabaseError(f"Database operational error: {exc}")
+    elif isinstance(exc, sqlite3.DatabaseError):
         if "corrupt" in msg or "malformed" in msg:
-            return DatabaseCorruptedError(
+            classified = DatabaseCorruptedError(
                 f"Database file is corrupted. Restore from backup: {exc}"
-            ) from exc
-        return DatabaseError(f"Database error: {exc}") from exc
-    return DatabaseError(f"Unexpected database error: {exc}") from exc
+            )
+        else:
+            classified = DatabaseError(f"Database error: {exc}")
+    else:
+        classified = DatabaseError(f"Unexpected database error: {exc}")
+    classified.__cause__ = exc
+    return classified
 
 
 def get_connection() -> sqlite3.Connection:
@@ -158,38 +180,118 @@ def init_db():
     except sqlite3.Error as exc:
         raise _classify_sqlite_error(exc)
 
-SECRET_KDF_ITERATIONS = 300_000
+def _derive_key_argon2id(password: str, salt: bytes) -> bytes:
+    """Derive a 32-byte key using Argon2id."""
+    return hash_secret_raw(
+        secret=password.encode("utf-8"),
+        salt=salt,
+        time_cost=ARGON2_TIME_COST,
+        memory_cost=ARGON2_MEMORY_COST,
+        parallelism=ARGON2_PARALLELISM,
+        hash_len=ARGON2_HASH_LEN,
+        type=ARGON2_TYPE
+    )
+
 
 def encrypt_secret(plain_bytes: bytes, password: str) -> dict:
-    salt = secrets.token_bytes(16)
+    """Encrypt bytes using AES-GCM with Argon2id-derived key.
+
+    Returns a dict tagged with kdf='argon2id' for version tracking.
+    """
+    salt = secrets.token_bytes(ARGON2_SALT_LEN)
     nonce = secrets.token_bytes(12)
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=SECRET_KDF_ITERATIONS,
-        backend=default_backend()
-    )
-    key = kdf.derive(password.encode())
+    key = _derive_key_argon2id(password, salt)
     aesgcm = AESGCM(key)
     ct = aesgcm.encrypt(nonce, plain_bytes, None)
     return {
+        "kdf": "argon2id",
         "salt": base64.b64encode(salt).decode(),
         "nonce": base64.b64encode(nonce).decode(),
         "ct": base64.b64encode(ct).decode()
     }
 
+
 def decrypt_secret(enc_dict: dict, password: str) -> bytes:
+    """Decrypt bytes with automatic KDF detection.
+
+    Supports both Argon2id (new) and PBKDF2-HMAC-SHA256 (legacy).
+    Legacy entries are identified by the absence of the 'kdf' tag.
+    """
+    kdf_type = enc_dict.get("kdf", "pbkdf2")
     salt = base64.b64decode(enc_dict["salt"])
     nonce = base64.b64decode(enc_dict["nonce"])
     ct = base64.b64decode(enc_dict["ct"])
-    kdf = PBKDF2HMAC(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        iterations=SECRET_KDF_ITERATIONS,
-        backend=default_backend()
-    )
-    key = kdf.derive(password.encode())
+
+    if kdf_type == "argon2id":
+        key = _derive_key_argon2id(password, salt)
+    else:
+        # Legacy PBKDF2 path - auto-migrate on next save
+        kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=SECRET_KDF_ITERATIONS,
+            backend=default_backend()
+        )
+        key = kdf.derive(password.encode())
+
     aesgcm = AESGCM(key)
     return aesgcm.decrypt(nonce, ct, None)
+
+
+def migrate_secrets_to_argon2id(password: str) -> int:
+    """Re-encrypt all legacy PBKDF2 secrets with Argon2id.
+
+    Should be called after first successful login post-upgrade.
+    Returns the number of secrets migrated.
+    """
+    migrated = 0
+    try:
+        with closing(get_connection()) as conn:
+            # Migrate global_secret
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='global_secret'"
+            ).fetchone()
+            if row:
+                enc_dict = json.loads(row[0])
+                if enc_dict.get("kdf") != "argon2id":
+                    plain = decrypt_secret(enc_dict, password)
+                    new_enc = encrypt_secret(plain, password)
+                    conn.execute(
+                        "UPDATE settings SET value=? WHERE key='global_secret'",
+                        (json.dumps(new_enc),)
+                    )
+                    migrated += 1
+                    logger.info("Migrated global_secret to Argon2id")
+
+            # Migrate friend shared secrets
+            rows = conn.execute(
+                "SELECT name, shared_secret_encrypted FROM friends "
+                "WHERE has_shared_secret=1 AND shared_secret_encrypted IS NOT NULL"
+            ).fetchall()
+            for name, sec_json in rows:
+                if not sec_json:
+                    continue
+                enc_dict = json.loads(sec_json)
+                if enc_dict.get("kdf") != "argon2id":
+                    try:
+                        plain = decrypt_secret(enc_dict, password)
+                        new_enc = encrypt_secret(plain, password)
+                        conn.execute(
+                            "UPDATE friends SET shared_secret_encrypted=? WHERE name=?",
+                            (json.dumps(new_enc), name)
+                        )
+                        migrated += 1
+                        logger.info("Migrated shared secret for '%s' to Argon2id", name)
+                    except Exception as e:
+                        logger.warning(
+                            "Could not migrate secret for '%s': %s", name, e
+                        )
+
+            conn.commit()
+    except Exception as e:
+        logger.error("Secret migration failed: %s", e)
+
+    if migrated > 0:
+        logger.info("Argon2id migration complete: %d secrets upgraded", migrated)
+    return migrated
