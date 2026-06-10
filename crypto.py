@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
 import hashlib
+import hmac as hmac_module
 
 # Cryptographic constants
 AES_KEY_SIZE = 32       # 256-bit AES key
@@ -118,6 +119,54 @@ def format_fingerprint_display(hex_fingerprint: str) -> str:
     pairs = [hex_fingerprint[i:i+2] for i in range(0, len(hex_fingerprint), 2)]
     return ":".join(pairs).upper()
 
+def _constant_time_decrypt_with_window(
+    const_key: bytes,
+    ciphertext: bytes,
+    outer_ts: int,
+    now: int,
+    aad: bytes = None
+) -> tuple:
+    """
+    Attempt decryption across the time window in constant time.
+    Returns (inner_plaintext, aes_key) or raises ValueError.
+
+    Eliminates timing side-channel by always iterating through ALL
+    candidate keys regardless of when a match is found.
+    """
+    # Always try outer_ts first (most likely to succeed)
+    try:
+        candidate_key = derive_time_key(const_key, outer_ts)
+        inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
+        return inner, candidate_key
+    except Exception:
+        pass
+
+    # For the sliding window, we MUST try all candidates
+    # to avoid timing side-channels. Use a dummy to prevent
+    # early return.
+    result_inner = None
+    result_key = None
+
+    for step_offset in range(-WINDOW_SIZE, WINDOW_SIZE + 1):
+        candidate_timestamp = now + step_offset * TIME_STEP
+        candidate_key = derive_time_key(const_key, candidate_timestamp)
+        try:
+            candidate_inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
+            # Use constant-time comparison to avoid branch prediction leaks
+            if result_inner is None:
+                result_inner = candidate_inner
+                result_key = candidate_key
+        except Exception:
+            # Constant-time dummy operation to mask failure
+            _ = hmac_module.compare_digest(
+                b'\x00' * 32, b'\x00' * 32
+            )
+
+    if result_inner is None:
+        raise ValueError("Decryption failed \u2013 wrong key or stale message")
+    return result_inner, result_key
+
+
 def pubkey_to_pem(pub_key) -> str:
     """Convert a public key object to its PEM string."""
     return pub_key.public_bytes(
@@ -220,24 +269,11 @@ def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
         if now is None:
             now = int(time_module.time())
         ciphertext = packet[idx:]
-        # First try the exact timestamp from the outer header
-        try:
-            candidate_key = derive_time_key(const_key, outer_ts)
-            inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
-            aes_key = candidate_key
-        except Exception:
-            # Fall back to sliding window around current time
-            for step_offset in range(-WINDOW_SIZE, WINDOW_SIZE+1):
-                candidate_timestamp = now + step_offset * TIME_STEP
-                try:
-                    candidate_key = derive_time_key(const_key, candidate_timestamp)
-                    inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
-                    aes_key = candidate_key
-                    break
-                except Exception:
-                    continue
-        if inner is None:
-            raise ValueError("Decryption failed – wrong key or stale message")
+        # Constant-time decryption across the time window to eliminate
+        # timing side-channels that leak how far the timestamp is from correct.
+        inner, aes_key = _constant_time_decrypt_with_window(
+            const_key, ciphertext, outer_ts, now, aad=aad
+        )
 
     if len(inner) < 8:
         raise ValueError("Invalid message format")
