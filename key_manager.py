@@ -63,15 +63,74 @@ def init_db(password: str) -> bool:
     return False
 
 class KeyStore:
+    # Exponential backoff table (seconds) indexed by consecutive failure count.
+    # Indices 0-4: no delay; 5+: escalating delays up to 30 minutes.
+    _BACKOFF_TABLE = [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600]
+    _HARD_LOCKOUT_THRESHOLD = 15   # failures before hard lockout
+    _HARD_LOCKOUT_DURATION = 3600  # 1 hour in seconds
+
     def __init__(self):
         self._lock = threading.RLock()
-        self.failed_attempts = 0          # global brute‑force counter
+        self.failed_attempts = 0          # global brute-force counter
+        self.locked_until = 0.0           # epoch timestamp; 0 means not locked
         self._duress_mode = False
+        self._load_lockout_state()
         self.my_pub = None
         self.my_priv = None
         self.global_secret: Optional[bytearray] = None   # changed to bytearray for secure wiping
         self.friends: List[Tuple[str, object, Optional[bytearray]]] = []   # (name, pub, shared_secret or None)
         self.friends_x25519: Dict[str, str] = {}   # name -> Base64 of raw X25519 public key
+
+    # ---------- Persistent lockout helpers ----------
+
+    def _load_lockout_state(self) -> None:
+        """Load persistent lockout state from the database."""
+        try:
+            conn = database.get_connection()
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='lockout_data'"
+            ).fetchone()
+            conn.close()
+            if row:
+                data = json.loads(row[0])
+                self.failed_attempts = int(data.get("failures", 0))
+                self.locked_until = float(data.get("locked_until", 0))
+            else:
+                self.failed_attempts = 0
+                self.locked_until = 0.0
+        except Exception:
+            self.failed_attempts = 0
+            self.locked_until = 0.0
+
+    def _save_lockout_state(self) -> None:
+        """Persist current lockout state to the database."""
+        try:
+            data = json.dumps({
+                "failures": self.failed_attempts,
+                "locked_until": self.locked_until
+            })
+            conn = database.get_connection()
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("lockout_data", data)
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning("Failed to persist lockout state: %s", e)
+
+    def _get_lockout_delay(self) -> float:
+        """Return the number of seconds the caller must wait before the next attempt.
+
+        If a hard-lockout timer is active its remaining time takes precedence.
+        Otherwise the exponential backoff table is consulted.
+        """
+        now = time.time()
+        if self.locked_until > now:
+            return self.locked_until - now
+
+        idx = min(self.failed_attempts, len(self._BACKOFF_TABLE) - 1)
+        return float(self._BACKOFF_TABLE[idx])
 
     @property
     def is_duress_mode(self) -> bool:
@@ -138,16 +197,29 @@ class KeyStore:
     def verify_password(self, password: str) -> tuple:
         """Check if `password` matches master or duress password.
 
-        Implements a global brute-force delay after 5 cumulative failures.
+        Implements persistent exponential backoff and hard account lockout.
+        Lockout state survives application restarts via the database.
+
+        Backoff schedule (consecutive failures -> delay):
+            0-4: none | 5: 5s | 6: 10s | 7: 30s | 8: 60s | 9: 2min
+            10: 5min | 11: 10min | 12: 30min | 13-14: 1h
+            15+: hard lockout (1 hour)
 
         Returns:
             (is_valid: bool, is_duress: bool)
         """
         with self._lock:
-            if self.failed_attempts >= 5:
-                time.sleep(5)   # slow down repeated guesses
+            # Enforce any active lockout / backoff delay
+            delay = self._get_lockout_delay()
+            if delay > 0:
+                logger.warning(
+                    "Account lockout active. %d consecutive failure(s). "
+                    "Waiting %.1f seconds before next attempt.",
+                    self.failed_attempts, delay
+                )
+                time.sleep(delay)
 
-            # Check master password first
+            # --- Check master password first ---
             try:
                 conn = database.get_connection()
                 row = conn.execute(
@@ -157,13 +229,16 @@ class KeyStore:
                 if row:
                     enc_dict = json.loads(row[0])
                     database.decrypt_secret(enc_dict, password)
+                    # Success: reset lockout state
                     self.failed_attempts = 0
+                    self.locked_until = 0.0
                     self._duress_mode = False
+                    self._save_lockout_state()
                     return True, False
             except Exception:
                 pass
 
-            # Check duress password
+            # --- Check duress password ---
             try:
                 conn = database.get_connection()
                 row = conn.execute(
@@ -173,14 +248,35 @@ class KeyStore:
                 if row:
                     duress_data = json.loads(row[0])
                     database.decrypt_secret(duress_data, password)
+                    # Duress success: reset lockout but flag decoy mode
                     self.failed_attempts = 0
+                    self.locked_until = 0.0
                     self._duress_mode = True
+                    self._save_lockout_state()
                     logger.warning("DURESS PASSWORD USED - entering decoy mode")
                     return True, True
             except Exception:
                 pass
 
+            # --- Failed attempt: escalate lockout ---
             self.failed_attempts += 1
+
+            if self.failed_attempts >= self._HARD_LOCKOUT_THRESHOLD:
+                self.locked_until = time.time() + self._HARD_LOCKOUT_DURATION
+                logger.critical(
+                    "HARD LOCKOUT: %d consecutive failures. "
+                    "Account locked for %d seconds.",
+                    self.failed_attempts, self._HARD_LOCKOUT_DURATION
+                )
+            else:
+                backoff = self._get_lockout_delay()
+                if backoff > 0:
+                    logger.warning(
+                        "Failed password attempt #%d. Next attempt delayed by %.0f seconds.",
+                        self.failed_attempts, backoff
+                    )
+
+            self._save_lockout_state()
             return False, False
 
     def set_duress_password(self, duress_password: str) -> None:
