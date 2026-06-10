@@ -46,19 +46,21 @@ def derive_time_key(shared_secret: bytes, timestamp: int) -> bytes:
     )
     return hkdf.derive(shared_secret)
 
-def aes_gcm_encrypt(key: bytes, plaintext: bytes) -> bytes:
+def aes_gcm_encrypt(key: bytes, plaintext: bytes, aad: bytes = None) -> bytes:
+    """Encrypt with AES-GCM, optionally binding additional authenticated data (AAD)."""
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(NONCE_SIZE)
-    ct = aesgcm.encrypt(nonce, plaintext, None)
+    ct = aesgcm.encrypt(nonce, plaintext, aad)
     return nonce + ct
 
-def aes_gcm_decrypt(key: bytes, data: bytes) -> bytes:
+def aes_gcm_decrypt(key: bytes, data: bytes, aad: bytes = None) -> bytes:
+    """Decrypt with AES-GCM, verifying optional additional authenticated data (AAD)."""
     if len(data) < NONCE_SIZE + 16:
         raise ValueError("Ciphertext too short")
     nonce = data[:NONCE_SIZE]
     ct = data[NONCE_SIZE:]
     aesgcm = AESGCM(key)
-    return aesgcm.decrypt(nonce, ct, None)
+    return aesgcm.decrypt(nonce, ct, aad)
 
 def rsa_encrypt_key(aes_key: bytes, pub_key) -> bytes:
     return pub_key.encrypt(
@@ -106,7 +108,15 @@ def rsa_verify(data: bytes, signature: bytes, pub_key) -> bool:
         return False
 
 def sha256_fingerprint(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()[:16]
+    """Return full 256-bit fingerprint as 64 hex characters."""
+    return hashlib.sha256(data).hexdigest()
+
+def format_fingerprint_display(hex_fingerprint: str) -> str:
+    """Format a 64-char hex fingerprint for display with colon separators.
+    Example: 'A1:B2:C3:...'
+    """
+    pairs = [hex_fingerprint[i:i+2] for i in range(0, len(hex_fingerprint), 2)]
+    return ":".join(pairs).upper()
 
 def pubkey_to_pem(pub_key) -> str:
     """Convert a public key object to its PEM string."""
@@ -148,16 +158,25 @@ def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
     if sign and my_priv:
         signature = rsa_sign(inner, my_priv)
 
-    ciphertext = aes_gcm_encrypt(aes_key, inner)
+    # Build AAD from outer header fields to authenticate them via AES-GCM
+    outer_ts_bytes = struct.pack(">Q", int(timestamp))
+    aad = bytes([flags]) + outer_ts_bytes
+    if sign:
+        aad += _pack_bytes(signature)
+    encrypted_key = b""
+    if encrypt_for_friend_pub:
+        encrypted_key = rsa_encrypt_key(aes_key, encrypt_for_friend_pub)
+        aad += _pack_bytes(encrypted_key)
+
+    ciphertext = aes_gcm_encrypt(aes_key, inner, aad=aad)
 
     packet = bytes([flags])
     # Always include the timestamp in the outer packet so the receiver can
     # derive the correct time-based key regardless of clock skew / window.
-    packet += struct.pack(">Q", int(timestamp))
+    packet += outer_ts_bytes
     if sign:
         packet += _pack_bytes(signature)
     if encrypt_for_friend_pub:
-        encrypted_key = rsa_encrypt_key(aes_key, encrypt_for_friend_pub)
         packet += _pack_bytes(encrypted_key)
     packet += ciphertext
     return packet, int(timestamp)
@@ -182,23 +201,29 @@ def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
     if sign:
         signature, idx = _unpack_bytes(packet, idx)
 
+    # Reconstruct AAD from outer header fields (must match encryption side exactly)
+    aad = bytes([flags]) + struct.pack(">Q", outer_ts)
+    if sign:
+        aad += _pack_bytes(signature)
+
     aes_key = None
     inner = None
     if friend_encrypted:
         if not my_priv:
             raise ValueError("Private key required for friend-encrypted message")
         encrypted_key, idx = _unpack_bytes(packet, idx)
+        aad += _pack_bytes(encrypted_key)
         aes_key = rsa_decrypt_key(encrypted_key, my_priv)
         ciphertext = packet[idx:]
-        inner = aes_gcm_decrypt(aes_key, ciphertext)
+        inner = aes_gcm_decrypt(aes_key, ciphertext, aad=aad)
     else:
         if now is None:
             now = int(time_module.time())
+        ciphertext = packet[idx:]
         # First try the exact timestamp from the outer header
         try:
             candidate_key = derive_time_key(const_key, outer_ts)
-            ciphertext = packet[idx:]
-            inner = aes_gcm_decrypt(candidate_key, ciphertext)
+            inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
             aes_key = candidate_key
         except Exception:
             # Fall back to sliding window around current time
@@ -206,8 +231,7 @@ def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
                 candidate_timestamp = now + step_offset * TIME_STEP
                 try:
                     candidate_key = derive_time_key(const_key, candidate_timestamp)
-                    ciphertext = packet[idx:]
-                    inner = aes_gcm_decrypt(candidate_key, ciphertext)
+                    inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
                     aes_key = candidate_key
                     break
                 except Exception:
