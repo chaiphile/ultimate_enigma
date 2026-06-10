@@ -64,6 +64,9 @@ class EnigmaApp:
         self.secondary = self.style.colors.secondary
         self.dark = self.style.colors.dark
 
+        # Check first-run BEFORE creating KeyStore (which touches the DB)
+        self._first_run = not (Path.home() / ".ultimate_enigma" / "enigma.db").exists()
+
         # 1. KeyStore and queue
         self.ks = KeyStore()
         self.task_queue = Queue()
@@ -85,6 +88,37 @@ class EnigmaApp:
         self.friends_service = FriendsService(self.ks)
         self.clipboard_service = ClipboardService(root)
         self.global_secret_service = GlobalSecretService(self.ks)
+
+        # 2a. Mandatory TOTP setup enforcement
+        #     If TOTP setup has not been completed, force the setup dialog.
+        #     The user CANNOT proceed without completing TOTP configuration.
+        #     Uses a single-pass check (no while loop) to avoid any risk of
+        #     infinite looping if DB writes fail silently.
+        if not self._is_totp_setup_complete():
+            logger.info("TOTP setup not complete – enforcing mandatory setup")
+            if not self.totp_service.has_secret():
+                # Ensure a secret exists before showing setup dialog
+                self._generate_new_totp()
+            uri = self.totp_service.provisioning_uri()
+            setup_dlg = TOTPSetupDialog(
+                root, self.totp_service, uri,
+                on_regenerate=self._regenerate_totp
+            )
+            if setup_dlg.show():
+                self._set_totp_setup_complete(True)
+                self._set_totp_enabled(True)
+                logger.info("Mandatory TOTP setup completed successfully")
+            else:
+                messagebox.showerror(
+                    "Mandatory Setup",
+                    "TOTP two-factor authentication is MANDATORY.\n"
+                    "The application cannot be used without completing TOTP setup.\n\n"
+                    "Application will now exit."
+                )
+                self.totp_service.clear_secret()
+                self.ks.wipe()
+                root.destroy()
+                return
 
         # 2b. TOTP verification on startup (only if TOTP is enabled AND setup complete)
         #     The TOTP secret was already loaded by _init_totp() during _load_keys().
@@ -163,7 +197,7 @@ class EnigmaApp:
     # Key loading
     # ------------------------------------------------------------------
     def _load_keys(self) -> bool:
-        first_run = not (Path.home() / ".ultimate_enigma" / "enigma.db").exists()
+        first_run = self._first_run
         if first_run:
             pw = password_dialog(self.root, "Set Master Password", confirm=True)
             if not pw:
@@ -463,6 +497,25 @@ class EnigmaApp:
         self.about_tab = AboutTab(notebook, self)
         notebook.add(self.about_tab.frame, text="ℹ️ About")
 
+        # Bind tab change event to auto-refresh Friends tab
+        self._notebook = notebook
+        notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
+    def _on_tab_changed(self, event):
+        """Handle tab change events to auto-refresh content."""
+        try:
+            selected = self._notebook.select()
+            if selected:
+                tab_text = self._notebook.tab(selected, "text")
+                if "Friends" in tab_text:
+                    self.friends_tab.refresh_list()
+                elif "File" in tab_text:
+                    self.file_tab.refresh_list()
+                elif "Encrypt" in tab_text:
+                    self.encrypt_tab._update_friend_list()
+        except Exception as e:
+            logger.debug("Tab change handler error (non-critical): %s", e)
+
     # ------------------------------------------------------------------
     # Emergency Lock
     # ------------------------------------------------------------------
@@ -645,7 +698,13 @@ class EnigmaApp:
             logger.error("Failed to set TOTP setup status: %s", e)
 
     def _is_totp_enabled(self) -> bool:
-        """Check whether TOTP verification is currently enabled."""
+        """Check whether TOTP verification is currently enabled.
+        
+        Returns False if the key doesn't exist or if setup hasn't been completed.
+        This prevents showing TOTP as 'ON' before the user has configured it.
+        For backward compatibility with existing databases that have a TOTP secret
+        but no explicit enabled flag, we check whether setup was completed as well.
+        """
         import database
         from contextlib import closing
         try:
@@ -653,13 +712,17 @@ class EnigmaApp:
                 row = conn.execute(
                     "SELECT value FROM settings WHERE key=?", (TOTP_ENABLED_KEY,)
                 ).fetchone()
-                # Default to True if key doesn't exist (backward compat: existing setups stay enabled)
                 if row is None:
-                    return True
+                    # No explicit flag set – only consider enabled if setup was
+                    # previously completed (backward compat for existing installs)
+                    setup_row = conn.execute(
+                        "SELECT value FROM settings WHERE key=?", (TOTP_SETUP_KEY,)
+                    ).fetchone()
+                    return setup_row is not None and setup_row[0] == "1"
                 return row[0] == "1"
         except Exception as e:
             logger.warning("Failed to check TOTP enabled status: %s", e)
-            return True
+            return False
 
     def _set_totp_enabled(self, value: bool) -> None:
         """Enable or disable TOTP verification."""
@@ -677,8 +740,13 @@ class EnigmaApp:
             logger.error("Failed to set TOTP enabled status: %s", e)
 
     def _update_totp_toggle_button(self) -> None:
-        """Update the TOTP toggle button appearance based on current state."""
-        enabled = self._is_totp_enabled()
+        """Update the TOTP toggle button appearance based on current state.
+        
+        TOTP is only considered 'enabled' when both the enabled flag is set
+        AND setup has been completed. This prevents showing TOTP as ON when
+        the user has not yet configured their authenticator app.
+        """
+        enabled = self._is_totp_enabled() and self._is_totp_setup_complete()
         if enabled:
             self._totp_toggle_btn.config(
                 text="✅ TOTP\nON",
@@ -693,7 +761,11 @@ class EnigmaApp:
             )
 
     def _toggle_totp(self) -> None:
-        """Toggle TOTP verification on/off with confirmation."""
+        """Toggle TOTP verification on/off with confirmation.
+        
+        Note: In military-grade deployments, TOTP is mandatory and cannot be disabled.
+        This implementation enforces that policy.
+        """
         if self._is_locked:
             messagebox.showwarning("Locked", "Unlock the app first.")
             return
@@ -701,20 +773,14 @@ class EnigmaApp:
         currently_enabled = self._is_totp_enabled()
 
         if currently_enabled:
-            # Disabling TOTP
-            if not messagebox.askyesno(
-                "Disable TOTP",
-                "Are you sure you want to DISABLE TOTP verification?\n\n"
-                "This will remove the two-factor authentication requirement\n"
-                "on startup and unlock. Your TOTP secret will be preserved\n"
-                "so you can re-enable it later without re-scanning.",
-                icon="warning"
-            ):
-                return
-            self._set_totp_enabled(False)
-            logger.warning("TOTP verification DISABLED by user")
-            messagebox.showinfo("TOTP Disabled", "TOTP verification has been disabled.\n"
-                                "You can re-enable it at any time.")
+            # TOTP is mandatory - cannot be disabled in this security model
+            messagebox.showwarning(
+                "Mandatory 2FA",
+                "TOTP two-factor authentication is MANDATORY and cannot be disabled.\n\n"
+                "This is a security requirement for all users of Ultimate Enigma.\n"
+                "Your TOTP secret is preserved and active."
+            )
+            logger.info("User attempted to disable TOTP - denied (mandatory policy)")
         else:
             # Enabling TOTP
             if not self.totp_service.has_secret():
@@ -740,13 +806,18 @@ class EnigmaApp:
             messagebox.showwarning("Locked", "Unlock the app first.")
             return
         if not self.totp_service.has_secret():
-            messagebox.showerror("Error", "TOTP not initialised.")
-            return
+            # Auto-generate a secret if one doesn't exist yet
+            self._generate_new_totp()
         uri = self.totp_service.provisioning_uri()
         setup_dlg = TOTPSetupDialog(self.root, self.totp_service, uri,
                                     on_regenerate=self._regenerate_totp)
         if setup_dlg.show():
             self._set_totp_setup_complete(True)
+            # Ensure TOTP is enabled after successful setup
+            if not self._is_totp_enabled():
+                self._set_totp_enabled(True)
+                logger.info("TOTP automatically enabled after setup completion")
+            self._update_totp_toggle_button()
 
     def _regenerate_totp(self) -> None:
         """Regenerate the TOTP secret (called from setup dialog).

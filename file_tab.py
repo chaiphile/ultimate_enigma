@@ -71,10 +71,17 @@ class FileTab:
                    bootstyle="primary", width=20).pack(pady=10, ipadx=20, ipady=10)
 
     def _update_friend_list(self):
-        names = [name for name, _, sec in self.app.ks.friends if sec is not None]
+        """Refresh the friend dropdown from the KeyStore (all friends shown)."""
+        names = [name for name, _, _ in self.app.ks.friends]
         self.friend_combo['values'] = names
         if names:
             self.friend_combo.current(0)
+        else:
+            self.friend_combo.set("")
+
+    def refresh_list(self):
+        """Called when the tab is selected to refresh the friend dropdown."""
+        self._update_friend_list()
 
     def _on_method_change(self, *args):
         if self.method_var.get() == "friend":
