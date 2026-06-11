@@ -106,12 +106,12 @@ class AuthController:
                 return False
             
             try:
-                is_valid, is_duress = self.ks.verify_password(pw)
+                is_valid = self.ks.verify_password(pw)
                 if not is_valid:
                     messagebox.showerror("Wrong Password", "Incorrect password.")
                     continue
 
-                if is_duress:
+                if self.ks.is_duress_mode:
                     self.enter_duress_mode()
                     return True
 
@@ -205,7 +205,7 @@ class AuthController:
         
         try:
             temp_ks = KeyStore()
-            if temp_ks.verify_password(pw)[0] and temp_ks.load(pw):
+            if temp_ks.verify_password(pw) and temp_ks.load(pw):
                 self._master_password_hash = self._ph.hash(pw.to_str() if isinstance(pw, SecureString) else pw)
                 logger.info("Password hash recovered successfully")
                 temp_ks.wipe()
@@ -477,7 +477,7 @@ class AuthController:
             return False
 
         try:
-            is_valid, _ = self.ks.verify_password(old_pw)
+            is_valid = self.ks.verify_password(old_pw)
             if not is_valid:
                 messagebox.showerror("Verification Failed", "Current password is incorrect.")
                 return False
@@ -525,7 +525,8 @@ class AuthController:
             return False
 
         try:
-            is_valid, is_duress = self.ks.verify_password(master_pw)
+            is_valid = self.ks.verify_password(master_pw)
+            is_duress = self.ks.is_duress_mode if is_valid else False
             if not is_valid or is_duress:
                 messagebox.showerror("Verification Failed", "Master password is incorrect.")
                 return False

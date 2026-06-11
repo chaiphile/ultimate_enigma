@@ -285,7 +285,8 @@ class KeyStore:
             try:
                 self.my_priv = _pem_to_privkey(row[0].encode(), password.encode())
             except Exception as e:
-                raise KeyStoreError(f"Failed to decrypt private key: {e}") from e
+                logger.error("Failed to decrypt private key: %s", e)
+                return False
 
             # Load legacy private key if present and not expired
             self.legacy_priv = None
@@ -317,7 +318,11 @@ class KeyStore:
             if row:
                 enc_dict = json.loads(row[0])
                 # Store as bytearray for zeroing capability
-                self.global_secret = bytearray(database.decrypt_secret(enc_dict, password))
+                try:
+                    self.global_secret = bytearray(database.decrypt_secret(enc_dict, password))
+                except Exception as e:
+                    logger.error("Failed to decrypt global secret: %s", e)
+                    return False
             else:
                 self.global_secret = None
 
@@ -467,7 +472,7 @@ class KeyStore:
         )
         return True
 
-    def verify_password(self, password: Union[str, bytes, SecureString]) -> tuple:
+    def verify_password(self, password: Union[str, bytes, SecureString]) -> bool:
         """Check if `password` matches master or duress password.
 
         Implements persistent exponential backoff and hard account lockout.
@@ -482,7 +487,7 @@ class KeyStore:
             password: Password as str, bytes, or SecureString.
 
         Returns:
-            (is_valid: bool, is_duress: bool)
+            is_valid (bool): True if password matches master or duress password.
         """
         with self._lock:
             # Enforce any active lockout / backoff delay
@@ -510,7 +515,7 @@ class KeyStore:
                     self.locked_until = 0.0
                     self._duress_mode = False
                     self._save_lockout_state()
-                    return True, False
+                    return True
             except Exception:
                 pass
 
@@ -530,7 +535,7 @@ class KeyStore:
                     self._duress_mode = True
                     self._save_lockout_state()
                     logger.warning("DURESS PASSWORD USED - entering decoy mode")
-                    return True, True
+                    return True
             except Exception:
                 pass
 
@@ -553,7 +558,7 @@ class KeyStore:
                     )
 
             self._save_lockout_state()
-            return False, False
+            return False
 
     def set_duress_password(self, duress_password: Union[str, bytes, SecureString]) -> None:
         """Set up a duress password that triggers decoy mode.
@@ -984,14 +989,12 @@ class KeyStore:
     def get_decryption_snapshot(self):
         """Thread-safe snapshot for background decryption.
 
-        Returns a tuple of (my_priv, friends_for_sig, secrets, legacy_priv).
-        legacy_priv may be None if no legacy key exists or it has expired.
+        Returns a tuple of (my_priv, friends_for_sig, secrets).
         friends_for_sig includes the user's own public key (labeled "myself")
         so that self-signed RSA signatures can be verified.
         """
         with self._lock:
             my_priv = self.my_priv
-            legacy_priv = self.legacy_priv
             friends_for_sig = [(name, pub) for name, pub, _ in self.friends]
             # Include own public key for self-signature verification
             if self.my_pub is not None:
@@ -1003,7 +1006,7 @@ class KeyStore:
             for _, _, sec in self.friends:
                 if sec is not None:
                     secrets.append(sec)
-            return my_priv, friends_for_sig, secrets, legacy_priv
+            return my_priv, friends_for_sig, secrets
 
     def change_password(self, old_password: Union[str, bytes, SecureString], new_password: Union[str, bytes, SecureString]) -> None:
         """Re-encrypt all stored secrets with a new master password.

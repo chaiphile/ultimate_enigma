@@ -111,14 +111,27 @@ class TestLockAcquisition:
         lock = RatchetService._get_friend_lock("Grace")
         lock.acquire()
 
-        try:
-            RatchetService._acquire_friend_lock("Grace", timeout=0.1)
-            pytest.fail("Should have raised ConcurrencyError")
-        except ConcurrencyError as e:
-            assert "Grace" in str(e)
-            assert "0.1" in str(e)
-        finally:
-            lock.release()
+        # Use a separate thread to create actual contention (RLock allows
+        # recursive acquisition from the same thread, so we need another thread)
+        result = []
+
+        def try_acquire():
+            try:
+                RatchetService._acquire_friend_lock("Grace", timeout=0.1)
+                result.append("acquired")
+            except ConcurrencyError as e:
+                result.append(str(e))
+
+        t = threading.Thread(target=try_acquire)
+        t.start()
+        t.join(timeout=5.0)
+
+        lock.release()
+
+        assert result, "Thread should have completed"
+        error_msg = result[0]
+        assert "Grace" in error_msg, f"Expected 'Grace' in error message: {error_msg}"
+        assert "0.1" in error_msg, f"Expected '0.1' in error message: {error_msg}"
 
     def test_rlock_allows_recursive_acquisition(self):
         """RLock should allow the same thread to acquire multiple times."""
@@ -179,9 +192,26 @@ class TestOrderedLocks:
 
     def test_ordered_acquire_releases_on_failure(self):
         """If acquisition fails, previously acquired locks should be released."""
-        # Pre-acquire Bob's lock to cause failure
+        # Pre-acquire Bob's lock in a separate thread to cause failure
+        # (RLock allows recursive acquisition from same thread, so we need
+        # a different thread to create actual contention)
         bob_lock = RatchetService._get_friend_lock("Bob")
-        bob_lock.acquire()
+        
+        # Use an event to coordinate when the worker has acquired the lock
+        lock_acquired = threading.Event()
+        
+        def hold_bob_lock():
+            bob_lock.acquire()
+            lock_acquired.set()  # Signal that we've acquired the lock
+            time.sleep(2.0)  # Hold the lock long enough for the test
+            bob_lock.release()
+
+        t = threading.Thread(target=hold_bob_lock)
+        t.daemon = True  # Don't block test exit if something goes wrong
+        t.start()
+        
+        # Wait for the worker to actually acquire the lock
+        assert lock_acquired.wait(timeout=2.0), "Worker failed to acquire lock"
 
         try:
             with pytest.raises(ConcurrencyError, match="Bob"):
@@ -197,7 +227,8 @@ class TestOrderedLocks:
             if acquired:
                 alice_lock.release()
         finally:
-            bob_lock.release()
+            # Give the thread time to finish and release the lock
+            t.join(timeout=3.0)
 
     def test_no_deadlock_with_crossed_threads(self):
         """Two threads acquiring locks in different orders should not deadlock.
@@ -271,7 +302,24 @@ class TestLockCleanup:
     def test_cleanup_preserves_held_locks(self):
         """Cleanup should not remove locks that are currently held."""
         lock = RatchetService._get_friend_lock("Held")
-        lock.acquire()
+        
+        # Use a separate thread to hold the lock so cleanup detects it as held
+        # (RLock allows recursive acquisition from same thread, so we need
+        # a different thread to create actual contention)
+        lock_acquired = threading.Event()
+        
+        def hold_lock():
+            lock.acquire()
+            lock_acquired.set()  # Signal that we've acquired the lock
+            time.sleep(2.0)  # Hold the lock long enough for the test
+            lock.release()
+
+        t = threading.Thread(target=hold_lock)
+        t.daemon = True  # Don't block test exit if something goes wrong
+        t.start()
+        
+        # Wait for the worker to actually acquire the lock
+        assert lock_acquired.wait(timeout=2.0), "Worker failed to acquire lock"
 
         try:
             removed = RatchetService.cleanup_friend_locks(active_friends=[])
@@ -279,7 +327,8 @@ class TestLockCleanup:
             assert removed == 0
             assert "Held" in RatchetService._friend_locks
         finally:
-            lock.release()
+            # Give the thread time to finish and release the lock
+            t.join(timeout=3.0)
 
     def test_cleanup_by_age(self):
         """Cleanup without active_friends should use age-based expiry."""

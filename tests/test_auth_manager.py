@@ -87,7 +87,8 @@ class TestVerifyPassword:
 # ---------------------------------------------------------------------------
 
 class TestLockoutMechanism:
-    def test_lockout_delay_after_failures(self, auth_manager):
+    @patch("services.auth_manager.time.sleep", return_value=None)
+    def test_lockout_delay_after_failures(self, mock_sleep, auth_manager):
         """After 5+ failures, delay should be non-zero."""
         for _ in range(6):
             auth_manager.verify_password("wrong")
@@ -207,7 +208,8 @@ class TestEdgeCases:
         valid, duress = auth_manager.verify_password("")
         assert valid is False
 
-    def test_multiple_verify_resets_on_success(self, auth_manager, password):
+    @patch("services.auth_manager.time.sleep", return_value=None)
+    def test_multiple_verify_resets_on_success(self, mock_sleep, auth_manager, password):
         for _ in range(10):
             auth_manager.verify_password("wrong")
         assert auth_manager._ks.failed_attempts == 10

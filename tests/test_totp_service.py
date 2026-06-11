@@ -164,7 +164,8 @@ class TestGenerate:
 
     def test_generate_same_time_step(self, configured_service):
         """Same 30-second window should produce same code."""
-        base_ts = 1700000000.0
+        # 1700000010 is exactly a multiple of 30 (start of a TOTP window)
+        base_ts = 1700000010.0
         code1 = configured_service.generate(timestamp=base_ts)
         code2 = configured_service.generate(timestamp=base_ts + 29)
         assert code1 == code2

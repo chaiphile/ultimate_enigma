@@ -30,7 +30,22 @@ def _make_mock_keystore(
     ks.my_pub = my_pub
     ks.friends = friends or []
 
-    # get_decryption_snapshot returns (my_priv, friends_for_sig, secrets_list)
+    # Explicitly set hybrid signing keys to None so getattr() does not
+    # return truthy MagicMock objects (which would cause the encryption
+    # service to attempt hybrid signing with invalid key objects).
+    ks.my_ed_priv = None
+    ks.my_dil_priv = None
+
+    # Prevent MagicMock from returning truthy values for capability
+    # lookups, which would incorrectly route tests into the ratchet or
+    # PQC code paths.
+    ks.friends_capabilities = {}
+    ks.friends_pqc_combined_pub = {}
+    ks.friends_hybrid_sig_pubs = {}
+    ks.my_hybrid_sig_combined_pub = None
+    ks.pqc_decryption_bundle = None
+
+    # get_decryption_snapshot returns (my_priv, friends_for_sig, secrets_list, legacy_priv)
     secrets_list = []
     if ks.global_secret:
         secrets_list.append(ks.global_secret)
@@ -39,7 +54,7 @@ def _make_mock_keystore(
             secrets_list.append(sec)
 
     friends_for_sig = [(name, pub) for name, pub, _ in ks.friends]
-    ks.get_decryption_snapshot.return_value = (my_priv, friends_for_sig, secrets_list)
+    ks.get_decryption_snapshot.return_value = (my_priv, friends_for_sig, secrets_list, None)
     return ks
 
 

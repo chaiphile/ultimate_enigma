@@ -21,6 +21,13 @@ from src.timeout import (
 from src.exceptions import CryptoTimeoutError
 
 
+@pytest.fixture(autouse=True)
+def reset_executor():
+    """Ensure a fresh executor for each test to prevent blocked threads from affecting subsequent tests."""
+    yield
+    shutdown_timeout_executor(wait=False)
+
+
 # ---------------------------------------------------------------------------
 # with_timeout Decorator
 # ---------------------------------------------------------------------------
@@ -44,9 +51,9 @@ class TestWithTimeoutDecorator:
 
     def test_function_exceeds_timeout(self):
         """Function exceeding timeout should raise CryptoTimeoutError."""
-        @with_timeout(0.5)
+        @with_timeout(0.1)
         def slow_func():
-            time.sleep(10)
+            time.sleep(0.5)
             return "should not reach"
 
         with pytest.raises(CryptoTimeoutError, match="timed out"):
@@ -118,10 +125,10 @@ class TestRunWithTimeout:
     def test_timeout_raises(self):
         """Should raise CryptoTimeoutError when function is too slow."""
         def slow():
-            time.sleep(10)
+            time.sleep(0.5)
 
         with pytest.raises(CryptoTimeoutError, match="timed out"):
-            run_with_timeout(slow, 0.5)
+            run_with_timeout(slow, 0.1)
 
     def test_exception_propagation(self):
         """Should re-raise exceptions from the function."""
@@ -134,18 +141,18 @@ class TestRunWithTimeout:
     def test_error_message_includes_function_name(self):
         """Timeout error message should include the function name."""
         def my_slow_operation():
-            time.sleep(10)
+            time.sleep(0.5)
 
         with pytest.raises(CryptoTimeoutError, match="my_slow_operation"):
-            run_with_timeout(my_slow_operation, 0.5)
+            run_with_timeout(my_slow_operation, 0.1)
 
     def test_error_message_includes_timeout_value(self):
         """Timeout error message should include the timeout duration."""
         def another_slow_op():
-            time.sleep(10)
+            time.sleep(0.5)
 
-        with pytest.raises(CryptoTimeoutError, match="1\\.5"):
-            run_with_timeout(another_slow_op, 1.5)
+        with pytest.raises(CryptoTimeoutError, match="0\\.2"):
+            run_with_timeout(another_slow_op, 0.2)
 
     def test_concurrent_calls(self):
         """Multiple concurrent calls should all complete."""

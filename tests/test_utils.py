@@ -35,7 +35,7 @@ class TestValidatePasswordStrength:
         assert "lowercase" in message.lower()
 
     def test_no_digit(self):
-        pw = "NoDigitsHere!@#45678901234567"
+        pw = "NoDigitsHere!@#SomeRandomText"
         is_valid, message, score = validate_password_strength(pw)
         assert is_valid is False
         assert "digit" in message.lower()

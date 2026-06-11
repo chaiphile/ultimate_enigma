@@ -19,10 +19,28 @@ logger = logging.getLogger(__name__)
 # Shared executor for timeout-wrapped operations.
 # Uses a small pool since crypto ops are CPU-bound and we want to limit
 # concurrent heavy operations to avoid resource exhaustion.
-_crypto_executor = ThreadPoolExecutor(
-    max_workers=4,
-    thread_name_prefix="crypto-timeout"
-)
+_crypto_executor: Optional[ThreadPoolExecutor] = None
+_executor_lock = threading.RLock()  # Use RLock to allow reentrant locking
+_executor_shutdown = False
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    """Get or create the shared crypto timeout executor.
+    
+    Lazily creates the executor if it doesn't exist or has been shut down.
+    This ensures tests can shutdown and recreate the executor safely.
+    
+    Note: Does NOT acquire the lock - caller must hold _executor_lock if
+    atomic get-and-submit is needed to avoid race conditions with shutdown.
+    """
+    global _crypto_executor, _executor_shutdown
+    if _crypto_executor is None or _executor_shutdown:
+        _crypto_executor = ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="crypto-timeout"
+        )
+        _executor_shutdown = False
+    return _crypto_executor
 
 T = TypeVar('T')
 
@@ -48,7 +66,10 @@ def with_timeout(timeout_seconds: float):
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> T:
-            future = _crypto_executor.submit(func, *args, **kwargs)
+            # Hold lock during get+submit to avoid race with shutdown
+            with _executor_lock:
+                executor = _get_executor()
+                future = executor.submit(func, *args, **kwargs)
             try:
                 return future.result(timeout=timeout_seconds)
             except FuturesTimeoutError:
@@ -86,16 +107,19 @@ def run_with_timeout(
         CryptoTimeoutError: If the function does not complete in time.
         Exception: Any exception raised by `func` is re-raised.
     """
-    future = _crypto_executor.submit(func, *args, **kwargs)
+    # Hold lock during get+submit to avoid race with shutdown
+    with _executor_lock:
+        executor = _get_executor()
+        future = executor.submit(func, *args, **kwargs)
     try:
         return future.result(timeout=timeout_seconds)
     except FuturesTimeoutError:
         logger.error(
             "Operation '%s' timed out after %.1f seconds",
-            func.__name__, timeout_seconds
+            getattr(func, '__name__', repr(func)), timeout_seconds
         )
         raise CryptoTimeoutError(
-            f"Cryptographic operation '{func.__name__}' timed out "
+            f"Cryptographic operation '{getattr(func, '__name__', repr(func))}' timed out "
             f"after {timeout_seconds:.1f} seconds."
         )
 
@@ -108,5 +132,10 @@ def shutdown_timeout_executor(wait: bool = True):
     Args:
         wait: If True, block until all pending tasks complete.
     """
-    _crypto_executor.shutdown(wait=wait)
+    global _crypto_executor, _executor_shutdown
+    with _executor_lock:
+        if _crypto_executor is not None:
+            _crypto_executor.shutdown(wait=wait)
+            _crypto_executor = None
+            _executor_shutdown = True
     logger.info("Crypto timeout executor shut down")

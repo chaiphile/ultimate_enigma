@@ -39,7 +39,7 @@ class TestGetNTPTime:
         mock_socket_cls.return_value = mock_sock
         mock_sock.recvfrom.side_effect = socket.timeout()
 
-        result = get_ntp_time(timeout=1)
+        result = get_ntp_time(server="test.ntp.org", timeout=1)
         assert result is None
         mock_sock.close.assert_called_once()
 
@@ -97,7 +97,7 @@ class TestGetNTPTime:
         mock_sock.recvfrom.side_effect = Exception("unexpected")
 
         try:
-            get_ntp_time(timeout=1)
+            get_ntp_time(server="test.ntp.org", timeout=1)
         except Exception:
             pass
         mock_sock.close.assert_called_once()

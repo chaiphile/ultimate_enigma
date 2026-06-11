@@ -38,8 +38,8 @@ def alice_bob_pair(shared_secret):
     # Alice's DH pub
     alice_dh_pub = alice.dh_priv.public_key()
 
-    # Initialize Bob with Alice's DH pub
-    bob.initialize_as_bob(alice_dh_pub, shared_secret)
+    # Initialize Bob with Alice's DH pub and his original DH private key
+    bob.initialize_as_bob(alice_dh_pub, shared_secret, local_dh_priv=bob_dh_priv)
 
     return alice, bob
 
@@ -390,16 +390,18 @@ class TestForwardSecrecy:
 
         # Save current state (simulating compromise)
         current_root_key = alice.root_key
+        current_send_chain_key = alice.send_chain_key
 
-        # Alice sends more messages (triggering ratchet steps)
+        # Perform DH ratchet steps to change the root key.
+        # In real usage this happens when the remote party sends a new DH public key.
         for i in range(3):
-            alice.encrypt(f"msg{i}".encode())
-            # Force a DH ratchet by sending with different DH keys
+            new_remote_pub = X25519PrivateKey.generate().public_key()
+            alice.dh_ratchet_step(new_remote_pub)
 
-        # The past message was already decrypted by Bob
-        # But Alice's current state should not allow re-deriving old message keys
-        # This is a structural test - just verify state changed
+        # After DH ratchet steps, root key and send chain key must have changed,
+        # ensuring forward secrecy: old message keys cannot be re-derived.
         assert alice.root_key != current_root_key
+        assert alice.send_chain_key != current_send_chain_key
 
 
 # ---------------------------------------------------------------------------

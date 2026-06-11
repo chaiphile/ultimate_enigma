@@ -6,8 +6,7 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
 
-from crypto import sha256_fingerprint
-
+import hashlib
 
 class ECDHService:
     """X25519 key agreement operations."""
@@ -78,7 +77,7 @@ class ECDHService:
     @staticmethod
     def fingerprint(public_bytes: bytes) -> str:
         """SHA‑256 fingerprint (first 16 hex chars) of a raw public key."""
-        return sha256_fingerprint(public_bytes)
+        return hashlib.sha256(public_bytes).hexdigest()[:16]
 
     @classmethod
     def generate_keypair(cls):

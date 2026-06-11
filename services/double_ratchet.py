@@ -16,10 +16,12 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey, X25519PublicKey
 )
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 import secrets
 import struct
 import hmac as hmac_module
+import hashlib
 
 
 class RatchetState:
@@ -64,8 +66,8 @@ class RatchetState:
         - new_ck = HMAC(ck, 0x02)
         - mk = HMAC(ck, 0x01)
         """
-        new_ck = hmac_module.new(ck, b'\x02', hashes.SHA256).digest()
-        mk = hmac_module.new(ck, b'\x01', hashes.SHA256).digest()
+        new_ck = hmac_module.new(ck, b'\x02', hashlib.sha256).digest()
+        mk = hmac_module.new(ck, b'\x01', hashlib.sha256).digest()
         return new_ck, mk
 
     def initialize_as_alice(self, bob_dh_pub: X25519PublicKey, shared_secret: bytes):
@@ -91,15 +93,20 @@ class RatchetState:
         self.recv_msg_num = 0
         self.prev_send_chain_len = 0
 
-    def initialize_as_bob(self, alice_dh_pub: X25519PublicKey, shared_secret: bytes):
+    def initialize_as_bob(self, alice_dh_pub: X25519PublicKey, shared_secret: bytes, local_dh_priv: X25519PrivateKey = None):
         """Initialize the ratchet as Bob (the responder).
         
         Args:
             alice_dh_pub: Alice's initial DH public key
             shared_secret: Initial shared secret from X3DH or similar handshake
+            local_dh_priv: Bob's DH private key (whose public key was already shared with Alice).
+                          If None, a new key will be generated (for backward compatibility).
         """
-        # Generate our initial DH key pair
-        self.dh_priv = X25519PrivateKey.generate()
+        # Use provided DH key pair or generate a new one
+        if local_dh_priv is not None:
+            self.dh_priv = local_dh_priv
+        else:
+            self.dh_priv = X25519PrivateKey.generate()
         self.dh_pub_remote = alice_dh_pub
         
         # Perform initial DH exchange to get root key
@@ -150,8 +157,16 @@ class RatchetState:
                 - msg_num: message number (4 bytes, big-endian)
                 - prev_chain_len: previous chain length (4 bytes, big-endian)
         """
+        # If send chain is not initialized, perform a DH ratchet step to create it
         if self.send_chain_key is None:
-            raise ValueError("Send chain not initialized. Call dh_ratchet_step first.")
+            if self.dh_pub_remote is None:
+                raise ValueError("Send chain not initialized. Call dh_ratchet_step first.")
+            # Generate new DH key pair and perform DH ratchet to get send chain
+            self.dh_priv = X25519PrivateKey.generate()
+            dh_out = self.dh_priv.exchange(self.dh_pub_remote)
+            self.root_key, self.send_chain_key = self._hkdf_rk(self.root_key, dh_out)
+            self.prev_send_chain_len = self.send_msg_num
+            self.send_msg_num = 0
         
         # Step the send chain to get a new message key
         self.send_chain_key, message_key = self._hkdf_ck(self.send_chain_key)
@@ -162,7 +177,10 @@ class RatchetState:
         ct = aesgcm.encrypt(nonce, plaintext, None)
         
         # Build header
-        dh_pub_bytes = self.dh_priv.public_key().public_bytes_raw()
+        dh_pub_bytes = self.dh_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw
+        )
         header = struct.pack(">I", self.send_msg_num)  # msg_num (4 bytes)
         header += struct.pack(">I", self.prev_send_chain_len)  # prev_chain_len (4 bytes)
         header += dh_pub_bytes  # DH public key (32 bytes)
@@ -195,7 +213,10 @@ class RatchetState:
         
         # Check if we need to do a DH ratchet step
         current_remote_pub_bytes = (
-            self.dh_pub_remote.public_bytes_raw() if self.dh_pub_remote else b''
+            self.dh_pub_remote.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            ) if self.dh_pub_remote else b''
         )
         if remote_dh_pub_bytes != current_remote_pub_bytes:
             self.dh_ratchet_step(remote_dh_pub)
@@ -240,7 +261,10 @@ class RatchetState:
         """Get our current DH public key as raw bytes."""
         if self.dh_priv is None:
             raise ValueError("DH key pair not initialized")
-        return self.dh_priv.public_key().public_bytes_raw()
+        return self.dh_priv.public_key().public_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PublicFormat.Raw
+        )
 
     def serialize(self) -> dict:
         """Serialize the ratchet state for storage.
@@ -255,8 +279,15 @@ class RatchetState:
             'send_msg_num': self.send_msg_num,
             'recv_msg_num': self.recv_msg_num,
             'prev_send_chain_len': self.prev_send_chain_len,
-            'dh_priv_bytes': self.dh_priv.private_bytes_raw().hex() if self.dh_priv else None,
-            'dh_pub_remote_bytes': self.dh_pub_remote.public_bytes_raw().hex() if self.dh_pub_remote else None,
+            'dh_priv_bytes': self.dh_priv.private_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PrivateFormat.Raw,
+                encryption_algorithm=serialization.NoEncryption()
+            ).hex() if self.dh_priv else None,
+            'dh_pub_remote_bytes': self.dh_pub_remote.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw
+            ).hex() if self.dh_pub_remote else None,
             'skipped_keys': {
                 f"{k[0].hex()}:{k[1]}": v.hex() 
                 for k, v in self.skipped_keys.items()
