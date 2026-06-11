@@ -1347,8 +1347,24 @@ def file_encrypt_shared(
     output_path: str,
     shared_secret: bytes,
     sign: bool = False,
-    my_priv=None
+    my_priv=None,
+    hybrid_ed_priv=None,
+    hybrid_dil_priv: Optional[bytes] = None,
 ) -> None:
+    """Encrypt a file using a shared secret with optional signature.
+
+    Supports both RSA-PSS signatures and hybrid (Ed25519 + Dilithium3) signatures.
+    Hybrid signatures take priority when both signing key types are available.
+
+    Args:
+        input_path: Path to plaintext input file.
+        output_path: Path to write encrypted output file.
+        shared_secret: Shared secret bytes for key derivation.
+        sign: Whether to attach a signature.
+        my_priv: RSA private key for RSA-PSS signing (fallback).
+        hybrid_ed_priv: Ed25519 private key for hybrid signing (preferred).
+        hybrid_dil_priv: Dilithium3 secret key bytes for hybrid signing (preferred).
+    """
     salt = secrets.token_bytes(16)
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
@@ -1364,9 +1380,21 @@ def file_encrypt_shared(
 
     flags = 0
     signature = b""
-    if sign and my_priv:
+
+    # Determine signing mode: hybrid takes priority over RSA when available
+    use_hybrid_sig = (
+        sign
+        and hybrid_ed_priv is not None
+        and hybrid_dil_priv is not None
+        and _HYBRID_SIG_AVAILABLE
+    )
+
+    if use_hybrid_sig:
+        flags |= 2  # _FILE_FLAG_HYBRID_SIGN
+        signature = HybridSigner.sign(plaintext, hybrid_ed_priv, hybrid_dil_priv)
+    elif sign and my_priv:
+        flags |= 1  # _FILE_FLAG_RSA_SIGN
         signature = rsa_sign(plaintext, my_priv)
-        flags |= 1
 
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(12)
@@ -1390,8 +1418,23 @@ def file_decrypt_shared(
     input_path: str,
     output_path: str,
     secrets_dict: Dict[bytes, Tuple[bytes, Optional[str]]],
-    friends_for_sig: Optional[List[Tuple[str, object]]] = None
+    friends_for_sig: Optional[List[Tuple[str, object]]] = None,
+    friends_hybrid: Optional[List[Tuple[str, bytes, bytes]]] = None,
 ) -> str:
+    """Decrypt a shared-secret encrypted file.
+
+    Supports both RSA-PSS and hybrid (Ed25519 + Dilithium3) signature verification.
+    Hybrid signatures are verified first when the flag is set.
+
+    Returns a signature verification message (may be empty).
+
+    Args:
+        input_path: Path to encrypted file (with FILE_MAGIC header).
+        output_path: Path to write decrypted plaintext.
+        secrets_dict: Mapping of fingerprint -> (secret, owner_name).
+        friends_for_sig: List of (name, RSA_public_key) for RSA sig verification.
+        friends_hybrid: List of (name, ed_pub_bytes, dil_pub_bytes) for hybrid sig verification.
+    """
     with open(input_path, 'rb') as f:
         magic = f.read(len(FILE_MAGIC))
         if magic != FILE_MAGIC:
@@ -1401,14 +1444,15 @@ def file_decrypt_shared(
         if len(flags_byte) < 1:
             raise ValueError("File too short")
         flags = flags_byte[0]
-        has_sign = bool(flags & 1)
+        has_rsa_sign = bool(flags & 1)
+        has_hybrid_sign = bool(flags & 2)
 
         fp = f.read(16)
         salt = f.read(16)
         nonce = f.read(12)
 
         signature = b""
-        if has_sign:
+        if has_rsa_sign or has_hybrid_sign:
             siglen_bytes = f.read(2)
             if len(siglen_bytes) < 2:
                 raise ValueError("File too short")
@@ -1438,7 +1482,27 @@ def file_decrypt_shared(
         raise ValueError("Decryption failed – wrong shared secret or corrupted file")
 
     sig_msg = ""
-    if has_sign and signature and friends_for_sig:
+
+    # Verify hybrid signature (Ed25519 + Dilithium3)
+    if has_hybrid_sign and signature and friends_hybrid:
+        verified = False
+        signer_name = None
+        for name, ed_pub_bytes, dil_pub_bytes in friends_hybrid:
+            try:
+                from crypto import hybrid_verify
+                if hybrid_verify(plaintext, signature, ed_pub_bytes, dil_pub_bytes):
+                    verified = True
+                    signer_name = name
+                    break
+            except Exception:
+                continue
+        if verified:
+            sig_msg = f"✅ Hybrid Signature Verified (Ed25519 + Dilithium3) from {signer_name}"
+        else:
+            sig_msg = "⚠️ Hybrid Signature INVALID or sender unknown"
+
+    # Verify RSA signature (fallback)
+    elif has_rsa_sign and signature and friends_for_sig:
         verified = False
         for name, pub in friends_for_sig:
             if rsa_verify(plaintext, signature, pub):

@@ -21,6 +21,7 @@ import struct
 import hmac as hmac_module
 import hashlib
 
+from src.secure_string import wipe_bytes
 from services.xchacha20_poly1305 import (
     XChaCha20Poly1305,
     generate_nonce as _xchacha_nonce,
@@ -179,6 +180,8 @@ class RatchetState:
         # 192-bit nonce makes random collisions negligible — a major upgrade
         # over AES-GCM's 96-bit nonce where birthday attacks are realistic.
         nonce = _xchacha_nonce()
+        # Convert message_key to bytearray for actual memory wiping capability
+        mk_bytes = bytearray(message_key)
         aead = XChaCha20Poly1305(message_key)
         ct = aead.encrypt(nonce, plaintext, None)
         
@@ -194,7 +197,9 @@ class RatchetState:
         self.send_msg_num += 1
         
         # Immediately zero the message key for security
+        wipe_bytes(mk_bytes)
         message_key = b'\x00' * 32
+        mk_bytes = None
         
         return header, nonce + ct
 
@@ -249,7 +254,10 @@ class RatchetState:
         plaintext = self._decrypt_with_key(message_key, ciphertext)
         
         # Zero the message key for security
+        mk_bytes = bytearray(message_key)
+        wipe_bytes(mk_bytes)
         message_key = b'\x00' * 32
+        mk_bytes = None
         
         return plaintext
 

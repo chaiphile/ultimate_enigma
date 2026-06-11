@@ -94,6 +94,8 @@ class RatchetEnvelope:
                 raise ValueError("Ratchet envelope truncated at sender name.")
 
             sender_name = packet[offset : offset + name_len].decode("utf-8")
+            if not sender_name:
+                raise ValueError("Ratchet envelope contains empty sender name.")
             offset += name_len
 
             if offset + 2 > len(packet):

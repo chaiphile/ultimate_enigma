@@ -278,6 +278,12 @@ class AuthController:
                         return True
                 except Exception as e:
                     logger.debug("Strategy 2 (gs_hex) failed: %s", e)
+                finally:
+                    # Wipe the hex string key from memory
+                    if 'gs_key' in locals() and isinstance(gs_key, str):
+                        gs_key = None
+                    import gc
+                    gc.collect()
 
             logger.warning("All decryption strategies failed for stored TOTP secret")
         else:
