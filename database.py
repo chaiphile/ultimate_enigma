@@ -174,6 +174,7 @@ def init_db():
                 "ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT",
                 "ALTER TABLE friends ADD COLUMN ratchet_state_json TEXT",
                 "ALTER TABLE friends ADD COLUMN capabilities_json TEXT",
+                "ALTER TABLE friends ADD COLUMN pqc_combined_pub_b64 TEXT",
             ]:
                 try:
                     conn.execute(col_sql)

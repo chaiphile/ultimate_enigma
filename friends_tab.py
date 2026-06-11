@@ -46,6 +46,8 @@ class FriendsTab:
             ("➖ Remove", self.remove_friend_dialog, "danger-outline"),
             ("🔑 My Public Key", self.show_my_pubkey, "info-outline"),
             ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline"),
+            ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info"),
+            ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline"),
         ]
         for text, cmd, style in btn_specs:
             ttk.Button(top_bar, text=text, command=cmd,
@@ -68,7 +70,7 @@ class FriendsTab:
         list_frame = ttk.Frame(self.frame, padding=(10, 0))
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
 
-        columns = ("status", "name", "rsa_fp", "ecdh_status")
+        columns = ("status", "name", "rsa_fp", "ecdh_status", "pqc_status", "ratchet_status")
         self.tree = ttk.Treeview(
             list_frame,
             columns=columns,
@@ -80,10 +82,12 @@ class FriendsTab:
 
         # Column configuration
         col_config = {
-            "status":      {"text": "Status",       "width": 70,  "anchor": "center"},
-            "name":        {"text": "Friend Name",  "width": 160, "anchor": "w"},
-            "rsa_fp":      {"text": "RSA Fingerprint", "width": 220, "anchor": "w"},
-            "ecdh_status": {"text": "ECDH Key",     "width": 90,  "anchor": "center"},
+            "status":          {"text": "Status",       "width": 70,  "anchor": "center"},
+            "name":            {"text": "Friend Name",  "width": 140, "anchor": "w"},
+            "rsa_fp":          {"text": "RSA Fingerprint", "width": 160, "anchor": "w"},
+            "ecdh_status":     {"text": "ECDH Key",     "width": 70,  "anchor": "center"},
+            "pqc_status":      {"text": "PQC Key",      "width": 70,  "anchor": "center"},
+            "ratchet_status":  {"text": "Ratchet",      "width": 70,  "anchor": "center"},
         }
         for col_id, cfg in col_config.items():
             self.tree.heading(col_id, text=cfg["text"], anchor=cfg["anchor"])
@@ -120,6 +124,10 @@ class FriendsTab:
         self.ctx_menu.add_separator()
         self.ctx_menu.add_command(label="🔁 Perform ECDH Exchange",
                                   command=self.ecdh_with_selected)
+        self.ctx_menu.add_command(label="🔐 Initialize Ratchet",
+                                  command=self.init_ratchet_dialog)
+        self.ctx_menu.add_command(label="🔄 Reset Ratchet",
+                                  command=self.reset_ratchet_dialog)
         self.ctx_menu.add_command(label="👁 View Full Details",
                                   command=lambda: self.on_select())
         self.ctx_menu.add_separator()
@@ -140,7 +148,9 @@ class FriendsTab:
             ("name_lbl", "Name:", 0, 0),
             ("rsa_lbl", "RSA Fingerprint:", 1, 0),
             ("ecdh_lbl", "ECDH Fingerprint:", 2, 0),
-            ("secret_lbl", "Shared Secret:", 3, 0),
+            ("pqc_lbl", "PQC Hybrid Key:", 3, 0),
+            ("secret_lbl", "Shared Secret:", 4, 0),
+            ("ratchet_lbl", "Double Ratchet:", 5, 0),
         ]
         for key, label_text, row, col in detail_fields:
             ttk.Label(info_grid, text=label_text,
@@ -200,6 +210,8 @@ class FriendsTab:
             status_text = "🟢 Secure" if has_secret else "⚪ No Key"
             # ECDH status
             ecdh_text = "✅ Active" if ecdh_fp else "—"
+            pqc_text = "🛡 Yes" if friend.get("has_pqc_key") else "—"
+            ratchet_text = "🔐 Active" if friend.get("has_ratchet") else "—"
 
             # Truncate RSA fingerprint for table display
             rsa_display = rsa_fp[:24] + "…" if len(rsa_fp) > 24 else rsa_fp
@@ -213,7 +225,7 @@ class FriendsTab:
 
             iid = self.tree.insert(
                 "", tk.END,
-                values=(status_text, name, rsa_display, ecdh_text),
+                values=(status_text, name, rsa_display, ecdh_text, pqc_text, ratchet_text),
                 tags=tags,
             )
 
@@ -299,8 +311,16 @@ class FriendsTab:
         self._detail_labels["ecdh_lbl"].config(
             text=details.get("ecdh_fingerprint") or "Not configured"
         )
+        pqc_status = "🛡 Stored" if details.get("has_pqc_key") else "❌ Not configured"
+        self._detail_labels["pqc_lbl"].config(text=pqc_status)
+
         secret_status = "✅ Yes — Encrypted" if details["has_shared_secret"] else "❌ No"
         self._detail_labels["secret_lbl"].config(text=secret_status)
+
+        ratchet_status = "🔐 Active" if details.get("has_ratchet") else "❌ Not initialized"
+        if details.get("supports_double_ratchet") and not details.get("has_ratchet"):
+            ratchet_status = "⚠ Supported but not initialized"
+        self._detail_labels["ratchet_lbl"].config(text=ratchet_status)
 
         # Update PEM text
         self.detail_pem.config(state='normal')
@@ -316,8 +336,9 @@ class FriendsTab:
 
         dlg = tk.Toplevel(parent)
         dlg.title("Add Friend")
-        dlg.geometry("580x560")
-        dlg.resizable(False, False)
+        dlg.geometry("580x720")
+        dlg.resizable(True, True)
+        dlg.minsize(580, 680)
         dlg.transient(parent)
         dlg.grab_set()
         dlg.configure(bg=self._bg)
@@ -351,6 +372,40 @@ class FriendsTab:
         x25519_fp_var = tk.StringVar(value="")
         ttk.Label(form, textvariable=x25519_fp_var,
                   font=("Consolas", 9), bootstyle="warning").pack(anchor="w", pady=(0, 8))
+
+        # PQC Combined Public Key field
+        ttk.Label(form, text="PQC Combined Public Key (Base64, optional):",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        pqc_var = tk.StringVar()
+        pqc_entry = ttk.Entry(form, textvariable=pqc_var, width=50,
+                              bootstyle="info")
+        pqc_entry.pack(fill=tk.X, pady=(0, 4))
+        pqc_status_var = tk.StringVar(value="")
+        ttk.Label(form, textvariable=pqc_status_var,
+                  font=("Consolas", 9), bootstyle="info").pack(anchor="w", pady=(0, 8))
+
+        def update_pqc_status(*args):
+            b64 = pqc_var.get().strip()
+            if not b64:
+                pqc_status_var.set("")
+                return
+            try:
+                raw = base64.b64decode(b64)
+                if len(raw) < 36:
+                    pqc_status_var.set("⚠ Too short for valid PQC combined key")
+                    return
+                pqc_status_var.set(f"✅ Valid PQC combined key ({len(raw)} bytes)")
+            except Exception:
+                pqc_status_var.set("⚠ Invalid Base64")
+
+        pqc_var.trace_add('write', update_pqc_status)
+
+        # Capabilities checkbox
+        caps_frame = ttk.Frame(form)
+        caps_frame.pack(fill=tk.X, pady=(0, 8))
+        dr_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(caps_frame, text="Supports Double Ratchet protocol",
+                        variable=dr_var, bootstyle="round-toggle").pack(side=tk.LEFT)
 
         def update_x25519_fp(*args):
             b64 = x25519_var.get().strip()
@@ -405,6 +460,12 @@ class FriendsTab:
                                          "Master password incorrect.", parent=dlg)
                     return
 
+            pqc_b64 = pqc_var.get().strip() or None
+
+            capabilities = {}
+            if dr_var.get():
+                capabilities["double_ratchet"] = True
+
             try:
                 self.service.add_friend(
                     name=name,
@@ -412,6 +473,8 @@ class FriendsTab:
                     shared_secret=shared_secret,
                     master_password=pw,
                     x25519_pub_b64=x_b64,
+                    capabilities=capabilities if capabilities else None,
+                    pqc_combined_pub_b64=pqc_b64,
                 )
                 self.refresh_list()
                 dlg.destroy()
@@ -539,6 +602,469 @@ class FriendsTab:
         txt.insert("1.0", pem)
         txt.config(state='disabled')
         txt.pack(fill=tk.BOTH, expand=True)
+
+    # ---- Double Ratchet dialogs ----
+    def init_ratchet_dialog(self):
+        """Dialog to initialize a Double Ratchet session for the selected friend."""
+        name = self._get_selected_name()
+        if not name:
+            messagebox.showwarning("No Selection",
+                                   "Please select a friend from the list first.")
+            return
+
+        details = self.service.get_friend_details(name)
+        if not details:
+            messagebox.showerror("Error", "Friend not found.")
+            return
+
+        # Check prerequisites
+        if not details["has_shared_secret"]:
+            messagebox.showwarning(
+                "Missing Shared Secret",
+                f"No shared secret configured for '{name}'.\n"
+                "Perform an ECDH exchange before initializing the ratchet."
+            )
+            return
+
+        if not details.get("ecdh_fingerprint"):
+            messagebox.showwarning(
+                "Missing X25519 Key",
+                f"No X25519 public key stored for '{name}'.\n"
+                "Perform an ECDH exchange before initializing the ratchet."
+            )
+            return
+
+        parent = self.frame.winfo_toplevel()
+        dlg = tk.Toplevel(parent)
+        dlg.title(f"Initialize Double Ratchet – {name}")
+        dlg.geometry("460x320")
+        dlg.resizable(False, False)
+        dlg.transient(parent)
+        dlg.grab_set()
+        dlg.configure(bg=self._bg)
+
+        form = ttk.Frame(dlg, padding=20)
+        form.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(form, text=f"Friend: {name}",
+                  font=("Segoe UI", 12, "bold")).pack(anchor="w", pady=(0, 8))
+
+        ecdh_fp = details.get("ecdh_fingerprint", "Unknown")
+        ttk.Label(form, text=f"X25519 Fingerprint: {ecdh_fp}",
+                  font=("Consolas", 9), bootstyle="secondary").pack(anchor="w", pady=(0, 12))
+
+        ttk.Label(form, text="Your Role:",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+
+        role_var = tk.StringVar(value="alice")
+        role_frame = ttk.Frame(form)
+        role_frame.pack(anchor="w", pady=(0, 12))
+        ttk.Radiobutton(role_frame, text="Alice (Initiator – sends first message)",
+                        variable=role_var, value="alice",
+                        bootstyle="primary").pack(anchor="w")
+        ttk.Radiobutton(role_frame, text="Bob (Responder – receives first message)",
+                        variable=role_var, value="bob",
+                        bootstyle="primary").pack(anchor="w")
+
+        ttk.Separator(form).pack(fill=tk.X, pady=(0, 12))
+
+        ttk.Label(form,
+                  text="⚠ This will replace any existing ratchet session.\n"
+                       "Both parties must agree on roles and use the same shared secret.",
+                  font=("Segoe UI", 9), bootstyle="warning",
+                  wraplength=400, justify="left").pack(anchor="w")
+
+        btn_frame = ttk.Frame(dlg, padding=(20, 10))
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def do_init():
+            pw = password_dialog(dlg, "Enter Master Password", confirm=False)
+            if not pw:
+                return
+            if not self.service.verify_password(pw):
+                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                                     parent=dlg)
+                return
+            try:
+                self.service.init_ratchet(name, role_var.get(), pw)
+                self.refresh_list()
+                dlg.destroy()
+                messagebox.showinfo(
+                    "Success",
+                    f"Double Ratchet session initialized as {role_var.get().upper()} "
+                    f"for '{name}'.\n\n"
+                    "Messages to/from this friend will now use forward-secret encryption."
+                )
+            except FriendsServiceError as e:
+                messagebox.showerror("Ratchet Init Failed", str(e), parent=dlg)
+
+        ttk.Button(btn_frame, text="🔐 Initialize", command=do_init,
+                   bootstyle="warning").pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+
+    def reset_ratchet_dialog(self):
+        """Confirm and delete the Double Ratchet session for the selected friend."""
+        name = self._get_selected_name()
+        if not name:
+            messagebox.showwarning("No Selection",
+                                   "Please select a friend from the list first.")
+            return
+
+        if not self.service.has_active_ratchet(name):
+            messagebox.showinfo("No Ratchet",
+                                f"No active ratchet session for '{name}'.")
+            return
+
+        if not messagebox.askyesno(
+            "Reset Ratchet",
+            f"Are you sure you want to delete the Double Ratchet session for '{name}'?\n\n"
+            "This cannot be undone. Future messages will fall back to legacy encryption "
+            "until a new session is established."
+        ):
+            return
+
+        try:
+            self.service.reset_ratchet(name)
+            self.refresh_list()
+            messagebox.showinfo("Reset Complete",
+                                f"Ratchet session for '{name}' has been deleted.")
+        except FriendsServiceError as e:
+            messagebox.showerror("Error", str(e))
+
+    # ---- PQC Hybrid Key Exchange dialog ----
+    def pqc_exchange_dialog(self):
+        """Dialog for Post-Quantum Hybrid KEM key exchange.
+
+        Allows users to:
+        1. Generate local PQC keys and view/copy the combined public key.
+        2. Import a friend's PQC combined public key.
+        3. Perform encapsulation (generate shared secret + ciphertext to send).
+        4. Perform decapsulation (recover shared secret from received ciphertext).
+        """
+        parent = self.frame.winfo_toplevel()
+        dlg = tk.Toplevel(parent)
+        dlg.title("🛡 Post-Quantum Hybrid Key Exchange")
+        dlg.geometry("680x720")
+        dlg.resizable(True, True)
+        dlg.minsize(580, 600)
+        dlg.transient(parent)
+        dlg.grab_set()
+        dlg.configure(bg=self._bg)
+
+        notebook = ttk.Notebook(dlg, bootstyle="primary")
+        notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 5))
+
+        # ── Tab 1: My PQC Keys ───────────────────────────────────────────
+        tab_keys = ttk.Frame(notebook, padding=15)
+        notebook.add(tab_keys, text="  My PQC Keys  ")
+
+        my_pub_text = ttk.ScrolledText(tab_keys, height=4, wrap=tk.WORD,
+                                       font=("Consolas", 9), state='disabled')
+        my_status_var = tk.StringVar(value="Checking...")
+
+        def load_my_pqc():
+            pub_b64 = self.service.get_my_pqc_combined_pub()
+            my_pub_text.config(state='normal')
+            my_pub_text.delete('1.0', tk.END)
+            if pub_b64:
+                my_pub_text.insert('1.0', pub_b64)
+                my_status_var.set(f"✅ PQC keys loaded ({len(pub_b64)} chars Base64)")
+            else:
+                my_pub_text.insert('1.0', "(No PQC keys generated yet)")
+                my_status_var.set("⚠ No PQC keys. Click 'Generate' to create.")
+            my_pub_text.config(state='disabled')
+
+        load_my_pqc()
+
+        ttk.Label(tab_keys, text="My PQC Combined Public Key (X25519 + Kyber768):",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        my_pub_text.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(tab_keys, textvariable=my_status_var,
+                  font=("Segoe UI", 9), bootstyle="secondary").pack(anchor="w", pady=(0, 8))
+
+        btn_row_keys = ttk.Frame(tab_keys)
+        btn_row_keys.pack(fill=tk.X)
+
+        def copy_my_pqc():
+            content = my_pub_text.get('1.0', tk.END).strip()
+            if content and not content.startswith("("):
+                parent.clipboard_clear()
+                parent.clipboard_append(content)
+                messagebox.showinfo("Copied", "PQC combined public key copied to clipboard.",
+                                    parent=dlg)
+
+        def generate_pqc():
+            pw = password_dialog(dlg, "Enter Master Password to generate PQC keys",
+                                 confirm=False)
+            if not pw:
+                return
+            if not self.service.verify_password(pw):
+                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                                     parent=dlg)
+                return
+            try:
+                pub_b64 = self.service.generate_pqc_keys(pw)
+                load_my_pqc()
+                messagebox.showinfo(
+                    "Success",
+                    "PQC hybrid keys generated successfully!\n\n"
+                    "Share your combined public key with friends to enable\n"
+                    "quantum-resistant key exchange.",
+                    parent=dlg
+                )
+            except FriendsServiceError as e:
+                messagebox.showerror("Error", str(e), parent=dlg)
+
+        ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
+                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(btn_row_keys, text="🔑 Generate New PQC Keys", command=generate_pqc,
+                   bootstyle="info").pack(side=tk.LEFT)
+
+        # ── Tab 2: Encapsulate (Initiate Exchange) ───────────────────────
+        tab_encap = ttk.Frame(notebook, padding=15)
+        notebook.add(tab_encap, text="  Encapsulate (Send)  ")
+
+        ttk.Label(tab_encap,
+                  text="Select a friend with a stored PQC public key to derive a shared secret.",
+                  font=("Segoe UI", 9), wraplength=600).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(tab_encap, text="Friend:",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        friend_names = [f["name"] for f in self.service.get_all_friends()
+                        if f.get("has_pqc_key")]
+        encap_friend_var = tk.StringVar()
+        encap_combo = ttk.Combobox(tab_encap, textvariable=encap_friend_var,
+                                   values=friend_names, state="readonly",
+                                   width=40, bootstyle="primary")
+        encap_combo.pack(anchor="w", pady=(0, 10))
+
+        encap_result_text = ttk.ScrolledText(tab_encap, height=5, wrap=tk.WORD,
+                                             font=("Consolas", 9), state='disabled')
+        encap_result_text.pack(fill=tk.X, pady=(0, 4))
+        encap_status_var = tk.StringVar(value="")
+        ttk.Label(tab_encap, textvariable=encap_status_var,
+                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
+
+        def do_encapsulate():
+            fname = encap_friend_var.get()
+            if not fname:
+                messagebox.showwarning("No Selection", "Please select a friend.",
+                                       parent=dlg)
+                return
+            try:
+                ct_b64, shared_secret = self.service.pqc_encapsulate(fname, "")
+                encap_result_text.config(state='normal')
+                encap_result_text.delete('1.0', tk.END)
+                encap_result_text.insert('1.0',
+                    f"=== CIPHERTEXT TO SEND TO {fname} ===\n{ct_b64}\n\n"
+                    f"=== DERIVED SHARED SECRET (Base64) ===\n"
+                    f"{base64.b64encode(shared_secret).decode()}\n\n"
+                    f"Secret fingerprint: {base64.b64encode(shared_secret[:8]).decode()}")
+                encap_result_text.config(state='disabled')
+                encap_status_var.set(
+                    f"✅ Shared secret derived! Send the ciphertext above to {fname}."
+                )
+                # Offer to save the shared secret
+                save_pw = password_dialog(
+                    dlg,
+                    "Enter Master Password to save the derived shared secret",
+                    confirm=False
+                )
+                if save_pw and self.service.verify_password(save_pw):
+                    self.service.update_shared_secret(
+                        name=fname,
+                        new_secret=shared_secret,
+                        master_password=save_pw,
+                    )
+                    self.refresh_list()
+                    encap_status_var.set(
+                        f"✅ Shared secret saved for '{fname}' AND ciphertext ready to send."
+                    )
+            except FriendsServiceError as e:
+                messagebox.showerror("Encapsulation Failed", str(e), parent=dlg)
+
+        def copy_encap_result():
+            content = encap_result_text.get('1.0', tk.END).strip()
+            if content:
+                # Copy only the ciphertext portion
+                lines = content.split('\n')
+                ct_line = ""
+                in_ct = False
+                for line in lines:
+                    if "CIPHERTEXT" in line:
+                        in_ct = True
+                        continue
+                    if in_ct and line.strip() and not line.startswith("="):
+                        ct_line = line.strip()
+                        break
+                if ct_line:
+                    parent.clipboard_clear()
+                    parent.clipboard_append(ct_line)
+                    messagebox.showinfo("Copied", "Ciphertext copied to clipboard.",
+                                        parent=dlg)
+
+        encap_btn_row = ttk.Frame(tab_encap)
+        encap_btn_row.pack(fill=tk.X)
+        ttk.Button(encap_btn_row, text="🔒 Encapsulate & Derive Secret",
+                   command=do_encapsulate, bootstyle="info").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(encap_btn_row, text="📋 Copy Ciphertext",
+                   command=copy_encap_result, bootstyle="info-outline").pack(side=tk.LEFT)
+
+        # ── Tab 3: Decapsulate (Receive) ─────────────────────────────────
+        tab_decap = ttk.Frame(notebook, padding=15)
+        notebook.add(tab_decap, text="  Decapsulate (Receive)  ")
+
+        ttk.Label(tab_decap,
+                  text="Paste the ciphertext received from a friend to recover the shared secret.",
+                  font=("Segoe UI", 9), wraplength=600).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(tab_decap, text="Received Ciphertext (Base64):",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        decap_input = ttk.ScrolledText(tab_decap, height=4, wrap=tk.WORD,
+                                       font=("Consolas", 9))
+        decap_input.pack(fill=tk.X, pady=(0, 10))
+
+        decap_result_var = tk.StringVar(value="")
+        ttk.Label(tab_decap, textvariable=decap_result_var,
+                  font=("Consolas", 9), wraplength=600).pack(anchor="w", pady=(0, 8))
+
+        def do_decapsulate():
+            ct_b64 = decap_input.get('1.0', tk.END).strip()
+            if not ct_b64:
+                messagebox.showwarning("Empty Input",
+                                       "Please paste a ciphertext first.", parent=dlg)
+                return
+            pw = password_dialog(dlg, "Enter Master Password for PQC decapsulation",
+                                 confirm=False)
+            if not pw:
+                return
+            if not self.service.verify_password(pw):
+                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                                     parent=dlg)
+                return
+            try:
+                shared_secret = self.service.pqc_decapsulate(ct_b64, pw)
+                ss_b64 = base64.b64encode(shared_secret).decode()
+                fp = base64.b64encode(shared_secret[:8]).decode()
+                decap_result_var.set(
+                    f"✅ Shared secret recovered!\n"
+                    f"Secret (Base64): {ss_b64}\n"
+                    f"Fingerprint: {fp}\n\n"
+                    f"You can now use this secret for encrypted communication."
+                )
+                # Offer to save for a specific friend
+                all_names = self.service.get_friend_names()
+                if all_names:
+                    save_for = simpledialog.askstring(
+                        "Save Shared Secret",
+                        "Optionally save this secret for a friend:\n"
+                        f"{', '.join(all_names)}\n\n"
+                        "(Leave empty to skip saving)",
+                        parent=dlg
+                    )
+                    if save_for and save_for in all_names:
+                        self.service.update_shared_secret(
+                            name=save_for,
+                            new_secret=shared_secret,
+                            master_password=pw,
+                        )
+                        self.refresh_list()
+                        decap_result_var.set(
+                            f"✅ Shared secret recovered AND saved for '{save_for}'!\n"
+                            f"Fingerprint: {fp}"
+                        )
+            except FriendsServiceError as e:
+                messagebox.showerror("Decapsulation Failed", str(e), parent=dlg)
+
+        ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
+                   command=do_decapsulate, bootstyle="info").pack(anchor="w")
+
+        # ── Tab 4: Import Friend PQC Key ─────────────────────────────────
+        tab_import = ttk.Frame(notebook, padding=15)
+        notebook.add(tab_import, text="  Import Friend Key  ")
+
+        ttk.Label(tab_import,
+                  text="Import a friend's PQC combined public key for future encapsulation.",
+                  font=("Segoe UI", 9), wraplength=600).pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(tab_import, text="Friend:",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        all_friend_names = self.service.get_friend_names()
+        import_friend_var = tk.StringVar()
+        import_combo = ttk.Combobox(tab_import, textvariable=import_friend_var,
+                                    values=all_friend_names, state="readonly",
+                                    width=40, bootstyle="primary")
+        import_combo.pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(tab_import, text="Friend's PQC Combined Public Key (Base64):",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        import_key_text = ttk.ScrolledText(tab_import, height=4, wrap=tk.WORD,
+                                           font=("Consolas", 9))
+        import_key_text.pack(fill=tk.X, pady=(0, 10))
+
+        import_status_var = tk.StringVar(value="")
+        ttk.Label(tab_import, textvariable=import_status_var,
+                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
+
+        def do_import_pqc_key():
+            fname = import_friend_var.get()
+            key_b64 = import_key_text.get('1.0', tk.END).strip()
+            if not fname:
+                messagebox.showwarning("No Selection", "Please select a friend.",
+                                       parent=dlg)
+                return
+            if not key_b64:
+                messagebox.showwarning("Empty Key",
+                                       "Please paste the PQC combined public key.",
+                                       parent=dlg)
+                return
+            # Validate
+            try:
+                raw = base64.b64decode(key_b64)
+                if len(raw) < 36:
+                    raise ValueError("Too short")
+            except Exception as e:
+                messagebox.showerror("Invalid Key",
+                                     f"Invalid PQC combined public key: {e}",
+                                     parent=dlg)
+                return
+            # Save by re-saving the friend with the PQC key
+            details = self.service.get_friend_details(fname)
+            if not details:
+                messagebox.showerror("Error", f"Friend '{fname}' not found.",
+                                     parent=dlg)
+                return
+            try:
+                secret = self.service.get_friend_secret(fname)
+                x_b64 = None
+                # Get existing X25519 key if any
+                ks = self.service._ks
+                x_b64 = ks.friends_x25519.get(fname)
+                caps = ks.friends_capabilities.get(fname)
+                self.service.add_friend(
+                    name=fname,
+                    public_key_pem=details["public_key_pem"],
+                    shared_secret=secret,
+                    master_password="",  # no re-encryption needed
+                    x25519_pub_b64=x_b64,
+                    capabilities=caps if caps else None,
+                    pqc_combined_pub_b64=key_b64,
+                )
+                self.refresh_list()
+                import_status_var.set(f"✅ PQC key imported for '{fname}'")
+                messagebox.showinfo("Success",
+                                    f"PQC combined public key saved for '{fname}'.",
+                                    parent=dlg)
+            except FriendsServiceError as e:
+                messagebox.showerror("Import Failed", str(e), parent=dlg)
+
+        ttk.Button(tab_import, text="💾 Import & Save PQC Key",
+                   command=do_import_pqc_key, bootstyle="info").pack(anchor="w")
+
+        # Close button
+        ttk.Button(dlg, text="Close", command=dlg.destroy,
+                   bootstyle="secondary-outline").pack(pady=(0, 10))
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self):

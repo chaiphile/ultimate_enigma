@@ -12,7 +12,17 @@ Signature format: [ed_sig_len(2) | ed_sig(64) | dil_sig(variable)]
 import struct
 import logging
 
-import oqs
+try:
+    import oqs
+    _OQS_SIG_AVAILABLE = True
+except (ImportError, RuntimeError, OSError) as _oqs_err:
+    oqs = None  # type: ignore[assignment]
+    _OQS_SIG_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "liboqs not available for signatures (%s). Post-quantum hybrid signatures will be disabled.",
+        _oqs_err
+    )
+
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey, Ed25519PublicKey
 )

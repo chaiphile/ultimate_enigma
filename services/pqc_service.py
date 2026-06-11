@@ -9,7 +9,18 @@ the hybrid still provides security from the other.
 import struct
 import logging
 
-import oqs
+try:
+    import oqs
+    _OQS_AVAILABLE = True
+except (ImportError, RuntimeError, OSError) as _oqs_err:
+    oqs = None  # type: ignore[assignment]
+    _OQS_AVAILABLE = False
+    logging.getLogger(__name__).warning(
+        "liboqs not available (%s). Post-quantum hybrid KEM will be disabled. "
+        "Install liboqs native library + pip install liboqs-python to enable.",
+        _oqs_err
+    )
+
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey, X25519PublicKey
 )
@@ -22,8 +33,28 @@ logger = logging.getLogger(__name__)
 KEM_ALGORITHM = "Kyber768"
 
 
+def is_pqc_available() -> bool:
+    """Return True if the liboqs native library is loaded and Kyber768 is supported."""
+    if not _OQS_AVAILABLE or oqs is None:
+        return False
+    try:
+        return KEM_ALGORITHM in oqs.get_enabled_kem_mechanisms()
+    except Exception:
+        return False
+
+
 class HybridKEM:
     """Hybrid classical + post-quantum key encapsulation."""
+
+    @staticmethod
+    def _require_oqs():
+        """Raise RuntimeError if liboqs is not available."""
+        if not _OQS_AVAILABLE or oqs is None:
+            raise RuntimeError(
+                "liboqs native library is not installed or failed to load. "
+                "Install it with: pip install liboqs-python  "
+                "(also requires the liboqs shared library on your system)."
+            )
 
     @staticmethod
     def generate_keys() -> dict:
@@ -37,6 +68,7 @@ class HybridKEM:
             'combined_pub': bytes (concatenated for exchange)
         }
         """
+        HybridKEM._require_oqs()
         # Classical key
         x_priv = X25519PrivateKey.generate()
         x_pub_bytes = x_priv.public_key().public_bytes_raw()
@@ -44,7 +76,7 @@ class HybridKEM:
         # Post-quantum key
         with oqs.KeyEncapsulation(KEM_ALGORITHM) as kem:
             ky_pub = kem.generate_keypair()
-            ky_priv = kem.export_secretkey()
+            ky_priv = kem.export_secret_key()
             ky_pub_bytes = ky_pub
 
         # Combined public key for exchange: [len_x(2) | x25519(32) | len_ky(2) | kyber_pub]
@@ -73,6 +105,7 @@ class HybridKEM:
             'shared_secret': bytes (32-byte derived key)
         }
         """
+        HybridKEM._require_oqs()
         offset = 0
         x_len = struct.unpack(">H", remote_combined_pub[offset:offset+2])[0]
         offset += 2
@@ -124,6 +157,7 @@ class HybridKEM:
         Decapsulate: recover shared secret from ciphertext.
         Returns 32-byte derived key.
         """
+        HybridKEM._require_oqs()
         # Extract classical ECDH
         remote_x_pub_bytes = ciphertext[:32]
         kyber_ct = ciphertext[32:]
