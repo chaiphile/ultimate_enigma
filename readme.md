@@ -1,10 +1,13 @@
+# Ultimate Enigma Messenger
 
 A desktop application for secure hybrid encryption, digital signatures, and file encryption — inspired by the Enigma machine but built with modern cryptography.
 
-**Author:** Chaiphile
-**Version:** 2.2
+**Author:** Chaiphile  
+**Version:** 2.2  
+**License:** Polyform Noncommercial License 1.0.0
 
-![Python|98](https://img.shields.io/badge/python-3.8+-blue.svg)
+![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
+![License](https://img.shields.io/badge/license-Polyform%20NC-orange.svg)
 
 ---
 
@@ -13,29 +16,64 @@ A desktop application for secure hybrid encryption, digital signatures, and file
 Ultimate Enigma Messenger is a **local cryptographic tool** that encrypts messages and files using a combination of:
 
 - **AES‑256‑GCM** for symmetric encryption
-- **RSA‑OAEP** for key wrapping and friend‑specific encryption
-- **Time‑based symmetric keys** with a sliding window (±3 steps of 30 seconds)
+- **RSA‑OAEP (4096-bit)** for key wrapping and friend‑specific encryption
+- **Argon2id** for memory-hard key derivation
+- **Double Ratchet Protocol** for forward secrecy and break-in recovery
+- **Post-Quantum Cryptography** (CRYSTALS-Kyber) for quantum-safe encryption
+- **TOTP Authentication** for secure unlock verification
 - **Digital signatures** (RSA‑PSS) for authenticity and non‑repudiation
-- **Self‑destruct messages** (optional expiration)
+- **Time‑based symmetric keys** with NTP-synchronized sliding window
+- **Self‑destruct messages** with configurable expiration
 
-All sensitive keys (private RSA key, global shared secret, friends’ shared secrets) are encrypted with a master password and stored in a SQLite database.  
-The app provides an intuitive dark-themed GUI for encryption, decryption, contact management, and key exchange.
+All sensitive keys are encrypted at rest and stored in a SQLite database. The app provides an intuitive dark-themed GUI built with ttkbootstrap for encryption, decryption, contact management, and key exchange.
+
+📚 **Detailed Documentation:** See the [`docs/`](docs/) directory for comprehensive guides:
+- [Setup Guide (Windows/macOS/Linux)](docs/SETUP.md) – Multi-OS installation and configuration
+- [Services Reference](docs/SERVICES_REFERENCE.md) – Every service, method, and parameter documented
+- [Models Reference](docs/MODELS_REFERENCE.md) – Data models, database schema, SecureString, constants
+- [Views & Controllers Reference](docs/VIEWS_AND_CONTROLLERS.md) – All UI tabs, controllers, dialogs
+- [Architecture](docs/ARCHITECTURE.md) – System design and component interaction
+- [Security Model](docs/SECURITY.md) – Threat model and security properties
+- [Contributing Guidelines](docs/CONTRIBUTING.md) – Development guidelines and workflows
 
 ---
 
 ## ✨ Features
 
-- **Hybrid Encryption** – AES‑GCM for speed, RSA‑OAEP for friend‑only confidentiality.
-- **Time‑Based Keys** – Every message is encrypted with a key derived from a shared secret and the current time; valid only within a ±90‑second window.
-- **Digital Signatures** – Sign messages with your private key; verify sender identity inside the app.
-- **Self‑Destruct** – Set a message to expire after 5 min, 10 min, 1 hour, etc.
-- **Friend Management** – Store friends’ public keys and optionally ECDH‑derived shared secrets.
-- **ECDH Key Exchange** – Perform X25519 key exchange to establish a unique shared secret with a friend.
-- **File Encryption** – Encrypt/decrypt any file with a password using AES‑GCM + PBKDF2.
-- **Global Shared Secret** – A fallback symmetric key usable with all users who know it.
-- **Secure Memory Wipe** – Keys are zeroed from memory on app close.
-- **Clipboard Auto-Clear** – Sensitive data copied to clipboard is automatically cleared after 30 seconds and on app exit.
-- **Master Password Protection** – All long‑term secrets are encrypted at rest (PBKDF2‑HMAC‑SHA256 + AES‑GCM).
+### Core Encryption
+- **Hybrid Encryption** – AES-GCM for speed, RSA-OAEP for friend-only confidentiality
+- **Time‑Based Keys** – Every message encrypted with a key derived from shared secret + timestamp; valid within ±90-second window
+- **Digital Signatures** – Sign messages with your private key; verify sender identity
+- **Self‑Destruct** – Set messages to expire after configurable duration
+
+### Key Management
+- **Friend Management** – Store friends' public keys and ECDH-derived shared secrets
+- **ECDH Key Exchange** – X25519 key exchange for unique per-friend secrets
+- **Global Shared Secret** – Fallback symmetric key for group communication
+- **Double Ratchet** – Signal Protocol implementation for forward secrecy
+
+### Post-Quantum Security
+- **CRYSTALS-Kyber KEM** – NIST-standardized post-quantum key encapsulation
+- **Hybrid Envelopes** – Classical + PQC encryption for transition safety
+- **Future-Proof** – Protects against quantum computer threats
+
+### Authentication & Protection
+- **Master Password** – Argon2id-derived key protects all secrets at rest
+- **TOTP Verification** – Time-based one-time password for unlock
+- **Emergency Lock** – Instant key wipe with hotkey support
+- **Lockout Protection** – Exponential backoff on failed attempts
+
+### File Operations
+- **File Encryption** – Encrypt/decrypt any file with password (AES-GCM + Argon2id)
+- **Friend-Specific Files** – Encrypt files for specific recipients
+- **Chunked Processing** – Handle large files efficiently
+
+### User Experience
+- **Dark Theme** – Modern ttkbootstrap "darkly" theme
+- **Clipboard Auto-Clear** – Sensitive data cleared after 30 seconds
+- **NTP Synchronization** – Accurate time for time-based key derivation
+- **Event-Driven UI** – Decoupled components via EventBus
+- **Rotor Animation** – Visual Enigma machine header animation
 
 ---
 
@@ -47,43 +85,52 @@ The app provides an intuitive dark-themed GUI for encryption, decryption, contac
 
 ## 🚀 Installation
 
-### Prerequisites
+### Quick Start
 
-- Python **3.8 or higher**
-- `pip` (Python package manager)
-- Tkinter (usually bundled with Python; on Linux you may need `python3-tk`)
+For detailed OS-specific instructions (Windows, macOS, Linux), see the **[Setup Guide](docs/SETUP.md)**.
 
-### Steps
+```bash
+# Clone
+git clone https://github.com/yourusername/ultimate-enigma.git
+cd ultimate-enigma
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/ultimate-enigma.git
-   cd ultimate-enigma
-   ```
+# Virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate   # Linux/macOS
+venv\Scripts\activate      # Windows
 
-2. **(Optional) Create a virtual environment**
-   ```bash
-   python -m venv venv
-   source venv/bin/activate   # Linux/macOS
-   venv\Scripts\activate      # Windows
-   ```
+# Install & run
+pip install -r requirements.txt
+python main.py
+```
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+#### ⚠️ Windows Prerequisites (C++ Build Tools)
 
-   If no `requirements.txt` exists, you can create one with:
-   ```text
-   cryptography
-   pytest
-   ```
-   Then run `pip install cryptography pytest` manually.
+On Windows, native Python extensions (like `cryptography`, `argon2-cffi`) and the Post-Quantum Cryptography library (`liboqs`) require a C/C++ compiler to build. 
 
-4. **Run the application**
-   ```bash
-   python main.py
-   ```
+**Required Components:**
+- **Visual Studio Build Tools** (or full Visual Studio 2022)
+- **MSVC v143 C++ Build Tools** (x86/x64)
+- **Windows 11 SDK**
+
+We provide an **automated PowerShell script** to install all required C++ development components silently:
+
+```powershell
+# Open PowerShell as Administrator, navigate to the project folder, and run:
+.\setup_dev_env.ps1
+```
+
+For manual installation instructions, see the [Windows Setup Guide](docs/SETUP.md#windows-setup).
+
+### Platform-Specific Notes
+
+| Platform | Key Notes |
+|----------|----------|
+| **Windows** | Full support including global hotkeys (Ctrl+Shift+L/U). Use `build_app.bat` for executable. **Requires C++ Build Tools** (see Windows Prerequisites above). |
+| **macOS** | Install via Homebrew (`brew install python@3.12`). No global hotkeys (use lock button). Apple Silicon supported. |
+| **Linux** | Requires `python3-tk` package. No global hotkeys. X11 or Wayland with XWayland required. |
+
+See [docs/SETUP.md](docs/SETUP.md) for complete installation steps, liboqs/PQC setup, troubleshooting, and building executables on each platform.
 
 ---
 
@@ -91,49 +138,57 @@ The app provides an intuitive dark-themed GUI for encryption, decryption, contac
 
 ### First Launch
 
-- You will be prompted to set a **master password** (minimum 4 characters).  
-- The app generates a 3072‑bit RSA key pair and a 256‑bit global shared secret, all encrypted with your master password.
+1. You will be prompted to set a **master password** (minimum 12 characters recommended)
+2. The app generates a 4096-bit RSA key pair and 256-bit global shared secret
+3. TOTP setup is required for secure unlock capability
+4. All keys are encrypted with your master password and stored securely
 
 ### Main Interface
 
 The application is organized into tabs:
 
 #### ✉️ Encrypt & Send
-- Type your message, optionally sign it with your private key.
-- Choose a **friend** to encrypt the message specifically for them (using their public RSA key).  
-  If the friend has a shared secret from ECDH, that secret will be used instead of the global one.
-- Enable **self‑destruct** and select an expiration time.
-- Click **Encrypt & Send** – the Base64‑encoded ciphertext is displayed and can be copied.
+- Type your message, optionally sign it with your private key
+- Choose a **friend** for recipient-specific encryption
+- Enable **self‑destruct** and select expiration time
+- Click **Encrypt & Send** – Base64 ciphertext is displayed and copied
 
 #### 📥 Decrypt & Receive
-- Paste a received Base64 message into the input field.
-- Click **Decrypt Message**; the plaintext (and signature verification result) appears in the output area.
-- Messages that have self‑destructed will show an appropriate error.
+- Paste received Base64 message into input field
+- Click **Decrypt Message** – plaintext and signature verification appear
+- Expired self-destruct messages show appropriate error
 
 #### 🔗 Shared Secret
-- View the fingerprint of the current global shared secret.
-- Export the global secret (Base64) to share manually.
-- Import a new global secret (replaces the current one).
-- Start an **ECDH key exchange** to update the global secret securely with a peer.
+- View fingerprint of current global shared secret
+- Export/import global secret (Base64)
+- Start **ECDH key exchange** for secure secret establishment
 
 #### 🔐 File Encryption
-- Encrypt any file with a password using AES‑GCM + PBKDF2 (300,000 iterations).
-- Decrypt an encrypted file by providing the same password.
+- Encrypt any file with password using AES-GCM + Argon2id
+- Decrypt encrypted files with same password
+- Support for friend-specific file encryption
 
 #### 👥 Friends
-- Add friends by entering their name, public key (PEM format), and optionally a shared secret (Base64).
-- Perform **ECDH key exchange** with a selected friend to derive a shared secret directly inside the app.
-- Remove friends, view public key details, and fingerprints.
+- Add friends with name, public key (PEM), and optional shared secret
+- Perform **ECDH key exchange** with selected friend
+- Remove friends, view public key details and fingerprints
 
 #### 🕐 NTP
-- View real-time local system time and NTP server time.
-- Manually synchronize with an NTP server to check clock offset.
-- Choose from six pre-listed public NTP servers or enter a custom server hostname.
-- Displays time offset in milliseconds and last successful sync timestamp.
-- Successful syncs automatically update the encryption service’s time-based key derivation.
+- View local system time and NTP server time
+- Manually synchronize with NTP server
+- Choose from preset servers or enter custom hostname
+- Displays time offset and last sync timestamp
 
 #### ℹ️ About
-- Displays app version, author, and a brief privacy statement.
+- App version, author, and privacy statement
+- TOTP setup access
+
+### Emergency Lock
+
+- Click **🔒 EMERGENCY LOCK** button or use registered hotkey
+- Immediately wipes all keys from memory
+- Requires master password + TOTP to unlock
+- All services are rebuilt with restored keys
 
 ---
 
@@ -141,87 +196,162 @@ The application is organized into tabs:
 
 The project includes a comprehensive test suite using `pytest`.
 
-Run all tests:
+### Run All Tests
 ```bash
-pytest test.py test_crypto.py -v
+pytest tests/ -v
 ```
 
-The tests cover:
-- Cryptographic primitives (AES, RSA, ECDH, key derivation)
+### Run Specific Test File
+```bash
+pytest tests/test_encryption_service.py -v
+```
+
+### Run with Coverage
+```bash
+pytest tests/ --cov=. --cov-report=html
+```
+
+### Test Coverage
+
+The test suite covers:
+- Cryptographic primitives (AES, RSA, ECDH, Argon2id, PQC)
+- Double Ratchet protocol operations
 - Time‑based key sliding window
 - Self‑destruct logic
 - Database encryption/decryption
 - KeyStore operations (load, save, wipe)
 - File encryption/decryption
-- Packet format and flag parsing
-- NTP client (query, timeout, error handling, fractional seconds, custom server/port)
-- Clipboard service (copy, get, clear, auto-clear timer, shutdown, timer cancellation)
-- Edge cases (corrupt data, wrong passwords, non‑UTF‑8 plaintext)
+- TOTP generation and verification
+- EventBus publish/subscribe
+- Clipboard service (copy, clear, auto-clear timer)
+- NTP client (query, timeout, error handling)
+- Concurrent operations and thread safety
+- Edge cases (corrupt data, wrong passwords, timeouts)
+
+### Test Utilities
+
+Batch files are provided for common test scenarios:
+- `run_tests.py` – Main test runner
+- `run_specific_tests.bat` – Run targeted tests
+- `run_timeout_tests.bat` – Test timeout handling
+- `run_concurrent_test.bat` – Test concurrent operations
 
 ---
 
 ## 🏛️ Architecture
 
-The project is structured as follows:
+The project follows an **MVC (Model-View-Controller)** architecture with an event-driven service layer:
 
-| File               | Purpose                                      |
-|--------------------|----------------------------------------------|
-| `main.py`          | Application entry point, logging setup       |
-| `app.py`           | Main window, tab setup, key loading, rotor animation |
-| `crypto.py`        | Core encryption/decryption and signature functions |
-| `key_manager.py`   | KeyStore class, database read/write, file crypto  |
-| `database.py`      | SQLite schema, PBKDF2+AES secret encryption  |
-| `encrypt_tab.py`   | UI for message encryption                    |
-| `decrypt_tab.py`   | UI for message decryption                    |
-| `friends_tab.py`   | Friend list management and ECDH              |
-| `secret_tab.py`    | Global secret management and ECDH            |
-| `file_tab.py`      | File encryption/decryption UI                |
-| `ntp_tab.py`       | NTP synchronization UI with preset/custom servers |
-| `ntp_client.py`    | Low-level NTP query over UDP                 |
-| `clipboard_service.py` | Clipboard operations with auto-clear scheduling |
-| `about_tab.py`     | About window                                 |
-| `ecdh.py`          | X25519 key exchange dialog                   |
-| `visual_enigma.py` | Rotor animation in the header                |
-| `styles.py`        | Modern dark theme for ttk widgets            |
-| `utils.py`         | Password dialog helper                       |
-| `test.py`          | Main test suite                              |
-| `test_crypto.py`   | Additional crypto unit tests                 |
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      EnigmaApp (main)                       │
+│  ┌────────────────┐ ┌──────────────┐ ┌───────────────────┐  │
+│  │ApplicationCtrl │ │AuthController│ │ServiceOrchestrator│  │
+│  └────────────────┘ └──────────────┘ └───────────────────┘  │
+│                              │                              │
+│                    ┌─────────┴─────────┐                    │
+│                    │      EventBus     │                    │
+│                    └───────────────────┘                    │
+│                              │                              │
+│  ┌───────────────────────────┼───────────────────────────┐  │
+│  │          Services         │          Views            │  │
+│  │  EncryptionSvc            │  EncryptTab               │  │
+│  │  FileService              │  DecryptTab               │  │
+│  │  FriendsService           │  FriendsTab               │  │
+│  │  ClipboardService         │  FileTab                  │  │
+│  │  DoubleRatchet            │  SecretTab                │  │
+│  │  PQCService               │  NtpTab                   │  │
+│  │  TOTPService              │  AboutTab                 │  │
+│  └───────────────────────────┴───────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
 
----
+### Directory Structure
 
-## 🤖 Model Context Protocol (MCP)
+| Directory/File | Purpose |
+|----------------|---------|
+| `controllers/` | MVC controllers (lifecycle, auth, service DI) |
+| `models/` | Data models (envelope, friend profile, key store) |
+| `services/` | Business logic services (encryption, files, friends, etc.) |
+| `components/` | Reusable UI components (TOTP dialogs) |
+| `src/` | Core utilities (constants, exceptions, secure string) |
+| `tests/` | Comprehensive test suite |
+| `*_tab.py` | View layer (Tkinter tab implementations) |
+| `app.py` | Main window orchestration |
+| `main.py` | Application entry point |
 
-Ultimate Enigma supports the **Model Context Protocol (MCP)**, an open standard for connecting AI applications to external systems [[1]]. This allows Large Language Models (LLMs) to securely interact with the application's cryptographic functions and data sources.
-
-### Features
-- **Secure Context**: Provides LLMs with secure access to encryption/decryption tools without exposing raw keys.
-- **Automated Workflows**: Enables AI agents to perform complex cryptographic tasks like batch file encryption or key management.
-- **Standardized Integration**: Follows the MCP specification for seamless compatibility with various AI assistants and development environments [[5]].
+For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ---
 
 ## 🔒 Security Considerations
 
-- **Master Password** – The master password is never stored; it is used only to derive an encryption key for the private key and shared secrets. If lost, data cannot be recovered.
-- **Time‑Based Keys** – Offers a small window of replay protection (90 seconds), but is not a substitute for proper network security if used over the internet.
-- **Self‑Destruct** – This is a **client‑side feature**; it relies on the recipient’s app honouring the expiry. It does **not** guarantee deletion on the recipient’s machine.
-- **Key Management** – All secrets are encrypted with AES‑GCM using PBKDF2‑derived keys. The database file (`enigma.db`) should be kept private.
-- **ECDH** – X25519 key exchange is performed locally; users must manually verify the fingerprint through a secure channel to prevent MITM attacks.
-- **Memory Cleanup** – Keys are zeroed and garbage collected when the app closes.
+- **Master Password** – Never stored; used only to derive encryption key via Argon2id. If lost, data cannot be recovered.
+- **Memory Safety** – Keys are zeroed from memory on lock/close using `SecureString`.
+- **Time‑Based Keys** – Offers ±90-second replay protection window; not a substitute for network security.
+- **Self‑Destruct** – Client‑side feature only; does **not** guarantee deletion on recipient's machine.
+- **Key Storage** – All secrets encrypted at rest (Argon2id + AES-GCM) in SQLite database.
+- **ECDH** – Performed locally; users must verify fingerprints through secure channel to prevent MITM.
+- **TOTP** – Required for unlock after emergency lock; prevents unauthorized access.
+- **Lockout** – Exponential backoff and hard lockout protect against brute force.
+- **Post-Quantum** – CRYSTALS-Kyber provides quantum-safe key encapsulation.
+
+For the complete security model, see [docs/SECURITY.md](docs/SECURITY.md).
+
+---
+
+## 🤖 Model Context Protocol (MCP)
+
+Ultimate Enigma supports the **Model Context Protocol (MCP)**, an open standard for connecting AI applications to external systems. This allows LLMs to securely interact with the application's cryptographic functions.
+
+### Features
+- **Secure Context**: Provides LLMs with secure access to encryption/decryption tools without exposing raw keys
+- **Automated Workflows**: Enables AI agents to perform batch file encryption or key management
+- **Standardized Integration**: Follows MCP specification for compatibility with AI assistants
+
+---
+
+## 📦 Dependencies
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| ttkbootstrap | ≥1.10.0 | Modern themed Tkinter widgets |
+| cryptography | ≥41.0.0 | Core cryptographic operations |
+| argon2-cffi | ≥23.1.0 | Memory-hard key derivation |
+| qrcode[pil] | ≥7.4 | QR code generation for TOTP |
+| liboqs-python | ≥0.9.0 | Post-quantum cryptography (Kyber) |
+| pytest | ≥7.0.0 | Testing framework (optional) |
 
 ---
 
 ## 📄 License
 
-This project is licensed under the Polyform Noncommercial License 1.0.0. See the `LICENSE.txt` file for details.
+This project is licensed under the **Polyform Noncommercial License 1.0.0**. See the [`LICENSE.txt`](LICENSE.txt) file for details.
 
 ---
 
 ## 🙏 Acknowledgements
 
-- [Python Cryptography library](https://cryptography.io/) for all cryptographic operations.
-- Tkinter for the GUI framework.
-- The Enigma machine for inspiration.
+- [Python Cryptography library](https://cryptography.io/) for all cryptographic operations
+- [liboqs](https://openquantumsafe.org/) for post-quantum algorithms
+- [ttkbootstrap](https://ttkbootstrap.readthedocs.io/) for modern UI theming
+- Tkinter for the GUI framework
+- The Enigma machine for historical inspiration
+- Signal Protocol for Double Ratchet design
+
+---
+
+## 📚 Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Setup Guide](docs/SETUP.md) | Multi-OS installation (Windows/macOS/Linux), PQC setup, troubleshooting |
+| [Services Reference](docs/SERVICES_REFERENCE.md) | All 16 services with every method, parameter, and return type |
+| [Models Reference](docs/MODELS_REFERENCE.md) | Envelopes, FriendProfile, KeyStore, DB schema, SecureString, constants |
+| [Views & Controllers](docs/VIEWS_AND_CONTROLLERS.md) | All 7 tabs, 3 controllers, dialogs, lock screen, utilities |
+| [Architecture](docs/ARCHITECTURE.md) | MVC design, event flow, threading model |
+| [Security Model](docs/SECURITY.md) | Cryptographic primitives, threat model, known limitations |
+| [Contributing](docs/CONTRIBUTING.md) | Code style, testing, PR process |
 
 ---
 
