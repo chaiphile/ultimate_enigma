@@ -10,8 +10,10 @@ NTP_SERVERS = [
     "1.pool.ntp.org",
     "2.pool.ntp.org",
     "3.pool.ntp.org",
-    "time.google.com",
     "time.cloudflare.com",
+    "time.google.com",
+    "ntp.day.ir",
+    "time.nist.gov",
 ]
 NTP_PORT = 123
 NTP_PACKET_FORMAT = "!B B B b 11I"

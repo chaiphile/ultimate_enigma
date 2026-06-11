@@ -430,23 +430,14 @@ class EnigmaApp:
         lock_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
 
         # ── TOTP Setup Button ──
-        self._totp_setup_btn = tk.Button(
+        totp_setup_btn = tk.Button(
             header, text="🔑 TOTP\nSetup",
             font=("Segoe UI", 9, "bold"),
-            bg="#2266aa", fg="white", activebackground="#3388cc",
+            bg="#007bff", fg="white", activebackground="#0056b3",
             activeforeground="white", bd=0, padx=10, pady=5,
             cursor="hand2", command=self._show_totp_setup
         )
-        self._totp_setup_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
-
-        # ── TOTP Enable/Disable Toggle Button ──
-        self._totp_toggle_btn = tk.Button(
-            header, font=("Segoe UI", 9, "bold"),
-            bd=0, padx=10, pady=5, cursor="hand2",
-            command=self._toggle_totp
-        )
-        self._totp_toggle_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
-        self._update_totp_toggle_button()
+        totp_setup_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
 
         self.header_canvas = tk.Canvas(
             header,

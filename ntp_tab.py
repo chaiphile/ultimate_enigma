@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 
-from ntp_client import get_ntp_time
+from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS
 
 PRESET_NTP_SERVERS = [
     "ntp.day.ir",
@@ -17,6 +17,12 @@ PRESET_NTP_SERVERS = [
     "time.cloudflare.com",
     "ntp.ubuntu.com",
 ]
+
+# Build ordered fallback list: presets first, then consensus servers not already in presets
+_FALLBACK_SERVERS = list(PRESET_NTP_SERVERS)
+for _srv in CONSENSUS_SERVERS:
+    if _srv not in _FALLBACK_SERVERS:
+        _FALLBACK_SERVERS.append(_srv)
 
 
 class NtpTab:
@@ -192,11 +198,34 @@ class NtpTab:
         self.server_label.config(text=f"{server}:123")
 
     def _do_sync(self):
-        server = self._get_active_server()
-        t = get_ntp_time(server=server)
-        self.frame.after(0, lambda: self._on_sync_complete(t))
+        """Try the selected server first, then fall back to all others."""
+        primary = self._get_active_server()
+        
+        # Try primary server first
+        t = get_ntp_time(server=primary)
+        if t is not None:
+            self.frame.after(0, lambda: self._on_sync_complete(t, primary))
+            return
+        
+        # Primary failed – update status and try fallbacks
+        self.frame.after(0, lambda: self.status_indicator.config(
+            text=f"⚠️ {primary} failed, trying alternatives...",
+            bootstyle="inverse-warning"
+        ))
+        
+        # Build fallback list (all known servers except the one we already tried)
+        fallbacks = [s for s in _FALLBACK_SERVERS if s != primary]
+        
+        for srv in fallbacks:
+            t = get_ntp_time(server=srv)
+            if t is not None:
+                self.frame.after(0, lambda ts=t, s=srv: self._on_sync_complete(ts, s, fallback=True))
+                return
+        
+        # All servers failed
+        self.frame.after(0, lambda: self._on_sync_complete(None, primary))
 
-    def _on_sync_complete(self, ntp_timestamp):
+    def _on_sync_complete(self, ntp_timestamp, server_used=None, fallback=False):
         self._syncing = False
         self.sync_btn.config(state=tk.NORMAL)
 
@@ -216,7 +245,14 @@ class NtpTab:
             self.last_sync_label.config(
                 text=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             )
-            self.status_indicator.config(text="✅ Synchronized successfully", bootstyle="inverse-success")
+            
+            if fallback and server_used:
+                status_msg = f"✅ Synced via {server_used} (fallback)"
+                # Update active server label to show which server actually worked
+                self.server_label.config(text=f"{server_used}:123")
+            else:
+                status_msg = "✅ Synchronized successfully"
+            self.status_indicator.config(text=status_msg, bootstyle="inverse-success")
 
             # Update encryption service if available
             if hasattr(self.app, 'encryption_service'):
@@ -224,4 +260,8 @@ class NtpTab:
         else:
             self.ntp_time_label.config(text="Sync Failed", bootstyle="inverse-danger")
             self.offset_label.config(text="--", bootstyle="inverse-secondary")
-            self.status_indicator.config(text="❌ Could not reach NTP server", bootstyle="inverse-danger")
+            tried = server_used or "unknown"
+            self.status_indicator.config(
+                text=f"❌ All NTP servers unreachable (tried {len(_FALLBACK_SERVERS)} servers)",
+                bootstyle="inverse-danger"
+            )
