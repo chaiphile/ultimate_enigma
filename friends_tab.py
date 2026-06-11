@@ -70,7 +70,7 @@ class FriendsTab:
         list_frame = ttk.Frame(self.frame, padding=(10, 0))
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
 
-        columns = ("status", "name", "rsa_fp", "ecdh_status", "pqc_status", "ratchet_status")
+        columns = ("status", "name", "rsa_fp", "ecdh_status", "pqc_status", "hybrid_sig_status", "ratchet_status")
         self.tree = ttk.Treeview(
             list_frame,
             columns=columns,
@@ -87,6 +87,7 @@ class FriendsTab:
             "rsa_fp":          {"text": "RSA Fingerprint", "width": 160, "anchor": "w"},
             "ecdh_status":     {"text": "ECDH Key",     "width": 70,  "anchor": "center"},
             "pqc_status":      {"text": "PQC Key",      "width": 70,  "anchor": "center"},
+            "hybrid_sig_status": {"text": "Hybrid Sig", "width": 80,  "anchor": "center"},
             "ratchet_status":  {"text": "Ratchet",      "width": 70,  "anchor": "center"},
         }
         for col_id, cfg in col_config.items():
@@ -149,8 +150,9 @@ class FriendsTab:
             ("rsa_lbl", "RSA Fingerprint:", 1, 0),
             ("ecdh_lbl", "ECDH Fingerprint:", 2, 0),
             ("pqc_lbl", "PQC Hybrid Key:", 3, 0),
-            ("secret_lbl", "Shared Secret:", 4, 0),
-            ("ratchet_lbl", "Double Ratchet:", 5, 0),
+            ("hybrid_sig_lbl", "Hybrid Signature Key:", 4, 0),
+            ("secret_lbl", "Shared Secret:", 5, 0),
+            ("ratchet_lbl", "Double Ratchet:", 6, 0),
         ]
         for key, label_text, row, col in detail_fields:
             ttk.Label(info_grid, text=label_text,
@@ -211,6 +213,7 @@ class FriendsTab:
             # ECDH status
             ecdh_text = "✅ Active" if ecdh_fp else "—"
             pqc_text = "🛡 Yes" if friend.get("has_pqc_key") else "—"
+            hybrid_sig_text = "✍️ Yes" if friend.get("has_hybrid_sig_key") else "—"
             ratchet_text = "🔐 Active" if friend.get("has_ratchet") else "—"
 
             # Truncate RSA fingerprint for table display
@@ -225,7 +228,7 @@ class FriendsTab:
 
             iid = self.tree.insert(
                 "", tk.END,
-                values=(status_text, name, rsa_display, ecdh_text, pqc_text, ratchet_text),
+                values=(status_text, name, rsa_display, ecdh_text, pqc_text, hybrid_sig_text, ratchet_text),
                 tags=tags,
             )
 
@@ -314,6 +317,9 @@ class FriendsTab:
         pqc_status = "🛡 Stored" if details.get("has_pqc_key") else "❌ Not configured"
         self._detail_labels["pqc_lbl"].config(text=pqc_status)
 
+        hybrid_sig_status = "✍️ Stored" if details.get("has_hybrid_sig_key") else "❌ Not configured"
+        self._detail_labels["hybrid_sig_lbl"].config(text=hybrid_sig_status)
+
         secret_status = "✅ Yes — Encrypted" if details["has_shared_secret"] else "❌ No"
         self._detail_labels["secret_lbl"].config(text=secret_status)
 
@@ -400,6 +406,33 @@ class FriendsTab:
 
         pqc_var.trace_add('write', update_pqc_status)
 
+        # Hybrid Signing Combined Public Key field
+        ttk.Label(form, text="Hybrid Signing Combined Public Key (Base64, optional):",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 4))
+        hybrid_sig_var = tk.StringVar()
+        hybrid_sig_entry = ttk.Entry(form, textvariable=hybrid_sig_var, width=50,
+                                     bootstyle="info")
+        hybrid_sig_entry.pack(fill=tk.X, pady=(0, 4))
+        hybrid_sig_status_var = tk.StringVar(value="")
+        ttk.Label(form, textvariable=hybrid_sig_status_var,
+                  font=("Consolas", 9), bootstyle="info").pack(anchor="w", pady=(0, 8))
+
+        def update_hybrid_sig_status(*args):
+            b64 = hybrid_sig_var.get().strip()
+            if not b64:
+                hybrid_sig_status_var.set("")
+                return
+            try:
+                raw = base64.b64decode(b64)
+                if len(raw) < 36:
+                    hybrid_sig_status_var.set("⚠ Too short for valid hybrid signing key")
+                    return
+                hybrid_sig_status_var.set(f"✅ Valid hybrid signing combined key ({len(raw)} bytes)")
+            except Exception:
+                hybrid_sig_status_var.set("⚠ Invalid Base64")
+
+        hybrid_sig_var.trace_add('write', update_hybrid_sig_status)
+
         # Capabilities checkbox
         caps_frame = ttk.Frame(form)
         caps_frame.pack(fill=tk.X, pady=(0, 8))
@@ -461,6 +494,7 @@ class FriendsTab:
                     return
 
             pqc_b64 = pqc_var.get().strip() or None
+            hybrid_sig_b64 = hybrid_sig_var.get().strip() or None
 
             capabilities = {}
             if dr_var.get():
@@ -475,6 +509,7 @@ class FriendsTab:
                     x25519_pub_b64=x_b64,
                     capabilities=capabilities if capabilities else None,
                     pqc_combined_pub_b64=pqc_b64,
+                    hybrid_sig_pub_b64=hybrid_sig_b64,
                 )
                 self.refresh_list()
                 dlg.destroy()

@@ -1,8 +1,11 @@
 import time
 import base64
+import secrets
 import struct
 import logging
 from typing import Optional, Tuple
+
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from crypto import (
     encrypt_message,
@@ -16,6 +19,7 @@ from services.ratchet_service import (
     RatchetNotFoundError,
     RatchetServiceError,
 )
+from services.pqc_service import HybridKEM, is_pqc_available
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +34,9 @@ class DecryptionError(Exception):
 
 # Magic byte identifying a Double Ratchet envelope
 RATCHET_ENVELOPE_MAGIC = 0xD0
+
+# Magic byte identifying a Post-Quantum Hybrid KEM envelope
+PQC_ENVELOPE_MAGIC = 0x50
 
 
 class EncryptionService:
@@ -51,6 +58,8 @@ class EncryptionService:
         """
         self._ks = key_store
         self._ntp_time: Optional[float] = None
+        self._last_encrypt_mode: Optional[str] = None
+        self._last_decrypt_mode: Optional[str] = None
 
     def update_ntp_time(self, timestamp: Optional[float]):
         self._ntp_time = timestamp
@@ -71,20 +80,30 @@ class EncryptionService:
         Returns (raw_packet_bytes, timestamp).
         Raises EncryptionError on failure.
         """
+        # --- Post-Quantum Hybrid KEM path ---
+        if friend_name and mode == "pqc":
+            self._last_encrypt_mode = "pqc"
+            return self._encrypt_with_pqc(plaintext, friend_name)
+
         # --- Double Ratchet path ---
         if (
             friend_name
             and mode == "shared"
             and self._friend_supports_ratchet(friend_name)
-            and RatchetService.has_active_ratchet(friend_name)
         ):
+            self._last_encrypt_mode = "ratchet"
             return self._encrypt_with_ratchet(plaintext, friend_name)
 
         # --- Legacy encryption path ---
+        self._last_encrypt_mode = "legacy"
         const_key, encrypt_for_friend_pub = self._resolve_encryption_key(
             friend_name, mode
         )
         my_priv = self._ks.my_priv if sign else None
+
+        # Hybrid signing keys (Ed25519 + Dilithium3) — used when available
+        hybrid_ed_priv = getattr(self._ks, 'my_ed_priv', None) if sign else None
+        hybrid_dil_priv = getattr(self._ks, 'my_dil_priv', None) if sign else None
 
         # Use NTP time if available, otherwise fall back to local time
         current_time = self._ntp_time if self._ntp_time is not None else time.time()
@@ -98,6 +117,8 @@ class EncryptionService:
                 my_priv=my_priv,
                 encrypt_for_friend_pub=encrypt_for_friend_pub,
                 self_destruct_seconds=self_destruct_seconds,
+                hybrid_ed_priv=hybrid_ed_priv,
+                hybrid_dil_priv=hybrid_dil_priv,
             )
         except Exception as exc:
             logger.error("Encryption failed: %s", exc, exc_info=True)
@@ -125,11 +146,18 @@ class EncryptionService:
         """
         packet = self._decode_base64_packet(b64_text)
 
+        # --- Post-Quantum Hybrid KEM path ---
+        if len(packet) > 1 and packet[0] == PQC_ENVELOPE_MAGIC:
+            self._last_decrypt_mode = "pqc"
+            return self._decrypt_with_pqc(packet)
+
         # --- Double Ratchet path ---
         if len(packet) > 1 and packet[0] == RATCHET_ENVELOPE_MAGIC:
+            self._last_decrypt_mode = "ratchet"
             return self._decrypt_with_ratchet(packet)
 
         # --- Legacy decryption path ---
+        self._last_decrypt_mode = "legacy"
         flags = self._peek_flags(packet)
         friend_encrypted = bool(flags & 2)
 
@@ -205,11 +233,20 @@ class EncryptionService:
         except Exception:
             raise DecryptionError("Corrupted packet.")
 
+    def _get_friends_hybrid_list(self):
+        """Build list of (name, ed_pub_bytes, dil_pub_bytes) for hybrid sig verification."""
+        hybrid_pubs = getattr(self._ks, 'friends_hybrid_sig_pubs', {})
+        return [
+            (name, ed_pub, dil_pub)
+            for name, (ed_pub, dil_pub) in hybrid_pubs.items()
+        ]
+
     def _decrypt_with_rsa(self, packet, my_priv, friends_for_crypto, legacy_priv=None):
         """Try RSA decryption with current key, then legacy key; returns plaintext or None."""
         if not my_priv and not legacy_priv:
             raise DecryptionError("Your private key is required for this message.")
         now = int(self._ntp_time) if self._ntp_time else None
+        friends_hybrid = self._get_friends_hybrid_list()
         # Try current key first
         if my_priv:
             try:
@@ -219,6 +256,7 @@ class EncryptionService:
                     my_priv=my_priv,
                     friends=friends_for_crypto,
                     now=now,
+                    friends_hybrid=friends_hybrid,
                 )
             except Exception:
                 pass
@@ -231,6 +269,7 @@ class EncryptionService:
                     my_priv=legacy_priv,
                     friends=friends_for_crypto,
                     now=now,
+                    friends_hybrid=friends_hybrid,
                 )
             except Exception:
                 pass
@@ -239,6 +278,7 @@ class EncryptionService:
     def _decrypt_with_shared_secrets(self, packet, secrets_to_try, friends_for_crypto):
         """Attempt decryption with a list of shared secrets; returns plaintext or None."""
         now = int(self._ntp_time) if self._ntp_time else None
+        friends_hybrid = self._get_friends_hybrid_list()
         for secret in secrets_to_try:
             try:
                 return decrypt_message(
@@ -247,6 +287,7 @@ class EncryptionService:
                     my_priv=None,
                     friends=friends_for_crypto,
                     now=now,
+                    friends_hybrid=friends_hybrid,
                 )
             except Exception:
                 continue
@@ -255,8 +296,31 @@ class EncryptionService:
     # ------------------------------------------------------------------
     # Double Ratchet helpers
     # ------------------------------------------------------------------
+    @property
+    def last_encrypt_mode(self) -> Optional[str]:
+        """Return the encryption mode used by the most recent encrypt() call.
+
+        Returns 'ratchet', 'legacy', or None if no encryption has been performed.
+        """
+        return self._last_encrypt_mode
+
+    @property
+    def last_decrypt_mode(self) -> Optional[str]:
+        """Return the decryption mode used by the most recent decrypt() call.
+
+        Returns 'ratchet', 'legacy', or None if no decryption has been performed.
+        """
+        return self._last_decrypt_mode
+
     def _friend_supports_ratchet(self, friend_name: str) -> bool:
-        """Check if a friend has advertised Double Ratchet capability."""
+        """Check if a friend can use Double Ratchet encryption.
+
+        Returns True if either:
+        - The friend has an active ratchet session (definitive proof of support), or
+        - The friend has advertised double_ratchet capability in their profile
+        """
+        if RatchetService.has_active_ratchet(friend_name):
+            return True
         caps = getattr(self._ks, "friends_capabilities", {})
         friend_caps = caps.get(friend_name, {})
         return bool(friend_caps.get("double_ratchet", False))
@@ -339,6 +403,115 @@ class EncryptionService:
             ) from exc
 
         logger.debug("Decrypted message via Double Ratchet from '%s'", sender_name)
+        return plaintext_bytes.decode("utf-8")
+
+    # ------------------------------------------------------------------
+    # Post-Quantum Hybrid KEM helpers
+    # ------------------------------------------------------------------
+    def _encrypt_with_pqc(
+        self, plaintext: str, friend_name: str
+    ) -> Tuple[bytes, int]:
+        """Encrypt using Post-Quantum Hybrid KEM (X25519 + Kyber768).
+
+        Envelope format:
+            0x50 | kem_ct_len(2B BE) | kem_ciphertext | nonce(12) | aes_gcm_ciphertext+tag
+
+        The shared secret from HybridKEM.encapsulate is used directly as
+        the AES-256-GCM key (it is already HKDF-derived inside HybridKEM).
+        """
+        if not is_pqc_available():
+            raise EncryptionError(
+                "Post-quantum cryptography is not available. "
+                "Install liboqs native library + pip install liboqs-python."
+            )
+
+        combined_pub = self._ks.friends_pqc_combined_pub.get(friend_name)
+        if not combined_pub:
+            raise EncryptionError(
+                f"No PQC public key stored for '{friend_name}'. "
+                "Import their PQC combined public key first."
+            )
+
+        try:
+            kem_result = HybridKEM.encapsulate(combined_pub)
+        except Exception as exc:
+            raise EncryptionError(
+                f"PQC encapsulation failed for '{friend_name}': {exc}"
+            ) from exc
+
+        shared_secret = kem_result['shared_secret']
+        kem_ciphertext = kem_result['ciphertext']
+
+        # AES-256-GCM encrypt the plaintext
+        nonce = secrets.token_bytes(12)
+        aesgcm = AESGCM(shared_secret)
+        aes_ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
+
+        # Build envelope
+        envelope = (
+            bytes([PQC_ENVELOPE_MAGIC])
+            + struct.pack(">H", len(kem_ciphertext))
+            + kem_ciphertext
+            + nonce
+            + aes_ct
+        )
+
+        current_time = self._ntp_time if self._ntp_time is not None else time.time()
+        logger.debug("Encrypted message via PQC Hybrid KEM for '%s'", friend_name)
+        return envelope, int(current_time)
+
+    def _decrypt_with_pqc(self, packet: bytes) -> str:
+        """Parse a PQC Hybrid KEM envelope and decrypt.
+
+        Uses the cached PQC private key bundle from KeyStore to decapsulate
+        the KEM ciphertext and recover the AES key.
+        """
+        if not is_pqc_available():
+            raise DecryptionError(
+                "Post-quantum cryptography is not available. "
+                "Install liboqs to decrypt PQC messages."
+            )
+
+        bundle = self._ks.pqc_decryption_bundle
+        if not bundle:
+            raise DecryptionError(
+                "PQC private keys are not loaded. "
+                "Generate PQC keys via the Friends tab and restart the app."
+            )
+
+        try:
+            offset = 1  # skip magic byte
+            kem_ct_len = struct.unpack(">H", packet[offset:offset + 2])[0]
+            offset += 2
+            kem_ciphertext = packet[offset:offset + kem_ct_len]
+            offset += kem_ct_len
+            nonce = packet[offset:offset + 12]
+            offset += 12
+            aes_ct = packet[offset:]
+        except Exception as exc:
+            raise DecryptionError("Malformed PQC envelope.") from exc
+
+        if len(nonce) != 12 or len(aes_ct) < 16:
+            raise DecryptionError("Malformed PQC envelope: invalid nonce or ciphertext.")
+
+        # Decapsulate to recover shared secret
+        try:
+            shared_secret = HybridKEM.decapsulate(bundle, kem_ciphertext)
+        except Exception as exc:
+            raise DecryptionError(
+                f"PQC decapsulation failed: {exc}"
+            ) from exc
+
+        # AES-256-GCM decrypt
+        try:
+            aesgcm = AESGCM(shared_secret)
+            plaintext_bytes = aesgcm.decrypt(nonce, aes_ct, None)
+        except Exception as exc:
+            raise DecryptionError(
+                "PQC decryption failed: authentication tag mismatch or corrupted data."
+            ) from exc
+
+        logger.debug("Decrypted message via PQC Hybrid KEM")
         return plaintext_bytes.decode("utf-8")
 
     @staticmethod

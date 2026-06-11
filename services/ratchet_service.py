@@ -9,7 +9,8 @@ shared secrets derived from Hybrid KEM or other key agreement protocols.
 
 import json
 import logging
-from typing import Optional, Tuple
+import threading
+from typing import Optional, Tuple, Dict
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 
@@ -40,7 +41,23 @@ class RatchetService:
     - Initializing new ratchet sessions (Alice/Bob roles)
     - Querying ratchet session existence
     - Cleaning up expired or deleted sessions
+
+    Thread safety:
+        Per-friend locks ensure that concurrent encrypt/decrypt operations
+        for the same friend do not corrupt chain counters by racing on
+        load -> mutate -> save cycles.
     """
+
+    _friend_locks: Dict[str, threading.Lock] = {}
+    _locks_guard = threading.Lock()
+
+    @classmethod
+    def _get_friend_lock(cls, friend_name: str) -> threading.Lock:
+        """Return a per-friend lock, creating one if necessary."""
+        with cls._locks_guard:
+            if friend_name not in cls._friend_locks:
+                cls._friend_locks[friend_name] = threading.Lock()
+            return cls._friend_locks[friend_name]
 
     @staticmethod
     def has_active_ratchet(friend_name: str) -> bool:
@@ -170,6 +187,7 @@ class RatchetService:
             state = RatchetState()
             state.initialize_as_alice(bob_dh_pub, shared_secret)
             RatchetService.save_ratchet_state(friend_name, state)
+            RatchetService._ensure_ratchet_capability(friend_name)
             logger.info("Initialized ratchet as Alice for '%s'", friend_name)
             return state
         except ValueError as e:
@@ -212,6 +230,7 @@ class RatchetService:
             state = RatchetState()
             state.initialize_as_bob(alice_dh_pub, shared_secret)
             RatchetService.save_ratchet_state(friend_name, state)
+            RatchetService._ensure_ratchet_capability(friend_name)
             logger.info("Initialized ratchet as Bob for '%s'", friend_name)
             return state
         except ValueError as e:
@@ -264,6 +283,42 @@ class RatchetService:
             ) from e
 
     @staticmethod
+    def _ensure_ratchet_capability(friend_name: str) -> None:
+        """Ensure the friend's capabilities_json includes double_ratchet: True.
+
+        Called automatically after ratchet initialization so that the
+        encryption service can detect ratchet support via capability flags
+        even without checking the database for active sessions.
+        """
+        try:
+            with closing(get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT capabilities_json FROM friends WHERE name=?",
+                    (friend_name,)
+                ).fetchone()
+                caps = {}
+                if row and row[0]:
+                    try:
+                        caps = json.loads(row[0])
+                    except (json.JSONDecodeError, TypeError):
+                        caps = {}
+                if not caps.get("double_ratchet"):
+                    caps["double_ratchet"] = True
+                    safe_execute(
+                        conn,
+                        "UPDATE friends SET capabilities_json=? WHERE name=?",
+                        (json.dumps(caps), friend_name)
+                    )
+                    conn.commit()
+                    logger.debug(
+                        "Set double_ratchet capability for '%s'", friend_name
+                    )
+        except DatabaseError as e:
+            logger.warning(
+                "Could not update capabilities for '%s': %s", friend_name, e
+            )
+
+    @staticmethod
     def encrypt_message(friend_name: str, plaintext: bytes) -> Tuple[bytes, bytes]:
         """Encrypt a message using the active ratchet session for a friend.
 
@@ -283,16 +338,18 @@ class RatchetService:
             RatchetNotFoundError: If no active ratchet session exists.
             RatchetServiceError: If encryption or state persistence fails.
         """
-        state = RatchetService.get_ratchet_state(friend_name)
-        try:
-            header, ciphertext = state.encrypt(plaintext)
-        except ValueError as e:
-            raise RatchetServiceError(
-                f"Ratchet encryption failed for '{friend_name}': {e}"
-            ) from e
+        lock = RatchetService._get_friend_lock(friend_name)
+        with lock:
+            state = RatchetService.get_ratchet_state(friend_name)
+            try:
+                header, ciphertext = state.encrypt(plaintext)
+            except ValueError as e:
+                raise RatchetServiceError(
+                    f"Ratchet encryption failed for '{friend_name}': {e}"
+                ) from e
 
-        # Persist the advanced state
-        RatchetService.save_ratchet_state(friend_name, state)
+            # Persist the advanced state
+            RatchetService.save_ratchet_state(friend_name, state)
         return header, ciphertext
 
     @staticmethod
@@ -319,14 +376,16 @@ class RatchetService:
             RatchetNotFoundError: If no active ratchet session exists.
             RatchetServiceError: If decryption or state persistence fails.
         """
-        state = RatchetService.get_ratchet_state(friend_name)
-        try:
-            plaintext = state.decrypt(header, ciphertext)
-        except (ValueError, Exception) as e:
-            raise RatchetServiceError(
-                f"Ratchet decryption failed for '{friend_name}': {e}"
-            ) from e
+        lock = RatchetService._get_friend_lock(friend_name)
+        with lock:
+            state = RatchetService.get_ratchet_state(friend_name)
+            try:
+                plaintext = state.decrypt(header, ciphertext)
+            except (ValueError, Exception) as e:
+                raise RatchetServiceError(
+                    f"Ratchet decryption failed for '{friend_name}': {e}"
+                ) from e
 
-        # Persist the advanced state (including any skipped keys)
-        RatchetService.save_ratchet_state(friend_name, state)
+            # Persist the advanced state (including any skipped keys)
+            RatchetService.save_ratchet_state(friend_name, state)
         return plaintext

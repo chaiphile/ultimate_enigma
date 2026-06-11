@@ -134,9 +134,9 @@ class EnigmaApp:
         elif self._is_totp_enabled() and self._is_totp_setup_complete() and not self.totp_service.has_secret():
             logger.warning("TOTP setup marked complete but secret not loaded – skipping verification")
 
-        # 3. NTP sync thread
-        self._ntp_thread = threading.Thread(target=self._ntp_sync_loop, daemon=True)
-        self._ntp_thread.start()
+        # 3. NTP sync – deferred until AFTER GUI renders (prevents startup hangs)
+        self._ntp_thread = None
+        self.root.after(2000, self._start_ntp_sync)
 
         # 4. State
         self.last_sent_b64 = ""
@@ -172,17 +172,40 @@ class EnigmaApp:
         self.ks.wipe()
         self.root.destroy()
 
+    def _start_ntp_sync(self):
+        """Start NTP sync thread AFTER GUI is fully rendered."""
+        if self._ntp_thread is not None:
+            return
+        self._ntp_thread = threading.Thread(target=self._ntp_sync_loop, daemon=True)
+        self._ntp_thread.start()
+        logger.info("NTP sync thread started (deferred)")
+
     def _ntp_sync_loop(self):
-        while True:
-            t = get_ntp_time()
-            if t is not None:
-                with self._service_lock:
-                    self.encryption_service.update_ntp_time(t)
-            else:
-                logger.warning("NTP sync failed, falling back to system time")
-                with self._service_lock:
-                    self.encryption_service.update_ntp_time(None)
-            time.sleep(1800)
+        """Background NTP sync – sequential queries, fully exception-safe."""
+        try:
+            from ntp_client import NTP_SERVERS
+            while True:
+                try:
+                    logger.info("Starting background NTP sync...")
+                    t = get_ntp_time()
+                    if t is not None:
+                        from datetime import datetime, timezone
+                        ntp_dt = datetime.fromtimestamp(t, tz=timezone.utc)
+                        local_dt = datetime.now(timezone.utc)
+                        offset_ms = (ntp_dt - local_dt).total_seconds() * 1000
+                        logger.info("✅ NTP sync OK: %s (offset %+.2f ms)",
+                                    ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), offset_ms)
+                        with self._service_lock:
+                            self.encryption_service.update_ntp_time(t)
+                    else:
+                        logger.warning("⚠️ NTP sync failed – using system time")
+                        with self._service_lock:
+                            self.encryption_service.update_ntp_time(None)
+                except Exception as e:
+                    logger.error("NTP sync error (non-fatal): %s", e)
+                time.sleep(1800)
+        except Exception as e:
+            logger.error("NTP sync loop crashed (non-fatal): %s", e)
 
     def process_queue(self):
         try:

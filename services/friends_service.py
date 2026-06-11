@@ -53,6 +53,7 @@ class FriendsService:
             caps = self._ks.friends_capabilities.get(name, {})
             supports_dr = bool(caps.get("double_ratchet", False))
             has_pqc = name in self._ks.friends_pqc_combined_pub
+            has_hybrid_sig = name in self._ks.friends_hybrid_sig_pubs
             result.append({
                 "name": name,
                 "has_shared_secret": sec is not None,
@@ -62,6 +63,7 @@ class FriendsService:
                 "has_ratchet": has_ratchet,
                 "supports_double_ratchet": supports_dr,
                 "has_pqc_key": has_pqc,
+                "has_hybrid_sig_key": has_hybrid_sig,
             })
         return result
 
@@ -92,11 +94,13 @@ class FriendsService:
         x25519_pub_b64: Optional[str] = None,
         capabilities: Optional[dict] = None,
         pqc_combined_pub_b64: Optional[str] = None,
+        hybrid_sig_pub_b64: Optional[str] = None,
     ) -> None:
         """
         Add a new friend or update an existing one.
         If `shared_secret` is given, `master_password` must be non‑empty.
         pqc_combined_pub_b64 is the Base64-encoded hybrid PQC combined public key.
+        hybrid_sig_pub_b64 is the Base64-encoded hybrid signing combined public key.
         """
         if not name.strip():
             raise FriendsServiceError("Friend name cannot be empty")
@@ -117,6 +121,14 @@ class FriendsService:
                     raise ValueError("Too short to be a valid combined public key")
             except Exception as e:
                 raise FriendsServiceError(f"Invalid PQC combined public key: {e}")
+        # Validate hybrid sig combined pub if provided
+        if hybrid_sig_pub_b64:
+            try:
+                raw = base64.b64decode(hybrid_sig_pub_b64)
+                if len(raw) < 36:
+                    raise ValueError("Too short to be a valid hybrid signing combined public key")
+            except Exception as e:
+                raise FriendsServiceError(f"Invalid hybrid signing combined public key: {e}")
 
         self._ks.save_friend(
             name=name,
@@ -126,6 +138,7 @@ class FriendsService:
             x25519_pub_b64=x25519_pub_b64,
             capabilities=capabilities,
             pqc_combined_pub_b64=pqc_combined_pub_b64,
+            hybrid_sig_pub_b64=hybrid_sig_pub_b64,
         )
 
     def remove_friend(self, name: str) -> None:
@@ -380,6 +393,16 @@ class FriendsService:
     def friend_has_pqc_key(self, name: str) -> bool:
         """Check if a friend has a PQC combined public key stored."""
         return name in self._ks.friends_pqc_combined_pub
+
+    def friend_has_hybrid_sig_key(self, name: str) -> bool:
+        """Check if a friend has a hybrid signing combined public key stored."""
+        return name in self._ks.friends_hybrid_sig_pubs
+
+    def get_my_hybrid_sig_combined_pub(self) -> Optional[str]:
+        """Return my hybrid signing combined public key as Base64, or None if not generated."""
+        if self._ks.my_hybrid_sig_combined_pub:
+            return base64.b64encode(self._ks.my_hybrid_sig_combined_pub).decode()
+        return None
 
     def reset_ratchet(self, name: str) -> bool:
         """Delete the Double Ratchet session for a friend.

@@ -10,6 +10,7 @@ import logging
 from services.encryption_service import EncryptionService, EncryptionError
 from services.friends_service import FriendsService
 from services.clipboard_service import ClipboardService
+from services.pqc_service import is_pqc_available
 
 logger = logging.getLogger(__name__)
 
@@ -58,9 +59,13 @@ class EncryptTab:
 
         # Encryption mode
         ttk.Label(opts, text="Mode:").grid(row=0, column=3, padx=(10, 5), sticky=tk.W)
+        self._pqc_available = is_pqc_available()
+        mode_values = ["Shared Secret (time‑based)", "Public Key (RSA)"]
+        if self._pqc_available:
+            mode_values.append("Post-Quantum (Hybrid KEM)")
         self.mode_combo = ttk.Combobox(
             opts, state="readonly", width=22,
-            values=["Shared Secret (time‑based)", "Public Key (RSA)"],
+            values=mode_values,
             bootstyle="secondary"
         )
         self.mode_combo.grid(row=0, column=4, padx=5, sticky=tk.W)
@@ -130,7 +135,13 @@ class EncryptTab:
 
         # Use service to check secret existence
         has_secret = self.friends_service.friend_has_secret(choice)
-        if has_secret:
+        has_pqc = self.friends_service.friend_has_pqc_key(choice)
+
+        if has_pqc and self._pqc_available:
+            # PQC key available – default to PQC mode
+            self.mode_combo.config(state="readonly")
+            self.mode_combo.set("Post-Quantum (Hybrid KEM)")
+        elif has_secret:
             self.mode_combo.config(state="readonly")
             self.mode_combo.set("Shared Secret (time‑based)")
         else:
@@ -161,7 +172,9 @@ class EncryptTab:
 
         # Parse mode from combo selection
         mode_text = self.mode_combo.get()
-        if "Shared" in mode_text:
+        if "Post-Quantum" in mode_text:
+            mode = "pqc"
+        elif "Shared" in mode_text:
             mode = "shared"
         else:
             mode = "rsa"
@@ -203,7 +216,19 @@ class EncryptTab:
 
     def _log_sent(self, b64_text):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
-        self.sent_log.insert(tk.END, f"[{timestamp}]\n{b64_text}\n\n")
+        mode = getattr(self.service, 'last_encrypt_mode', None)
+        if mode == "pqc":
+            mode_label = "\U0001f6e1\ufe0f Post-Quantum (Hybrid KEM)"
+        elif mode == "ratchet":
+            mode_label = "\U0001f512 Double Ratchet"
+        elif mode == "legacy":
+            mode_label = "\U0001f511 Legacy AES-GCM"
+        else:
+            mode_label = "Unknown mode"
+        self.sent_log.insert(
+            tk.END,
+            f"[{timestamp}] {mode_label}\n{b64_text}\n\n"
+        )
         self.sent_log.see(tk.END)
         self.msg_input.delete("1.0", tk.END)
 

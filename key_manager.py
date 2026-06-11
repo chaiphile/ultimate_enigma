@@ -22,6 +22,13 @@ from crypto import rsa_sign, rsa_verify, sha256_fingerprint
 import database
 from services.pqc_service import HybridKEM, is_pqc_available
 
+try:
+    from services.pqc_signatures import HybridSigner
+    _HYBRID_SIG_AVAILABLE = True
+except (ImportError, RuntimeError, OSError):
+    HybridSigner = None  # type: ignore[assignment,misc]
+    _HYBRID_SIG_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 FILE_MAGIC = b'ENIGMA\x01'   # 7‑byte magic for shared‑secret encrypted files
@@ -59,6 +66,7 @@ def _privkey_to_encrypted_pem(priv, password: bytes) -> str:
 def init_db(password: str) -> bool:
     """Create database and first keys if missing. Returns True if new keys were generated."""
     database.init_db()
+    new_keys = False
     with closing(database.get_connection()) as conn:
         cur = conn.execute("SELECT value FROM settings WHERE key='private_key_encrypted'")
         if cur.fetchone() is None:
@@ -71,8 +79,41 @@ def init_db(password: str) -> bool:
             enc = database.encrypt_secret(global_secret, password)
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("global_secret", json.dumps(enc)))
             conn.commit()
-            return True
-    return False
+            new_keys = True
+
+        # Generate hybrid signing keys (Ed25519 + Dilithium3) if liboqs is available
+        if _HYBRID_SIG_AVAILABLE:
+            cur_hybrid = conn.execute(
+                "SELECT value FROM settings WHERE key='hybrid_sig_combined_pub_b64'"
+            )
+            if cur_hybrid.fetchone() is None:
+                try:
+                    hybrid_keys = HybridSigner.generate_keys()
+                    # Encrypt and store Ed25519 private key (raw 32 bytes)
+                    ed_priv_bytes = hybrid_keys['ed_priv'].private_bytes_raw()
+                    ed_priv_enc = database.encrypt_secret(ed_priv_bytes, password)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        ("ed25519_priv_encrypted", json.dumps(ed_priv_enc))
+                    )
+                    # Encrypt and store Dilithium3 private key
+                    dil_priv_enc = database.encrypt_secret(hybrid_keys['dil_priv'], password)
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        ("dilithium_priv_encrypted", json.dumps(dil_priv_enc))
+                    )
+                    # Store combined public key
+                    combined_pub_b64 = base64.b64encode(hybrid_keys['combined_pub']).decode()
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        ("hybrid_sig_combined_pub_b64", combined_pub_b64)
+                    )
+                    conn.commit()
+                    logger.info("Hybrid signing keys (Ed25519 + Dilithium3) generated and stored")
+                except Exception as e:
+                    logger.warning("Failed to generate hybrid signing keys: %s", e)
+
+    return new_keys
 
 class KeyStore:
     # Exponential backoff table (seconds) indexed by consecutive failure count.
@@ -98,6 +139,12 @@ class KeyStore:
         self.friends_pqc_combined_pub: Dict[str, bytes] = {}  # name -> raw combined_pub bytes
         self.my_kyber_priv: Optional[bytes] = None   # Local Kyber secret key (raw bytes)
         self.my_pqc_combined_pub: Optional[bytes] = None  # Local hybrid combined public key
+        self._cached_pqc_bundle: Optional[dict] = None  # Cached full PQC bundle for decryption
+        # Hybrid signing keys (Ed25519 + Dilithium3)
+        self.my_ed_priv = None          # Ed25519PrivateKey object
+        self.my_dil_priv: Optional[bytes] = None  # Dilithium3 secret key bytes
+        self.my_hybrid_sig_combined_pub: Optional[bytes] = None  # Combined public key bytes
+        self.friends_hybrid_sig_pubs: Dict[str, tuple] = {}  # name -> (ed_pub_bytes, dil_pub_bytes)
 
     # ---------- Persistent lockout helpers ----------
 
@@ -157,13 +204,17 @@ class KeyStore:
 
     def load(self, password: str) -> bool:
         """Load all keys from database. Password is used for decryption and then discarded."""
-        # Ensure x25519 column exists (migration)
+        # Ensure migration-safe columns exist
         try:
             conn = database.get_connection()
-            try:
-                conn.execute("ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT")
-            except Exception:
-                pass  # column already exists or other error (ignore)
+            for col_sql in [
+                "ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT",
+                "ALTER TABLE friends ADD COLUMN hybrid_sig_pub_b64 TEXT",
+            ]:
+                try:
+                    conn.execute(col_sql)
+                except Exception:
+                    pass  # column already exists or other error (ignore)
             conn.close()
         except Exception:
             pass
@@ -248,16 +299,77 @@ class KeyStore:
                 except Exception as e:
                     logger.warning("Could not decode local PQC combined pub: %s", e)
 
+            # Cache full PQC bundle for decryption if all components are available
+            self._cached_pqc_bundle = None
+            if self.my_kyber_priv and self.my_pqc_combined_pub:
+                row_x25519 = conn.execute(
+                    "SELECT value FROM settings WHERE key='pqc_x25519_priv_encrypted'"
+                ).fetchone()
+                if row_x25519:
+                    try:
+                        x25519_priv_bytes = database.decrypt_secret(
+                            json.loads(row_x25519[0]), password
+                        )
+                        from cryptography.hazmat.primitives.asymmetric.x25519 import (
+                            X25519PrivateKey,
+                        )
+                        x_priv = X25519PrivateKey.from_private_bytes(x25519_priv_bytes)
+                        self._cached_pqc_bundle = {
+                            'x25519_priv': x_priv,
+                            'kyber_priv': self.my_kyber_priv,
+                            'combined_pub': self.my_pqc_combined_pub,
+                        }
+                        logger.debug("PQC decryption bundle cached successfully")
+                    except Exception as e:
+                        logger.warning("Could not load PQC X25519 priv during load: %s", e)
+
+            # Load hybrid signing keys from settings
+            self.my_ed_priv = None
+            self.my_dil_priv = None
+            self.my_hybrid_sig_combined_pub = None
+            if _HYBRID_SIG_AVAILABLE:
+                row_ed = conn.execute(
+                    "SELECT value FROM settings WHERE key='ed25519_priv_encrypted'"
+                ).fetchone()
+                row_dil = conn.execute(
+                    "SELECT value FROM settings WHERE key='dilithium_priv_encrypted'"
+                ).fetchone()
+                row_hybrid_pub = conn.execute(
+                    "SELECT value FROM settings WHERE key='hybrid_sig_combined_pub_b64'"
+                ).fetchone()
+                if row_ed and row_dil:
+                    try:
+                        ed_priv_bytes = database.decrypt_secret(
+                            json.loads(row_ed[0]), password
+                        )
+                        from cryptography.hazmat.primitives.asymmetric.ed25519 import (
+                            Ed25519PrivateKey,
+                        )
+                        self.my_ed_priv = Ed25519PrivateKey.from_private_bytes(ed_priv_bytes)
+                        self.my_dil_priv = database.decrypt_secret(
+                            json.loads(row_dil[0]), password
+                        )
+                        logger.debug("Hybrid signing private keys loaded")
+                    except Exception as e:
+                        logger.warning("Could not load hybrid signing private keys: %s", e)
+                if row_hybrid_pub:
+                    try:
+                        self.my_hybrid_sig_combined_pub = base64.b64decode(row_hybrid_pub[0])
+                    except Exception as e:
+                        logger.warning("Could not decode hybrid sig combined pub: %s", e)
+
             rows = conn.execute(
                 "SELECT name, public_key_pem, has_shared_secret, shared_secret_encrypted, "
-                "x25519_public_key_b64, capabilities_json, pqc_combined_pub_b64 "
+                "x25519_public_key_b64, capabilities_json, pqc_combined_pub_b64, "
+                "hybrid_sig_pub_b64 "
                 "FROM friends"
             ).fetchall()
             self.friends.clear()
             self.friends_x25519.clear()
             self.friends_capabilities.clear()
             self.friends_pqc_combined_pub.clear()
-            for name, pem, has_sec, sec_json, x_b64, cap_json, pqc_pub_b64 in rows:
+            self.friends_hybrid_sig_pubs.clear()
+            for name, pem, has_sec, sec_json, x_b64, cap_json, pqc_pub_b64, hybrid_sig_b64 in rows:
                 pub = _pem_to_pubkey(pem)
                 secret = None
                 if has_sec and sec_json:
@@ -280,6 +392,13 @@ class KeyStore:
                 if pqc_pub_b64:
                     try:
                         self.friends_pqc_combined_pub[name] = base64.b64decode(pqc_pub_b64)
+                    except Exception:
+                        pass
+                if hybrid_sig_b64 and _HYBRID_SIG_AVAILABLE:
+                    try:
+                        combined = base64.b64decode(hybrid_sig_b64)
+                        ed_pub_bytes, dil_pub_bytes = HybridSigner.parse_combined_pub(combined)
+                        self.friends_hybrid_sig_pubs[name] = (ed_pub_bytes, dil_pub_bytes)
                     except Exception:
                         pass
         except Exception as e:
@@ -402,11 +521,13 @@ class KeyStore:
     def save_friend(self, name: str, pem: str, shared_secret: Optional[bytes] = None,
                     password: str = "", x25519_pub_b64: Optional[str] = None,
                     capabilities: Optional[dict] = None,
-                    pqc_combined_pub_b64: Optional[str] = None) -> None:
+                    pqc_combined_pub_b64: Optional[str] = None,
+                    hybrid_sig_pub_b64: Optional[str] = None) -> None:
         """Save a friend; if shared_secret is provided, password must be the master password (non-empty).
         x25519_pub_b64 is the Base64 of the raw 32-byte X25519 public key.
         capabilities is an optional dict of supported features (e.g. {"double_ratchet": True}).
-        pqc_combined_pub_b64 is the Base64 of the hybrid PQC combined public key."""
+        pqc_combined_pub_b64 is the Base64 of the hybrid PQC combined public key.
+        hybrid_sig_pub_b64 is the Base64 of the hybrid signing combined public key."""
         if shared_secret:
             if not password:
                 raise ValueError("Master password required to encrypt friend shared secret")
@@ -431,10 +552,10 @@ class KeyStore:
                 "INSERT OR REPLACE INTO friends "
                 "(name, public_key_pem, has_shared_secret, shared_secret_encrypted, "
                 "x25519_public_key_b64, capabilities_json, ratchet_state_json, "
-                "pqc_combined_pub_b64) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "pqc_combined_pub_b64, hybrid_sig_pub_b64) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
                 (name, pem, has_sec, sec_enc_json, x25519_pub_b64, cap_json,
-                 existing_ratchet_json, pqc_combined_pub_b64)
+                 existing_ratchet_json, pqc_combined_pub_b64, hybrid_sig_pub_b64)
             )
             conn.commit()
         pub = _pem_to_pubkey(pem)
@@ -457,6 +578,15 @@ class KeyStore:
                 self.friends_pqc_combined_pub.pop(name, None)
         else:
             self.friends_pqc_combined_pub.pop(name, None)
+        if hybrid_sig_pub_b64 and _HYBRID_SIG_AVAILABLE:
+            try:
+                combined = base64.b64decode(hybrid_sig_pub_b64)
+                ed_pub_bytes, dil_pub_bytes = HybridSigner.parse_combined_pub(combined)
+                self.friends_hybrid_sig_pubs[name] = (ed_pub_bytes, dil_pub_bytes)
+            except Exception:
+                self.friends_hybrid_sig_pubs.pop(name, None)
+        else:
+            self.friends_hybrid_sig_pubs.pop(name, None)
 
     def remove_friend(self, name: str) -> None:
         with closing(database.get_connection()) as conn:
@@ -466,6 +596,7 @@ class KeyStore:
         self.friends_x25519.pop(name, None)
         self.friends_capabilities.pop(name, None)
         self.friends_pqc_combined_pub.pop(name, None)
+        self.friends_hybrid_sig_pubs.pop(name, None)
 
     def get_friend_secret(self, name: str) -> Optional[bytes]:
         for n, _, s in self.friends:
@@ -666,6 +797,11 @@ class KeyStore:
         except Exception as e:
             logger.warning("Could not load PQC bundle: %s", e)
             return None
+
+    @property
+    def pqc_decryption_bundle(self) -> Optional[dict]:
+        """Return the cached PQC key bundle for decapsulation, or None if unavailable."""
+        return self._cached_pqc_bundle
 
     @property
     def needs_key_rotation(self) -> bool:
@@ -939,6 +1075,13 @@ class KeyStore:
                 self.my_kyber_priv = b'\x00' * len(self.my_kyber_priv)
                 self.my_kyber_priv = None
             self.my_pqc_combined_pub = None
+            # Wipe hybrid signing private keys
+            if self.my_dil_priv is not None:
+                self.my_dil_priv = b'\x00' * len(self.my_dil_priv)
+                self.my_dil_priv = None
+            self.my_ed_priv = None
+            self.my_hybrid_sig_combined_pub = None
+            self.friends_hybrid_sig_pubs.clear()
             self.my_priv = None
             self.my_pub = None
             gc.collect()

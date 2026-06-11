@@ -6,7 +6,8 @@ sliding window, and self-destruct.
 import secrets
 import struct
 import time as time_module
-from typing import Tuple, Optional, TypedDict
+import logging
+from typing import Tuple, Optional, TypedDict, List
 from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -15,12 +16,22 @@ from cryptography.hazmat.backends import default_backend
 import hashlib
 import hmac as hmac_module
 
+try:
+    from services.pqc_signatures import HybridSigner
+    _HYBRID_SIG_AVAILABLE = True
+except (ImportError, RuntimeError, OSError):
+    HybridSigner = None  # type: ignore[assignment,misc]
+    _HYBRID_SIG_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
+
 # Cryptographic constants
 AES_KEY_SIZE = 32       # 256-bit AES key
 NONCE_SIZE = 12         # 96-bit nonce for AES-GCM
 TIME_STEP = 30          # Time-based key rotation interval (seconds)
 WINDOW_SIZE = 2         # Sliding window size: ±2 steps (±60 seconds tolerance)
 SELF_DESTRUCT_FLAG = 4  # Bit flag for self-destruct messages
+HYBRID_SIG_FLAG = 8     # Bit flag for hybrid signatures (Ed25519 + Dilithium3)
 
 def _pack_bytes(data: bytes) -> bytes:
     return struct.pack(">H", len(data)) + data
@@ -180,16 +191,75 @@ class EncryptOptions(TypedDict, total=False):
     encrypt_for_friend_pub: object
     self_destruct_seconds: Optional[int]
 
+def hybrid_sign(message: bytes, ed_priv, dil_priv: bytes) -> bytes:
+    """Sign a message using hybrid Ed25519 + Dilithium3 signatures.
+
+    Args:
+        message: The message bytes to sign.
+        ed_priv: Ed25519PrivateKey object.
+        dil_priv: Dilithium3 secret key bytes.
+
+    Returns:
+        Combined hybrid signature bytes.
+
+    Raises:
+        RuntimeError: If liboqs is not available.
+    """
+    if not _HYBRID_SIG_AVAILABLE:
+        raise RuntimeError("Hybrid signatures unavailable: liboqs not installed")
+    return HybridSigner.sign(message, ed_priv, dil_priv)
+
+
+def hybrid_verify(
+    message: bytes,
+    signature: bytes,
+    ed_pub_bytes: bytes,
+    dil_pub_bytes: bytes
+) -> bool:
+    """Verify a hybrid Ed25519 + Dilithium3 signature.
+
+    Args:
+        message: The original message bytes.
+        signature: Combined hybrid signature from hybrid_sign().
+        ed_pub_bytes: Raw Ed25519 public key bytes (32 bytes).
+        dil_pub_bytes: Raw Dilithium3 public key bytes.
+
+    Returns:
+        True only if BOTH Ed25519 and Dilithium3 signatures are valid.
+    """
+    if not _HYBRID_SIG_AVAILABLE:
+        return False
+    try:
+        ed_pub = HybridSigner.load_ed_public_key(ed_pub_bytes)
+        return HybridSigner.verify(message, signature, ed_pub, dil_pub_bytes)
+    except Exception as e:
+        logger.debug("Hybrid signature verification error: %s", e)
+        return False
+
+
 def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
                     **kwargs) -> Tuple[bytes, int]:
-    """kwargs: sign, my_priv, encrypt_for_friend_pub, self_destruct_seconds"""
+    """kwargs: sign, my_priv, encrypt_for_friend_pub, self_destruct_seconds,
+              hybrid_ed_priv, hybrid_dil_priv"""
     sign = kwargs.get('sign', False)
     my_priv = kwargs.get('my_priv')
     encrypt_for_friend_pub = kwargs.get('encrypt_for_friend_pub')
     self_destruct_seconds = kwargs.get('self_destruct_seconds')
+    hybrid_ed_priv = kwargs.get('hybrid_ed_priv')
+    hybrid_dil_priv = kwargs.get('hybrid_dil_priv')
+
+    # Determine signing mode: hybrid takes priority over RSA when available
+    use_hybrid_sig = (
+        sign
+        and hybrid_ed_priv is not None
+        and hybrid_dil_priv is not None
+        and _HYBRID_SIG_AVAILABLE
+    )
 
     flags = 0
-    if sign:
+    if use_hybrid_sig:
+        flags |= HYBRID_SIG_FLAG
+    elif sign:
         flags |= 1
     if encrypt_for_friend_pub:
         aes_key = secrets.token_bytes(AES_KEY_SIZE)
@@ -204,7 +274,9 @@ def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
     inner += plaintext
 
     signature = b""
-    if sign and my_priv:
+    if use_hybrid_sig:
+        signature = hybrid_sign(inner, hybrid_ed_priv, hybrid_dil_priv)
+    elif sign and my_priv:
         signature = rsa_sign(inner, my_priv)
 
     # Build AAD from outer header fields to authenticate them via AES-GCM
@@ -223,7 +295,7 @@ def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
     # Always include the timestamp in the outer packet so the receiver can
     # derive the correct time-based key regardless of clock skew / window.
     packet += outer_ts_bytes
-    if sign:
+    if sign or use_hybrid_sig:
         packet += _pack_bytes(signature)
     if encrypt_for_friend_pub:
         packet += _pack_bytes(encrypted_key)
@@ -231,12 +303,14 @@ def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
     return packet, int(timestamp)
 
 def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
-                    friends=None, now: Optional[int] = None) -> str:
+                    friends=None, now: Optional[int] = None,
+                    friends_hybrid: Optional[List[tuple]] = None) -> str:
     if len(packet) < 1:
         raise ValueError("Invalid message format")
     flags = packet[0]
     idx = 1
     sign = bool(flags & 1)
+    has_hybrid_sig = bool(flags & HYBRID_SIG_FLAG)
     friend_encrypted = bool(flags & 2)
     has_self_destruct = bool(flags & SELF_DESTRUCT_FLAG)
 
@@ -247,12 +321,12 @@ def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
     idx += 8
 
     signature = b""
-    if sign:
+    if sign or has_hybrid_sig:
         signature, idx = _unpack_bytes(packet, idx)
 
     # Reconstruct AAD from outer header fields (must match encryption side exactly)
     aad = bytes([flags]) + struct.pack(">Q", outer_ts)
-    if sign:
+    if sign or has_hybrid_sig:
         aad += _pack_bytes(signature)
 
     aes_key = None
@@ -303,7 +377,25 @@ def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
             raise ValueError("Message timestamp outside acceptable window")
 
     result = ""
-    if sign:
+    if has_hybrid_sig:
+        # Hybrid signature verification (Ed25519 + Dilithium3)
+        signed_data = struct.pack(">Q", inner_ts)
+        if has_self_destruct:
+            signed_data += struct.pack(">I", self_destruct_duration)
+        signed_data += plaintext
+        verified = False
+        signer_name = None
+        if friends_hybrid:
+            for name, ed_pub_bytes, dil_pub_bytes in friends_hybrid:
+                if hybrid_verify(signed_data, signature, ed_pub_bytes, dil_pub_bytes):
+                    verified = True
+                    signer_name = name
+                    break
+        if verified:
+            result += f"✅ Hybrid Signature Verified (Ed25519 + Dilithium3) from {signer_name}\n"
+        else:
+            result += "⚠️ Hybrid Signature INVALID or sender unknown\n"
+    elif sign:
         signed_data = struct.pack(">Q", inner_ts)
         if has_self_destruct:
             signed_data += struct.pack(">I", self_destruct_duration)
