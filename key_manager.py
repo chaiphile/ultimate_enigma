@@ -21,6 +21,7 @@ from cryptography.hazmat.backends import default_backend
 from crypto import rsa_sign, rsa_verify, sha256_fingerprint
 import database
 from services.pqc_service import HybridKEM, is_pqc_available
+from src.exceptions import KeyStoreError
 
 try:
     from services.pqc_signatures import HybridSigner
@@ -222,7 +223,8 @@ class KeyStore:
         conn = database.get_connection()
         try:
             row = conn.execute("SELECT value FROM settings WHERE key='public_key'").fetchone()
-            if not row: return False
+            if not row:
+                raise KeyStoreError("Public key not found in database")
             self.my_pub = _pem_to_pubkey(row[0])
 
             # Check if RSA key meets CNSA 2.0 minimum size
@@ -238,8 +240,12 @@ class KeyStore:
                 self._needs_rotation = False
 
             row = conn.execute("SELECT value FROM settings WHERE key='private_key_encrypted'").fetchone()
-            if not row: return False
-            self.my_priv = _pem_to_privkey(row[0].encode(), password.encode())
+            if not row:
+                raise KeyStoreError("Encrypted private key not found in database")
+            try:
+                self.my_priv = _pem_to_privkey(row[0].encode(), password.encode())
+            except Exception as e:
+                raise KeyStoreError(f"Failed to decrypt private key: {e}") from e
 
             # Load legacy private key if present and not expired
             self.legacy_priv = None
@@ -401,12 +407,13 @@ class KeyStore:
                         self.friends_hybrid_sig_pubs[name] = (ed_pub_bytes, dil_pub_bytes)
                     except Exception:
                         pass
+        except KeyStoreError:
+            raise
         except Exception as e:
             logger.error("Key loading failed: %s", e)
-            return False
+            raise KeyStoreError(f"Key loading failed: {e}") from e
         finally:
             conn.close()
-        return True
 
     def verify_password(self, password: str) -> tuple:
         """Check if `password` matches master or duress password.
@@ -607,7 +614,7 @@ class KeyStore:
 
     # ---------- PQC Hybrid KEM key management ----------
 
-    def ensure_pqc_keys(self, password: str) -> bool:
+    def ensure_pqc_keys(self, password: str) -> None:
         """Generate and persist hybrid PQC keys if they don't already exist.
 
         Creates a HybridKEM keypair (X25519 + Kyber768), stores the Kyber
@@ -616,15 +623,14 @@ class KeyStore:
         Args:
             password: Master password used to encrypt the Kyber private key.
 
-        Returns:
-            True if keys are available (either already existed or just generated).
+        Raises:
+            KeyStoreError: If PQC is unavailable or key generation/storage fails.
         """
         if self.my_kyber_priv is not None and self.my_pqc_combined_pub is not None:
-            return True  # Already loaded
+            return  # Already loaded
 
         if not is_pqc_available():
-            logger.warning("Cannot generate PQC keys: liboqs is not available")
-            return False
+            raise KeyStoreError("Cannot generate PQC keys: liboqs is not available")
 
         try:
             keys = HybridKEM.generate_keys()
@@ -649,10 +655,11 @@ class KeyStore:
             self.my_kyber_priv = kyber_priv
             self.my_pqc_combined_pub = combined_pub
             logger.info("PQC hybrid keys generated and stored successfully")
-            return True
+        except KeyStoreError:
+            raise
         except Exception as e:
             logger.error("Failed to generate PQC keys: %s", e)
-            return False
+            raise KeyStoreError(f"Failed to generate PQC keys: {e}") from e
 
     def get_pqc_key_bundle(self) -> dict:
         """Return the local PQC key material needed for encaps/decaps.
@@ -808,7 +815,7 @@ class KeyStore:
         """True if the current RSA key is below CNSA 2.0 minimum size (4096-bit)."""
         return self._needs_rotation
 
-    def rotate_rsa_key(self, password: str) -> bool:
+    def rotate_rsa_key(self, password: str) -> None:
         """Generate a new 4096-bit RSA key pair and retire the current key.
 
         The old private key is stored encrypted as 'legacy_private_key_encrypted'
@@ -818,8 +825,8 @@ class KeyStore:
         Args:
             password: Master password used to encrypt the new and legacy keys.
 
-        Returns:
-            True on success, False on failure (database rolled back).
+        Raises:
+            KeyStoreError: If rotation fails (database rolled back).
         """
         with self._lock:
             conn = database.get_connection()
@@ -829,22 +836,23 @@ class KeyStore:
                     "SELECT value FROM settings WHERE key='global_secret'"
                 ).fetchone()
                 if not row:
-                    logger.error("rotate_rsa_key: global_secret not found")
-                    return False
+                    raise KeyStoreError("rotate_rsa_key: global_secret not found")
                 enc_dict = json.loads(row[0])
                 try:
                     database.decrypt_secret(enc_dict, password)
-                except Exception:
-                    logger.error("rotate_rsa_key: password verification failed")
-                    return False
+                except Exception as e:
+                    raise KeyStoreError(
+                        "rotate_rsa_key: password verification failed"
+                    ) from e
 
                 # Store current private key as legacy (if not already legacy)
                 row_current_pk = conn.execute(
                     "SELECT value FROM settings WHERE key='private_key_encrypted'"
                 ).fetchone()
                 if not row_current_pk:
-                    logger.error("rotate_rsa_key: current private key not found")
-                    return False
+                    raise KeyStoreError(
+                        "rotate_rsa_key: current private key not found"
+                    )
 
                 # Calculate legacy key expiry (30 days from now)
                 legacy_expiry = time.time() + (_LEGACY_KEY_RETENTION_DAYS * 86400)
@@ -888,12 +896,14 @@ class KeyStore:
                     "RSA key rotated to %d-bit. Legacy key retained for %d days.",
                     _MIN_RSA_KEY_SIZE, _LEGACY_KEY_RETENTION_DAYS
                 )
-                return True
 
+            except KeyStoreError:
+                conn.rollback()
+                raise
             except Exception as e:
                 conn.rollback()
                 logger.error("rotate_rsa_key failed (rolled back): %s", e)
-                return False
+                raise KeyStoreError(f"rotate_rsa_key failed: {e}") from e
             finally:
                 conn.close()
 
@@ -916,7 +926,7 @@ class KeyStore:
                     secrets.append(sec)
             return my_priv, friends_for_sig, secrets, legacy_priv
 
-    def change_password(self, old_password: str, new_password: str) -> bool:
+    def change_password(self, old_password: str, new_password: str) -> None:
         """Re-encrypt all stored secrets with a new master password.
 
         Steps:
@@ -925,8 +935,9 @@ class KeyStore:
           3. Re-encrypt each with new_password.
           4. Update in-memory state.
 
-        Returns True on success, False on failure.
-        On failure the database is left unchanged (atomic via transaction).
+        Raises:
+            KeyStoreError: If verification fails or re-encryption encounters an error.
+                The database is left unchanged on failure (atomic via transaction).
         """
         with self._lock:
             conn = database.get_connection()
@@ -936,14 +947,14 @@ class KeyStore:
                     "SELECT value FROM settings WHERE key='global_secret'"
                 ).fetchone()
                 if not row:
-                    logger.error("change_password: global_secret not found")
-                    return False
+                    raise KeyStoreError("change_password: global_secret not found")
                 enc_dict = json.loads(row[0])
                 try:
                     database.decrypt_secret(enc_dict, old_password)
-                except Exception:
-                    logger.warning("change_password: old password verification failed")
-                    return False
+                except Exception as e:
+                    raise KeyStoreError(
+                        "change_password: old password verification failed"
+                    ) from e
 
                 # --- 2. Decrypt all secrets with old password ---
                 # Global secret
@@ -954,13 +965,15 @@ class KeyStore:
                     "SELECT value FROM settings WHERE key='private_key_encrypted'"
                 ).fetchone()
                 if not row_pk:
-                    logger.error("change_password: private_key_encrypted not found")
-                    return False
+                    raise KeyStoreError(
+                        "change_password: private_key_encrypted not found"
+                    )
                 try:
                     priv_key = _pem_to_privkey(row_pk[0].encode(), old_password.encode())
                 except Exception as e:
-                    logger.error("change_password: cannot decrypt private key: %s", e)
-                    return False
+                    raise KeyStoreError(
+                        f"change_password: cannot decrypt private key: {e}"
+                    ) from e
 
                 # Friend shared secrets
                 friend_rows = conn.execute(
@@ -1040,12 +1053,14 @@ class KeyStore:
 
                 logger.info("Master password changed successfully (%d friend secrets re-encrypted)",
                             len(friend_secrets))
-                return True
 
+            except KeyStoreError:
+                conn.rollback()
+                raise
             except Exception as e:
                 conn.rollback()
                 logger.error("change_password failed (rolled back): %s", e)
-                return False
+                raise KeyStoreError(f"change_password failed: {e}") from e
             finally:
                 conn.close()
 

@@ -13,6 +13,8 @@ import secrets
 import logging
 from typing import Optional
 
+from src.exceptions import TOTPValidationError
+
 logger = logging.getLogger(__name__)
 
 TOTP_DIGITS = 6
@@ -34,9 +36,12 @@ class TOTPService:
         
         Uses the first 20 bytes directly as the TOTP key.
         The secret should be cryptographically random (from secrets.token_bytes).
+
+        Raises:
+            TOTPValidationError: If the secret is shorter than 20 bytes.
         """
         if len(secret) < 20:
-            raise ValueError("TOTP secret must be at least 20 bytes")
+            raise TOTPValidationError("TOTP secret must be at least 20 bytes")
         # Use first 20 bytes directly – secret is already cryptographically random
         self._secret = bytes(secret[:20])
 
@@ -44,9 +49,14 @@ class TOTPService:
         """Set an exact 20-byte TOTP secret without any transformation.
         
         Used when loading a previously-stored derived secret from the database.
+
+        Raises:
+            TOTPValidationError: If the secret is not exactly 20 bytes.
         """
         if len(secret) != 20:
-            raise ValueError(f"Raw TOTP secret must be exactly 20 bytes, got {len(secret)}")
+            raise TOTPValidationError(
+                f"Raw TOTP secret must be exactly 20 bytes, got {len(secret)}"
+            )
         self._secret = bytes(secret)
 
     def clear_secret(self) -> None:
@@ -81,18 +91,26 @@ class TOTPService:
         return code % (10 ** TOTP_DIGITS)
 
     def generate(self, timestamp: Optional[float] = None) -> str:
-        """Generate the current 6-digit TOTP code."""
+        """Generate the current 6-digit TOTP code.
+
+        Raises:
+            TOTPValidationError: If no secret has been configured.
+        """
         if self._secret is None:
-            raise RuntimeError("TOTP secret not set")
+            raise TOTPValidationError("TOTP secret not set")
         if timestamp is None:
             timestamp = time.time()
         counter = int(timestamp) // TOTP_INTERVAL
         return f"{self._hotp(self._secret, counter):0{TOTP_DIGITS}d}"
 
     def verify(self, code: str, timestamp: Optional[float] = None) -> bool:
-        """Verify a TOTP code with ±1 step drift tolerance."""
+        """Verify a TOTP code with ±1 step drift tolerance.
+
+        Raises:
+            TOTPValidationError: If no secret has been configured.
+        """
         if self._secret is None:
-            raise RuntimeError("TOTP secret not set")
+            raise TOTPValidationError("TOTP secret not set")
         code = code.strip()
         if len(code) != TOTP_DIGITS or not code.isdigit():
             return False
@@ -114,9 +132,13 @@ class TOTPService:
     # ------------------------------------------------------------------
     def provisioning_uri(self, account: str = "UltimateEnigma",
                          issuer: str = "UltimateEnigma") -> str:
-        """Return an otpauth:// URI compatible with Google Authenticator, etc."""
+        """Return an otpauth:// URI compatible with Google Authenticator, etc.
+
+        Raises:
+            TOTPValidationError: If no secret has been configured.
+        """
         if self._secret is None:
-            raise RuntimeError("TOTP secret not set")
+            raise TOTPValidationError("TOTP secret not set")
         b32_secret = base64.b32encode(self._secret).decode().rstrip("=")
         return (
             f"otpauth://totp/{issuer}:{account}"

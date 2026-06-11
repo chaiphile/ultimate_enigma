@@ -24,12 +24,7 @@ from services.pqc_service import HybridKEM, is_pqc_available
 logger = logging.getLogger(__name__)
 
 
-class EncryptionError(Exception):
-    """Raised when encryption cannot proceed."""
-
-
-class DecryptionError(Exception):
-    """Raised when decryption fails."""
+from src.exceptions import EncryptionError, DecryptionError
 
 
 # Magic byte identifying a Double Ratchet envelope

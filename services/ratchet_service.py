@@ -21,16 +21,12 @@ from contextlib import closing
 logger = logging.getLogger(__name__)
 
 
-class RatchetServiceError(Exception):
-    """Base exception for ratchet service errors."""
-
-
-class RatchetNotFoundError(RatchetServiceError):
-    """Raised when no active ratchet session exists for a friend."""
-
-
-class RatchetInitError(RatchetServiceError):
-    """Raised when ratchet initialization fails."""
+from src.exceptions import (
+    RatchetStateError,
+    RatchetNotFoundError,
+    RatchetInitError,
+    RatchetServiceError,
+)
 
 
 class RatchetService:
