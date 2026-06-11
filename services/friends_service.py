@@ -205,6 +205,14 @@ class FriendsService:
                 return sec is not None
         return False
 
+    def get_friend_x25519_key(self, name: str) -> Optional[str]:
+        """Return the X25519 public key (Base64) for a friend, or None if not stored."""
+        return self._ks.friends_x25519.get(name)
+
+    def get_friend_capabilities(self, name: str) -> Dict:
+        """Return the capabilities dict for a friend, or empty dict if none."""
+        return dict(self._ks.friends_capabilities.get(name, {}))
+
     # ------------------------------------------------------------------
     # Double Ratchet management
     # ------------------------------------------------------------------

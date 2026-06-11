@@ -8,13 +8,21 @@ from ttkbootstrap.constants import *
 
 from services.backup_service import BackupService, BackupServiceError
 from utils import password_dialog
+from controllers.auth_controller import AuthController
+from key_manager import KeyStore
 
 
 class AboutTab:
-    def __init__(self, parent, app):
-        self.app = app
+    def __init__(self, parent, key_store: KeyStore, auth_controller: AuthController):
+        """
+        Args:
+            parent: Notebook widget
+            key_store: KeyStore instance for backup operations
+            auth_controller: Handles password change and duress password operations
+        """
+        self.auth_controller = auth_controller
         self.frame = ttkb.Frame(parent)
-        self._backup_service = BackupService(app.ks)
+        self._backup_service = BackupService(key_store)
         self._build_ui()
 
     def _build_ui(self):
@@ -88,15 +96,15 @@ class AboutTab:
     # Change Password
     # ------------------------------------------------------------------
     def _change_password(self):
-        """Delegate to the app's password change handler."""
-        self.app._change_password()
+        """Delegate to the auth controller's password change handler."""
+        self.auth_controller.change_password()
 
     # ------------------------------------------------------------------
     # Duress Password
     # ------------------------------------------------------------------
     def _set_duress_password(self):
-        """Delegate to the app's duress password setup handler."""
-        self.app._set_duress_password()
+        """Delegate to the auth controller's duress password setup handler."""
+        self.auth_controller.set_duress_password()
 
     # ------------------------------------------------------------------
     # Export

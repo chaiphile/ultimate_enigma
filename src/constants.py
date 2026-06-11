@@ -120,3 +120,28 @@ def get_kdf_param(param_name: str):
     if param_name not in KDF_PARAMS:
         raise KeyError(f"Unknown KDF parameter: {param_name}")
     return KDF_PARAMS[param_name]
+
+
+# ---------------------------------------------------------------------------
+# Concurrency & Timeout Constants
+# ---------------------------------------------------------------------------
+
+CONCURRENCY_CONSTANTS = {
+    # Crypto task queue
+    "CRYPTO_QUEUE_MAX_WORKERS": 4,       # Max concurrent crypto worker threads
+    "CRYPTO_QUEUE_DEFAULT_TIMEOUT": 120.0, # Default task timeout in seconds
+
+    # Lock acquisition
+    "RATCHET_LOCK_TIMEOUT": 30.0,        # Seconds to wait for per-friend lock
+    "RATCHET_LOCK_RETRY_INTERVAL": 0.05, # Seconds between lock retry checks
+
+    # Operation-specific timeouts
+    "PQC_OPERATION_TIMEOUT": 60.0,       # PQC encapsulation/decapsulation
+    "ARGON2ID_TIMEOUT": 90.0,            # Argon2id key derivation
+    "FILE_OPERATION_TIMEOUT": 300.0,     # Large file encrypt/decrypt (5 min)
+    "RSA_OPERATION_TIMEOUT": 30.0,       # RSA sign/verify/encrypt/decrypt
+
+    # Cleanup
+    "LOCK_CLEANUP_INTERVAL": 3600,       # Seconds between stale lock sweeps
+    "LOCK_MAX_AGE": 7200,               # Max seconds before lock is considered stale
+}

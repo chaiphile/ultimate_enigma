@@ -6,18 +6,227 @@ exceptions when user confirmation is required.
 """
 
 import os
-import tempfile
+import struct
 import hashlib
-from typing import Optional, Tuple
+import secrets
+import tempfile
+import logging
+from typing import Optional, Tuple, List, Dict
 
-from key_manager import (
-    file_encrypt,
-    file_decrypt,
-    file_encrypt_shared,
-    file_decrypt_shared,
-    FILE_MAGIC,
-)
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
 
+import database
+from crypto import rsa_sign, rsa_verify, sha256_fingerprint
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# File format constants
+# ---------------------------------------------------------------------------
+
+FILE_MAGIC = b'ENIGMA\x01'   # 7-byte magic for shared-secret encrypted files
+
+# KDF version tag for password-based file encryption
+_FILE_KDF_VERSION_ARGON2ID = b'A2ID'  # 4-byte magic for Argon2id files
+_FILE_KDF_LEGACY_PBKDF2_ITERATIONS = 300_000
+
+
+# ---------------------------------------------------------------------------
+# Standalone file encryption/decryption functions
+# ---------------------------------------------------------------------------
+
+def file_encrypt(input_path: str, output_path: str, password: str) -> None:
+    """Encrypt a file using AES-GCM with Argon2id-derived key.
+
+    File format: A2ID(4) + salt(16) + nonce(12) + ciphertext
+    """
+    salt = secrets.token_bytes(database.ARGON2_SALT_LEN)
+    key = database._derive_key_argon2id(password, salt)
+    aesgcm = AESGCM(key)
+    nonce = secrets.token_bytes(12)
+    with open(input_path, 'rb') as f:
+        plaintext = f.read()
+    ct = aesgcm.encrypt(nonce, plaintext, None)
+    with open(output_path, 'wb') as f:
+        f.write(_FILE_KDF_VERSION_ARGON2ID)
+        f.write(salt)
+        f.write(nonce)
+        f.write(ct)
+
+
+def file_decrypt(input_path: str, output_path: str, password: str) -> None:
+    """Decrypt a file with automatic KDF detection.
+
+    Supports Argon2id (new, tagged with A2ID header) and
+    PBKDF2-HMAC-SHA256 (legacy, no header).
+    """
+    with open(input_path, 'rb') as f:
+        header = f.read(4)
+        if header == _FILE_KDF_VERSION_ARGON2ID:
+            # New Argon2id format
+            salt = f.read(16)
+            nonce = f.read(12)
+            ct = f.read()
+            key = database._derive_key_argon2id(password, salt)
+        else:
+            # Legacy PBKDF2 format: header is actually first 4 bytes of salt
+            salt = header + f.read(12)  # remaining 12 bytes of 16-byte salt
+            nonce = f.read(12)
+            ct = f.read()
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=salt,
+                iterations=_FILE_KDF_LEGACY_PBKDF2_ITERATIONS,
+                backend=default_backend()
+            )
+            key = kdf.derive(password.encode())
+
+    aesgcm = AESGCM(key)
+    try:
+        plaintext = aesgcm.decrypt(nonce, ct, None)
+    except Exception:
+        raise ValueError("Wrong password or corrupted file")
+    with open(output_path, 'wb') as f:
+        f.write(plaintext)
+
+
+def _pubkey_to_pem(pub) -> str:
+    """Helper to convert a public key object to PEM string."""
+    from cryptography.hazmat.primitives import serialization
+    return pub.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo
+    ).decode('ascii')
+
+
+def file_encrypt_shared(
+    input_path: str,
+    output_path: str,
+    shared_secret: bytes,
+    sign: bool = False,
+    my_priv=None
+) -> None:
+    """Encrypt a file using a shared secret with optional RSA signature."""
+    salt = secrets.token_bytes(16)
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        info=b"enigma-file-v1",
+        backend=default_backend()
+    )
+    key = hkdf.derive(shared_secret)
+
+    with open(input_path, 'rb') as f:
+        plaintext = f.read()
+
+    flags = 0
+    signature = b""
+    if sign and my_priv:
+        signature = rsa_sign(plaintext, my_priv)
+        flags |= 1
+
+    aesgcm = AESGCM(key)
+    nonce = secrets.token_bytes(12)
+    ct = aesgcm.encrypt(nonce, plaintext, None)
+
+    fp = hashlib.sha256(shared_secret).digest()[:16]
+
+    with open(output_path, 'wb') as f:
+        f.write(FILE_MAGIC)
+        f.write(bytes([flags]))
+        f.write(fp)
+        f.write(salt)
+        f.write(nonce)
+        if signature:
+            f.write(struct.pack(">H", len(signature)))
+            f.write(signature)
+        f.write(ct)
+
+
+def file_decrypt_shared(
+    input_path: str,
+    output_path: str,
+    secrets_dict: Dict[bytes, Tuple[bytes, Optional[str]]],
+    friends_for_sig: Optional[List[Tuple[str, object]]] = None
+) -> str:
+    """Decrypt a shared-secret encrypted file.
+
+    Returns a signature verification message (may be empty).
+    """
+    with open(input_path, 'rb') as f:
+        magic = f.read(len(FILE_MAGIC))
+        if magic != FILE_MAGIC:
+            raise ValueError("Not a shared-secret encrypted file (invalid magic)")
+
+        flags_byte = f.read(1)
+        if len(flags_byte) < 1:
+            raise ValueError("File too short")
+        flags = flags_byte[0]
+        has_sign = bool(flags & 1)
+
+        fp = f.read(16)
+        salt = f.read(16)
+        nonce = f.read(12)
+
+        signature = b""
+        if has_sign:
+            siglen_bytes = f.read(2)
+            if len(siglen_bytes) < 2:
+                raise ValueError("File too short")
+            siglen = struct.unpack(">H", siglen_bytes)[0]
+            signature = f.read(siglen)
+            if len(signature) != siglen:
+                raise ValueError("File too short")
+        ct = f.read()
+
+    if fp not in secrets_dict:
+        raise ValueError("No matching shared secret found - fingerprint unknown")
+
+    secret, owner = secrets_dict[fp]
+
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=salt,
+        info=b"enigma-file-v1",
+        backend=default_backend()
+    )
+    key = hkdf.derive(secret)
+    aesgcm = AESGCM(key)
+    try:
+        plaintext = aesgcm.decrypt(nonce, ct, None)
+    except Exception:
+        raise ValueError("Decryption failed - wrong shared secret or corrupted file")
+
+    sig_msg = ""
+    if has_sign and signature and friends_for_sig:
+        verified = False
+        for name, pub in friends_for_sig:
+            if rsa_verify(plaintext, signature, pub):
+                verified = True
+                sig_msg = f"Signature verified from {name}"
+                pem = _pubkey_to_pem(pub)
+                fp_key = sha256_fingerprint(pem.encode())
+                sig_msg += f" (key fingerprint: {fp_key})"
+                break
+        if not verified:
+            sig_msg = "Signature INVALID or sender unknown"
+
+    with open(output_path, 'wb') as f:
+        f.write(plaintext)
+
+    return sig_msg
+
+
+# ---------------------------------------------------------------------------
+# Service exceptions
+# ---------------------------------------------------------------------------
 
 class FileServiceError(Exception):
     """Base exception for file service errors."""
@@ -31,11 +240,15 @@ class SharedSecretDetected(FileServiceError):
     def __init__(self, owner: str, fingerprint: bytes):
         self.owner = owner
         self.fingerprint = fingerprint
-        super().__init__(f"Shared secret for '{owner}' detected – confirmation required")
+        super().__init__(f"Shared secret for '{owner}' detected - confirmation required")
 
+
+# ---------------------------------------------------------------------------
+# FileService class
+# ---------------------------------------------------------------------------
 
 class FileService:
-    """Thin wrapper around key_manager file functions, using a KeyStore instance."""
+    """Service layer for file encryption/decryption operations."""
 
     def __init__(self, key_store):
         """
@@ -47,7 +260,7 @@ class FileService:
         self._ks = key_store
 
     # ----------------------------------------------------------------
-    # Public API – Encryption
+    # Public API - Encryption
     # ----------------------------------------------------------------
     def encrypt_file(
         self,
@@ -96,7 +309,7 @@ class FileService:
         file_encrypt_shared(input_path, output_path, secret, sign=sign, my_priv=my_priv)
 
     # ----------------------------------------------------------------
-    # Public API – Decryption
+    # Public API - Decryption
     # ----------------------------------------------------------------
     def decrypt_file(
         self,
@@ -106,15 +319,6 @@ class FileService:
     ) -> str:
         """
         Decrypt a file, automatically choosing the correct method.
-
-        Behaviour:
-            - If the file has the ``FILE_MAGIC`` header, it is treated as a
-              shared-secret encrypted file.
-            - If the file does **not** have the magic but the first 16 bytes match
-              a known shared-secret fingerprint, :class:`SharedSecretDetected` is
-              raised (so the UI can ask the user to confirm).
-            - Otherwise a password is required – if *password* is omitted,
-              :class:`FileServiceError` is raised.
 
         Returns:
             A signature verification message (may be empty for password-based files).
@@ -150,18 +354,17 @@ class FileService:
         Decrypt a shared-secret file after the user confirmed the detected fingerprint.
         This method should be called after :class:`SharedSecretDetected` was raised.
         """
-        # Build secrets dictionary and verify fingerprint
         secrets_dict = self._build_secrets_dict()
         if fingerprint not in secrets_dict:
             raise FileServiceError("Unknown shared secret fingerprint")
 
-        # The original file lacks the magic header – reconstruct it in a temp file.
+        # The original file lacks the magic header - reconstruct it in a temp file.
         with open(input_path, "rb") as f:
             data = f.read()
 
         tmp = tempfile.NamedTemporaryFile(delete=False)
         try:
-            tmp.write(FILE_MAGIC + data)   # data already contains flags+fingerprint+payload
+            tmp.write(FILE_MAGIC + data)
             tmp_path = tmp.name
         finally:
             tmp.close()

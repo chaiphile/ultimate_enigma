@@ -8,15 +8,36 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import threading
+from queue import Queue
 
 from utils import password_dialog
 from services.file_service import FileServiceError, SharedSecretDetected
+from services.friends_service import FriendsService
+from services.global_secret_service import GlobalSecretService
+from services.crypto_task_queue import TaskPriority
+from src.exceptions import CryptoTimeoutError
 
 
 class FileTab:
-    def __init__(self, parent, app, file_service):
-        self.app = app
+    def __init__(self, parent, file_service, friends_service: FriendsService,
+                 global_secret_service: GlobalSecretService, root, task_queue: Queue,
+                 crypto_queue=None):
+        """
+        Args:
+            parent: Notebook widget
+            file_service: Handles file encryption/decryption
+            friends_service: Provides friend data
+            global_secret_service: Checks global secret availability
+            root: Tkinter root for dialogs
+            task_queue: Queue for scheduling UI updates from background threads
+            crypto_queue: Optional CryptoTaskQueue for managed background execution.
+        """
         self.file_service = file_service
+        self.friends_service = friends_service
+        self.global_secret_service = global_secret_service
+        self.root = root
+        self.task_queue = task_queue
+        self.crypto_queue = crypto_queue
         self.frame = ttk.Frame(parent)
 
         # UI state
@@ -71,8 +92,8 @@ class FileTab:
                    bootstyle="primary", width=20).pack(pady=10, ipadx=20, ipady=10)
 
     def _update_friend_list(self):
-        """Refresh the friend dropdown from the KeyStore (all friends shown)."""
-        names = [name for name, _, _ in self.app.ks.friends]
+        """Refresh the friend dropdown from the FriendsService."""
+        names = self.friends_service.get_friend_names()
         self.friend_combo['values'] = names
         if names:
             self.friend_combo.current(0)
@@ -107,12 +128,12 @@ class FileTab:
 
         if method == "password":
             desc = "Password"
-            pw = password_dialog(self.app.root, "File Encryption Password", confirm=False)
+            pw = password_dialog(self.root, "File Encryption Password", confirm=False)
             if not pw:
                 return
             password = pw
         elif method == "global":
-            if not self.app.ks.global_secret:
+            if not self.global_secret_service.has_secret():
                 messagebox.showerror("Error", "Global shared secret is not available.")
                 return
             desc = "Global Shared Secret"
@@ -121,7 +142,7 @@ class FileTab:
             if not friend_name:
                 messagebox.showwarning("No Friend", "Please select a friend.")
                 return
-            if not self.app.ks.get_friend_secret(friend_name):
+            if not self.friends_service.friend_has_secret(friend_name):
                 messagebox.showerror("Error", f"No shared secret for {friend_name}.")
                 return
             desc = f"Friend's Secret ({friend_name})"
@@ -130,25 +151,56 @@ class FileTab:
                                    f"You are about to encrypt with:\n{desc}\n\nProceed?"):
             return
 
-        def task():
-            try:
-                self.file_service.encrypt_file(
-                    input_path=infile,
-                    output_path=outfile,
-                    method=method,
-                    password=password,
-                    friend_name=friend_name,
-                    sign=sign,
-                )
-                self.app.task_queue.put(
-                    lambda: messagebox.showinfo("Success", f"File encrypted:\n{outfile}")
-                )
-            except FileServiceError as e:
-                self.app.task_queue.put(
-                    lambda e=e: messagebox.showerror("Encryption Error", str(e))
-                )
+        def _do_encrypt():
+            """Perform the actual file encryption (runs in worker thread)."""
+            self.file_service.encrypt_file(
+                input_path=infile,
+                output_path=outfile,
+                method=method,
+                password=password,
+                friend_name=friend_name,
+                sign=sign,
+            )
+            return outfile
 
-        threading.Thread(target=task, daemon=True).start()
+        def _on_success(result_path):
+            """Handle successful encryption (runs on main thread)."""
+            messagebox.showinfo("Success", f"File encrypted:\n{result_path}")
+
+        def _on_error(exc):
+            """Handle encryption error (runs on main thread)."""
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror(
+                    "Timeout",
+                    "File encryption timed out. The file may be too large or "
+                    "the system is under heavy load. Please try again."
+                )
+            else:
+                messagebox.showerror("Encryption Error", str(exc))
+
+        # Use CryptoTaskQueue if available, otherwise fall back to raw threading
+        if self.crypto_queue is not None:
+            from src.constants import CONCURRENCY_CONSTANTS
+            self.crypto_queue.submit(
+                _do_encrypt,
+                on_success=_on_success,
+                on_error=_on_error,
+                priority=TaskPriority.NORMAL,
+                timeout=CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0),
+            )
+        else:
+            def task():
+                try:
+                    _do_encrypt()
+                    self.task_queue.put(
+                        lambda: messagebox.showinfo("Success", f"File encrypted:\n{outfile}")
+                    )
+                except FileServiceError as e:
+                    self.task_queue.put(
+                        lambda e=e: messagebox.showerror("Encryption Error", str(e))
+                    )
+
+            threading.Thread(target=task, daemon=True).start()
 
     # ===================== DECRYPT =====================
     def decrypt_file(self):
@@ -159,26 +211,57 @@ class FileTab:
         if not outfile:
             return
 
-        def task():
-            try:
-                # Try decryption without password first – the service will raise if password needed
-                sig_msg = self.file_service.decrypt_file(
-                    input_path=infile,
-                    output_path=outfile,
-                    password=None,  # let the service decide
-                )
-                self.app.task_queue.put(lambda: self._show_result(outfile, sig_msg))
-            except SharedSecretDetected as e:
-                # A shared secret was detected – ask the user
-                self.app.task_queue.put(lambda: self._handle_shared_detected(infile, outfile, e))
-            except FileServiceError as e:
-                # If the error says "Password required", we prompt the user for a password
-                if "password required" in str(e).lower():
-                    self.app.task_queue.put(lambda: self._prompt_password_and_decrypt(infile, outfile))
-                else:
-                    self.app.task_queue.put(lambda: messagebox.showerror("Decryption Error", str(e)))
+        def _do_decrypt():
+            """Attempt decryption (runs in worker thread)."""
+            return self.file_service.decrypt_file(
+                input_path=infile,
+                output_path=outfile,
+                password=None,
+            )
 
-        threading.Thread(target=task, daemon=True).start()
+        def _on_success(sig_msg):
+            self._show_result(outfile, sig_msg)
+
+        def _on_error(exc):
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror(
+                    "Timeout",
+                    "File decryption timed out. The file may be too large or "
+                    "the system is under heavy load. Please try again."
+                )
+            elif isinstance(exc, SharedSecretDetected):
+                self._handle_shared_detected(infile, outfile, exc)
+            elif isinstance(exc, FileServiceError):
+                if "password required" in str(exc).lower():
+                    self._prompt_password_and_decrypt(infile, outfile)
+                else:
+                    messagebox.showerror("Decryption Error", str(exc))
+            else:
+                messagebox.showerror("Decryption Error", str(exc))
+
+        if self.crypto_queue is not None:
+            from src.constants import CONCURRENCY_CONSTANTS
+            self.crypto_queue.submit(
+                _do_decrypt,
+                on_success=_on_success,
+                on_error=_on_error,
+                priority=TaskPriority.NORMAL,
+                timeout=CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0),
+            )
+        else:
+            def task():
+                try:
+                    sig_msg = _do_decrypt()
+                    self.task_queue.put(lambda: self._show_result(outfile, sig_msg))
+                except SharedSecretDetected as e:
+                    self.task_queue.put(lambda: self._handle_shared_detected(infile, outfile, e))
+                except FileServiceError as e:
+                    if "password required" in str(e).lower():
+                        self.task_queue.put(lambda: self._prompt_password_and_decrypt(infile, outfile))
+                    else:
+                        self.task_queue.put(lambda: messagebox.showerror("Decryption Error", str(e)))
+
+            threading.Thread(target=task, daemon=True).start()
 
     def _handle_shared_detected(self, infile, outfile, detection: SharedSecretDetected):
         """Ask user if they want to decrypt using the detected shared secret."""
@@ -190,35 +273,79 @@ class FileTab:
         if not ok:
             return
 
-        def task():
-            try:
-                sig_msg = self.file_service.decrypt_with_shared_secret(
-                    infile, outfile, detection.fingerprint
-                )
-                self.app.task_queue.put(lambda: self._show_result(outfile, sig_msg))
-            except FileServiceError as e:
-                self.app.task_queue.put(lambda: messagebox.showerror("Decryption Error", str(e)))
+        def _do_decrypt_shared():
+            return self.file_service.decrypt_with_shared_secret(
+                infile, outfile, detection.fingerprint
+            )
 
-        threading.Thread(target=task, daemon=True).start()
+        def _on_success(sig_msg):
+            self._show_result(outfile, sig_msg)
+
+        def _on_error(exc):
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror("Timeout", "File decryption timed out.")
+            else:
+                messagebox.showerror("Decryption Error", str(exc))
+
+        if self.crypto_queue is not None:
+            from src.constants import CONCURRENCY_CONSTANTS
+            self.crypto_queue.submit(
+                _do_decrypt_shared,
+                on_success=_on_success,
+                on_error=_on_error,
+                priority=TaskPriority.NORMAL,
+                timeout=CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0),
+            )
+        else:
+            def task():
+                try:
+                    sig_msg = _do_decrypt_shared()
+                    self.task_queue.put(lambda: self._show_result(outfile, sig_msg))
+                except FileServiceError as e:
+                    self.task_queue.put(lambda: messagebox.showerror("Decryption Error", str(e)))
+
+            threading.Thread(target=task, daemon=True).start()
 
     def _prompt_password_and_decrypt(self, infile, outfile):
         """Prompt for a password and attempt decryption."""
-        pw = password_dialog(self.app.root, "File Decryption Password", confirm=False)
+        pw = password_dialog(self.root, "File Decryption Password", confirm=False)
         if not pw:
             return
 
-        def task():
-            try:
-                sig_msg = self.file_service.decrypt_file(
-                    input_path=infile,
-                    output_path=outfile,
-                    password=pw,
-                )
-                self.app.task_queue.put(lambda: self._show_result(outfile, sig_msg))
-            except FileServiceError as e:
-                self.app.task_queue.put(lambda: messagebox.showerror("Decryption Error", str(e)))
+        def _do_decrypt_pw():
+            return self.file_service.decrypt_file(
+                input_path=infile,
+                output_path=outfile,
+                password=pw,
+            )
 
-        threading.Thread(target=task, daemon=True).start()
+        def _on_success(sig_msg):
+            self._show_result(outfile, sig_msg)
+
+        def _on_error(exc):
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror("Timeout", "File decryption timed out.")
+            else:
+                messagebox.showerror("Decryption Error", str(exc))
+
+        if self.crypto_queue is not None:
+            from src.constants import CONCURRENCY_CONSTANTS
+            self.crypto_queue.submit(
+                _do_decrypt_pw,
+                on_success=_on_success,
+                on_error=_on_error,
+                priority=TaskPriority.NORMAL,
+                timeout=CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0),
+            )
+        else:
+            def task():
+                try:
+                    sig_msg = _do_decrypt_pw()
+                    self.task_queue.put(lambda: self._show_result(outfile, sig_msg))
+                except FileServiceError as e:
+                    self.task_queue.put(lambda: messagebox.showerror("Decryption Error", str(e)))
+
+            threading.Thread(target=task, daemon=True).start()
 
     def _show_result(self, outfile, sig_msg):
         msg = f"File decrypted:\n{outfile}"

@@ -1,4 +1,12 @@
-"""Friends management tab – redesigned with modern table UI."""
+"""Friends management tab – redesigned with modern table UI.
+
+Publishes Events:
+    FRIEND_LIST_CHANGED - when friends are added, removed, or modified.
+    FRIEND_ADDED - when a new friend is added.
+    FRIEND_REMOVED - when a friend is removed.
+    RATCHET_INITIALIZED - when a ratchet session is initialized.
+    RATCHET_RESET - when a ratchet session is reset.
+"""
 
 import tkinter as tk
 from tkinter import messagebox, simpledialog
@@ -8,6 +16,7 @@ from ttkbootstrap.tooltip import ToolTip
 import base64
 
 from services.friends_service import FriendsService, FriendsServiceError
+from services.event_bus import event_bus, Events
 from utils import password_dialog
 
 
@@ -514,6 +523,8 @@ class FriendsTab:
                 self.refresh_list()
                 dlg.destroy()
                 messagebox.showinfo("Success", f"Friend '{name}' added successfully.")
+                event_bus.publish(Events.FRIEND_ADDED, source="friends_tab", friend_name=name)
+                event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
                 messagebox.showerror("Error", str(e), parent=dlg)
 
@@ -541,6 +552,8 @@ class FriendsTab:
                 self.service.remove_friend(choice)
                 self.refresh_list()
                 messagebox.showinfo("Removed", f"Friend '{choice}' removed.")
+                event_bus.publish(Events.FRIEND_REMOVED, source="friends_tab", friend_name=choice)
+                event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
         elif choice:
             messagebox.showerror("Not Found", "Name not found in friend list.")
 
@@ -730,6 +743,8 @@ class FriendsTab:
                     f"for '{name}'.\n\n"
                     "Messages to/from this friend will now use forward-secret encryption."
                 )
+                event_bus.publish(Events.RATCHET_INITIALIZED, source="friends_tab", friend_name=name)
+                event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
                 messagebox.showerror("Ratchet Init Failed", str(e), parent=dlg)
 
@@ -764,6 +779,8 @@ class FriendsTab:
             self.refresh_list()
             messagebox.showinfo("Reset Complete",
                                 f"Ratchet session for '{name}' has been deleted.")
+            event_bus.publish(Events.RATCHET_RESET, source="friends_tab", friend_name=name)
+            event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
         except FriendsServiceError as e:
             messagebox.showerror("Error", str(e))
 
@@ -1072,11 +1089,8 @@ class FriendsTab:
                 return
             try:
                 secret = self.service.get_friend_secret(fname)
-                x_b64 = None
-                # Get existing X25519 key if any
-                ks = self.service._ks
-                x_b64 = ks.friends_x25519.get(fname)
-                caps = ks.friends_capabilities.get(fname)
+                x_b64 = self.service.get_friend_x25519_key(fname)
+                caps = self.service.get_friend_capabilities(fname)
                 self.service.add_friend(
                     name=fname,
                     public_key_pem=details["public_key_pem"],

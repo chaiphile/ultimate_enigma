@@ -20,6 +20,11 @@ from services.ratchet_service import (
     RatchetServiceError,
 )
 from services.pqc_service import HybridKEM, is_pqc_available
+from models.envelope import (
+    RatchetEnvelope,
+    PQCEncvelope,
+    identify_envelope_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +32,9 @@ logger = logging.getLogger(__name__)
 from src.exceptions import EncryptionError, DecryptionError
 
 
-# Magic byte identifying a Double Ratchet envelope
-RATCHET_ENVELOPE_MAGIC = 0xD0
-
-# Magic byte identifying a Post-Quantum Hybrid KEM envelope
-PQC_ENVELOPE_MAGIC = 0x50
+# Re-export magic bytes from models for backward compatibility.
+# New code should import directly from models.envelope.
+from models.envelope import RATCHET_ENVELOPE_MAGIC, PQC_ENVELOPE_MAGIC
 
 
 class EncryptionService:
@@ -141,13 +144,14 @@ class EncryptionService:
         """
         packet = self._decode_base64_packet(b64_text)
 
-        # --- Post-Quantum Hybrid KEM path ---
-        if len(packet) > 1 and packet[0] == PQC_ENVELOPE_MAGIC:
+        # --- Identify envelope type via model ---
+        envelope_type = identify_envelope_type(packet)
+
+        if envelope_type == "pqc":
             self._last_decrypt_mode = "pqc"
             return self._decrypt_with_pqc(packet)
 
-        # --- Double Ratchet path ---
-        if len(packet) > 1 and packet[0] == RATCHET_ENVELOPE_MAGIC:
+        if envelope_type == "ratchet":
             self._last_decrypt_mode = "ratchet"
             return self._decrypt_with_ratchet(packet)
 
@@ -229,12 +233,27 @@ class EncryptionService:
             raise DecryptionError("Corrupted packet.")
 
     def _get_friends_hybrid_list(self):
-        """Build list of (name, ed_pub_bytes, dil_pub_bytes) for hybrid sig verification."""
+        """Build list of (name, ed_pub_bytes, dil_pub_bytes) for hybrid sig verification.
+
+        Includes both friends' hybrid signing public keys AND the user's own
+        hybrid signing public key, so that self-signed messages (encrypt then
+        decrypt on the same machine) can be verified.
+        """
+        result = []
+        # Friends' hybrid signing public keys
         hybrid_pubs = getattr(self._ks, 'friends_hybrid_sig_pubs', {})
-        return [
-            (name, ed_pub, dil_pub)
-            for name, (ed_pub, dil_pub) in hybrid_pubs.items()
-        ]
+        for name, (ed_pub, dil_pub) in hybrid_pubs.items():
+            result.append((name, ed_pub, dil_pub))
+        # Own hybrid signing public key (for self-verification)
+        my_combined_pub = getattr(self._ks, 'my_hybrid_sig_combined_pub', None)
+        if my_combined_pub:
+            try:
+                from services.pqc_signatures import HybridSigner
+                my_ed_pub, my_dil_pub = HybridSigner.parse_combined_pub(my_combined_pub)
+                result.append(("myself", my_ed_pub, my_dil_pub))
+            except Exception:
+                pass
+        return result
 
     def _decrypt_with_rsa(self, packet, my_priv, friends_for_crypto, legacy_priv=None):
         """Try RSA decryption with current key, then legacy key; returns plaintext or None."""
@@ -342,18 +361,16 @@ class EncryptionService:
                 f"Ratchet encryption failed for '{friend_name}': {exc}"
             ) from exc
 
-        # Build envelope
-        name_bytes = friend_name.encode("utf-8")
-        if len(name_bytes) > 255:
-            raise EncryptionError("Friend name too long for ratchet envelope.")
-        envelope = (
-            bytes([RATCHET_ENVELOPE_MAGIC])
-            + bytes([len(name_bytes)])
-            + name_bytes
-            + struct.pack(">H", len(header))
-            + header
-            + ciphertext
-        )
+        # Build envelope using structured model
+        try:
+            env_model = RatchetEnvelope(
+                sender_name=friend_name,
+                header=header,
+                ciphertext=ciphertext,
+            )
+            envelope = env_model.build()
+        except ValueError as exc:
+            raise EncryptionError(str(exc)) from exc
 
         current_time = self._ntp_time if self._ntp_time is not None else time.time()
         logger.debug("Encrypted message via Double Ratchet for '%s'", friend_name)
@@ -362,20 +379,15 @@ class EncryptionService:
     def _decrypt_with_ratchet(self, packet: bytes) -> str:
         """Parse a ratchet envelope and decrypt using Double Ratchet."""
         try:
-            offset = 1  # skip magic byte
-            name_len = packet[offset]
-            offset += 1
-            sender_name = packet[offset : offset + name_len].decode("utf-8")
-            offset += name_len
-            header_len = struct.unpack(">H", packet[offset : offset + 2])[0]
-            offset += 2
-            header = packet[offset : offset + header_len]
-            offset += header_len
-            ciphertext = packet[offset:]
-        except Exception as exc:
+            env_model = RatchetEnvelope.parse(packet)
+        except ValueError as exc:
             raise DecryptionError(
                 "Malformed Double Ratchet envelope."
             ) from exc
+
+        sender_name = env_model.sender_name
+        header = env_model.header
+        ciphertext = env_model.ciphertext
 
         if not self._friend_supports_ratchet(sender_name):
             raise DecryptionError(
@@ -442,14 +454,16 @@ class EncryptionService:
         aesgcm = AESGCM(shared_secret)
         aes_ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
 
-        # Build envelope
-        envelope = (
-            bytes([PQC_ENVELOPE_MAGIC])
-            + struct.pack(">H", len(kem_ciphertext))
-            + kem_ciphertext
-            + nonce
-            + aes_ct
-        )
+        # Build envelope using structured model
+        try:
+            env_model = PQCEncvelope(
+                kem_ciphertext=kem_ciphertext,
+                nonce=nonce,
+                aes_ciphertext=aes_ct,
+            )
+            envelope = env_model.build()
+        except ValueError as exc:
+            raise EncryptionError(str(exc)) from exc
 
         current_time = self._ntp_time if self._ntp_time is not None else time.time()
         logger.debug("Encrypted message via PQC Hybrid KEM for '%s'", friend_name)
@@ -475,19 +489,13 @@ class EncryptionService:
             )
 
         try:
-            offset = 1  # skip magic byte
-            kem_ct_len = struct.unpack(">H", packet[offset:offset + 2])[0]
-            offset += 2
-            kem_ciphertext = packet[offset:offset + kem_ct_len]
-            offset += kem_ct_len
-            nonce = packet[offset:offset + 12]
-            offset += 12
-            aes_ct = packet[offset:]
-        except Exception as exc:
+            env_model = PQCEncvelope.parse(packet)
+        except ValueError as exc:
             raise DecryptionError("Malformed PQC envelope.") from exc
 
-        if len(nonce) != 12 or len(aes_ct) < 16:
-            raise DecryptionError("Malformed PQC envelope: invalid nonce or ciphertext.")
+        kem_ciphertext = env_model.kem_ciphertext
+        nonce = env_model.nonce
+        aes_ct = env_model.aes_ciphertext
 
         # Decapsulate to recover shared secret
         try:

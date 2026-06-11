@@ -8,6 +8,7 @@ import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 
 from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS
+from services.encryption_service import EncryptionService
 
 PRESET_NTP_SERVERS = [
     "ntp.day.ir",
@@ -26,8 +27,13 @@ for _srv in CONSENSUS_SERVERS:
 
 
 class NtpTab:
-    def __init__(self, parent, app):
-        self.app = app
+    def __init__(self, parent, encryption_service: EncryptionService):
+        """
+        Args:
+            parent: Notebook widget
+            encryption_service: Service to update NTP time for encryption operations
+        """
+        self.encryption_service = encryption_service
         self.frame = ttkb.Frame(parent)
         self._syncing = False
         self._build_ui()
@@ -254,9 +260,8 @@ class NtpTab:
                 status_msg = "✅ Synchronized successfully"
             self.status_indicator.config(text=status_msg, bootstyle="inverse-success")
 
-            # Update encryption service if available
-            if hasattr(self.app, 'encryption_service'):
-                self.app.encryption_service.update_ntp_time(ntp_timestamp)
+            # Update encryption service with NTP time
+            self.encryption_service.update_ntp_time(ntp_timestamp)
         else:
             self.ntp_time_label.config(text="Sync Failed", bootstyle="inverse-danger")
             self.offset_label.config(text="--", bootstyle="inverse-secondary")

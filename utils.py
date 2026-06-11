@@ -6,6 +6,8 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
+from src.secure_string import SecureString
+
 # Minimum requirements (military-grade)
 MIN_PASSWORD_LENGTH = 16
 MIN_ENTROPY_BITS = 60
@@ -88,9 +90,13 @@ def get_strength_label(score: int) -> tuple:
         return "░░░░░░░░░░░░ CRITICAL", "#cc0000"
 
 def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=None,
-                    enforce_strength=True):
+                    enforce_strength=True) -> SecureString | None:
     """
     Show a modal password entry dialog.
+    
+    Returns a SecureString containing the password, or None if cancelled.
+    The caller is responsible for calling wipe() on the returned SecureString
+    when done with the password.
     
     Args:
         parent: Parent widget
@@ -99,6 +105,10 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         topmost: If True, keep dialog above all windows (for lock screen)
         bg: Override background color
         fg: Override foreground color
+        enforce_strength: If True, enforce password strength requirements
+        
+    Returns:
+        SecureString containing the password, or None if cancelled/failed.
     """
     style = ttk.Style()
     dialog_bg = bg or style.colors.bg
@@ -169,8 +179,17 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
 
     def ok():
         pw = pwd_var.get()
+        # Capture confirm value BEFORE clearing
+        confirm_pw = confirm_var.get() if confirm else ""
+        
+        # Clear the Tkinter StringVars immediately to minimize memory exposure
+        pwd_var.set("")
         if confirm:
-            if pw != confirm_var.get():
+            confirm_var.set("")
+        
+        # Validation
+        if confirm:
+            if pw != confirm_pw:
                 messagebox.showerror("Mismatch", "Passwords do not match.", parent=dlg)
                 return
             if enforce_strength:
@@ -184,7 +203,11 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
                         parent=dlg
                     )
                     return
-        result.append(pw)
+        
+        # Create SecureString and clear local references
+        result.append(SecureString(pw))
+        pw = ""
+        confirm_pw = ""
         dlg.destroy()
 
     def cancel():

@@ -10,7 +10,8 @@ shared secrets derived from Hybrid KEM or other key agreement protocols.
 import json
 import logging
 import threading
-from typing import Optional, Tuple, Dict
+import time
+from typing import Optional, Tuple, Dict, List
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
 
@@ -29,7 +30,9 @@ from src.exceptions import (
     RatchetNotFoundError,
     RatchetInitError,
     RatchetServiceError,
+    ConcurrencyError,
 )
+from src.constants import CONCURRENCY_CONSTANTS
 
 
 class RatchetService:
@@ -47,16 +50,125 @@ class RatchetService:
         load -> mutate -> save cycles.
     """
 
-    _friend_locks: Dict[str, threading.Lock] = {}
-    _locks_guard = threading.Lock()
+    # Per-friend reentrant locks to prevent deadlocks from recursive acquisition.
+    # RLock allows the same thread to acquire the lock multiple times (e.g.,
+    # encrypt_to_envelope -> encrypt_message).
+    _friend_locks: Dict[str, threading.RLock] = {}
+    _friend_lock_timestamps: Dict[str, float] = {}  # Creation timestamps for cleanup
+    _locks_guard = threading.RLock()
 
     @classmethod
-    def _get_friend_lock(cls, friend_name: str) -> threading.Lock:
-        """Return a per-friend lock, creating one if necessary."""
+    def _get_friend_lock(cls, friend_name: str) -> threading.RLock:
+        """Return a per-friend RLock, creating one if necessary.
+
+        Uses RLock (reentrant lock) to allow the same thread to acquire
+        the lock multiple times without deadlocking. This is essential
+        when higher-level methods (e.g., encrypt_to_envelope) call
+        lower-level methods (e.g., encrypt_message) that both acquire
+        the same per-friend lock.
+        """
         with cls._locks_guard:
             if friend_name not in cls._friend_locks:
-                cls._friend_locks[friend_name] = threading.Lock()
+                cls._friend_locks[friend_name] = threading.RLock()
+                cls._friend_lock_timestamps[friend_name] = time.monotonic()
             return cls._friend_locks[friend_name]
+
+    @classmethod
+    def _acquire_friend_lock(
+        cls, friend_name: str, timeout: Optional[float] = None
+    ) -> threading.RLock:
+        """Acquire the per-friend lock with an optional timeout.
+
+        Args:
+            friend_name: The friend whose lock to acquire.
+            timeout: Maximum seconds to wait. If None, uses
+                    CONCURRENCY_CONSTANTS['RATCHET_LOCK_TIMEOUT'].
+
+        Returns:
+            The acquired RLock instance.
+
+        Raises:
+            ConcurrencyError: If the lock cannot be acquired within the timeout.
+        """
+        if timeout is None:
+            timeout = CONCURRENCY_CONSTANTS.get("RATCHET_LOCK_TIMEOUT", 30.0)
+
+        lock = cls._get_friend_lock(friend_name)
+        acquired = lock.acquire(timeout=timeout)
+        if not acquired:
+            raise ConcurrencyError(
+                f"Could not acquire ratchet lock for '{friend_name}' "
+                f"within {timeout:.1f} seconds. Another operation may be "
+                f"in progress."
+            )
+        return lock
+
+    @classmethod
+    def cleanup_friend_locks(cls, active_friends: Optional[List[str]] = None) -> int:
+        """Remove locks for friends that no longer exist.
+
+        Prevents unbounded growth of the lock dictionary when friends
+        are repeatedly added and removed.
+
+        Args:
+            active_friends: List of currently active friend names.
+                           If None, all locks older than LOCK_MAX_AGE
+                           are removed.
+
+        Returns:
+            Number of locks removed.
+        """
+        removed = 0
+        max_age = CONCURRENCY_CONSTANTS.get("LOCK_MAX_AGE", 7200)
+        now = time.monotonic()
+
+        with cls._locks_guard:
+            stale_names = []
+            if active_friends is not None:
+                active_set = set(active_friends)
+                for name in list(cls._friend_locks.keys()):
+                    if name not in active_set:
+                        stale_names.append(name)
+            else:
+                for name, created_at in cls._friend_lock_timestamps.items():
+                    if now - created_at > max_age:
+                        stale_names.append(name)
+
+            for name in stale_names:
+                # Only remove if the lock is not currently held
+                lock = cls._friend_locks.get(name)
+                if lock is not None:
+                    # RLock has _is_owned() in CPython but it's internal.
+                    # Use a non-blocking acquire attempt to check.
+                    if lock.acquire(blocking=False):
+                        lock.release()
+                        del cls._friend_locks[name]
+                        cls._friend_lock_timestamps.pop(name, None)
+                        removed += 1
+                    else:
+                        logger.debug(
+                            "Skipping lock cleanup for '%s' - lock is held",
+                            name
+                        )
+
+            if removed > 0:
+                logger.info(
+                    "Cleaned up %d stale ratchet locks", removed
+                )
+        return removed
+
+    @classmethod
+    def get_lock_stats(cls) -> Dict[str, int]:
+        """Return statistics about the current lock state.
+
+        Returns:
+            A dict with 'total_locks', 'total_timestamps' keys.
+        """
+        with cls._locks_guard:
+            return {
+                "total_locks": len(cls._friend_locks),
+                "total_timestamps": len(cls._friend_lock_timestamps),
+            }
 
     @staticmethod
     def get_friend_profile(friend_name: str) -> Optional[FriendProfile]:
@@ -347,9 +459,11 @@ class RatchetService:
         Raises:
             RatchetNotFoundError: If no active ratchet session exists.
             RatchetServiceError: If encryption or state persistence fails.
+            ConcurrencyError: If the per-friend lock cannot be acquired
+                             within the timeout period.
         """
-        lock = RatchetService._get_friend_lock(friend_name)
-        with lock:
+        lock = RatchetService._acquire_friend_lock(friend_name)
+        try:
             state = RatchetService.get_ratchet_state(friend_name)
             try:
                 header, ciphertext = state.encrypt(plaintext)
@@ -360,6 +474,8 @@ class RatchetService:
 
             # Persist the advanced state
             RatchetService.save_ratchet_state(friend_name, state)
+        finally:
+            lock.release()
         return header, ciphertext
 
     @staticmethod
@@ -411,9 +527,11 @@ class RatchetService:
         Raises:
             RatchetNotFoundError: If no active ratchet session exists.
             RatchetServiceError: If decryption or state persistence fails.
+            ConcurrencyError: If the per-friend lock cannot be acquired
+                             within the timeout period.
         """
-        lock = RatchetService._get_friend_lock(friend_name)
-        with lock:
+        lock = RatchetService._acquire_friend_lock(friend_name)
+        try:
             state = RatchetService.get_ratchet_state(friend_name)
             try:
                 plaintext = state.decrypt(header, ciphertext)
@@ -424,4 +542,6 @@ class RatchetService:
 
             # Persist the advanced state (including any skipped keys)
             RatchetService.save_ratchet_state(friend_name, state)
+        finally:
+            lock.release()
         return plaintext

@@ -2,12 +2,17 @@
 
 Displays a dark overlay with lock icon, status text, and an unlock button.
 The unlock button triggers a callback (typically showing password + TOTP dialog).
+
+Publishes Events:
+    UNLOCK_REQUESTED - when the user clicks "Unlock" or presses the unlock hotkey.
 """
 
 import tkinter as tk
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import logging
+
+from services.event_bus import event_bus, Events
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +85,7 @@ class LockScreen:
             font=("Segoe UI", 14, "bold"),
             bg="#228B22", fg="white", activebackground="#2ea82e",
             activeforeground="white", bd=0, padx=30, pady=10,
-            cursor="hand2", command=self._on_unlock_request
+            cursor="hand2", command=self._handle_unlock_request
         )
         unlock_btn.pack()
 
@@ -88,16 +93,21 @@ class LockScreen:
         unlock_btn.focus_set()
 
         # Also bind Enter on both the overlay and the button for redundancy
-        self._overlay.bind("<Return>", lambda e: self._on_unlock_request())
-        self._overlay.bind("<KP_Enter>", lambda e: self._on_unlock_request())
-        unlock_btn.bind("<Return>", lambda e: self._on_unlock_request())
-        unlock_btn.bind("<KP_Enter>", lambda e: self._on_unlock_request())
-        unlock_btn.bind("<space>", lambda e: self._on_unlock_request())
+        self._overlay.bind("<Return>", lambda e: self._handle_unlock_request())
+        self._overlay.bind("<KP_Enter>", lambda e: self._handle_unlock_request())
+        unlock_btn.bind("<Return>", lambda e: self._handle_unlock_request())
+        unlock_btn.bind("<KP_Enter>", lambda e: self._handle_unlock_request())
+        unlock_btn.bind("<space>", lambda e: self._handle_unlock_request())
 
         # Prevent tab focus escape
         self._overlay.bind("<Tab>", lambda e: "break")
 
         logger.info("Lock screen activated")
+
+    def _handle_unlock_request(self):
+        """Publish unlock event and invoke the registered callback."""
+        event_bus.publish(Events.UNLOCK_REQUESTED, source="lock_screen")
+        self._on_unlock_request()
 
     def unlock(self) -> None:
         """Remove the lock overlay."""

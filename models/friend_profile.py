@@ -63,8 +63,8 @@ class FriendProfile:
         try:
             with closing(get_connection()) as conn:
                 row = conn.execute(
-                    "SELECT name, public_key, shared_secret, "
-                    "capabilities_json, ratchet_state_json, pqc_combined_pub "
+                    "SELECT name, public_key_pem, shared_secret_encrypted, "
+                    "capabilities_json, ratchet_state_json, pqc_combined_pub_b64 "
                     "FROM friends WHERE name=?",
                     (friend_name,),
                 ).fetchone()
@@ -85,11 +85,11 @@ class FriendProfile:
 
                 return cls(
                     name=row[0],
-                    public_key=row[1],
-                    shared_secret=row[2],
+                    public_key=row[1].encode() if row[1] else None,
+                    shared_secret=None,  # shared_secret_encrypted is JSON, not raw bytes
                     capabilities=capabilities,
                     has_active_ratchet=row[4] is not None,
-                    pqc_combined_pub=row[5],
+                    pqc_combined_pub=row[5].encode() if row[5] else None,
                 )
 
         except DatabaseError as exc:
@@ -109,8 +109,8 @@ class FriendProfile:
         try:
             with closing(get_connection()) as conn:
                 rows = conn.execute(
-                    "SELECT name, public_key, shared_secret, "
-                    "capabilities_json, ratchet_state_json, pqc_combined_pub "
+                    "SELECT name, public_key_pem, shared_secret_encrypted, "
+                    "capabilities_json, ratchet_state_json, pqc_combined_pub_b64 "
                     "FROM friends"
                 ).fetchall()
 
@@ -126,11 +126,11 @@ class FriendProfile:
                     profiles.append(
                         cls(
                             name=row[0],
-                            public_key=row[1],
-                            shared_secret=row[2],
+                            public_key=row[1].encode() if row[1] else None,
+                            shared_secret=None,  # shared_secret_encrypted is JSON
                             capabilities=capabilities,
                             has_active_ratchet=row[4] is not None,
-                            pqc_combined_pub=row[5],
+                            pqc_combined_pub=row[5].encode() if row[5] else None,
                         )
                     )
 

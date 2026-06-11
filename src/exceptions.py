@@ -56,3 +56,15 @@ class RatchetServiceError(RatchetStateError):
 
 class TOTPValidationError(EnigmaError):
     """Raised when TOTP verification or secret management fails."""
+
+
+# ---------------------------------------------------------------------------
+# Concurrency / Timeout
+# ---------------------------------------------------------------------------
+
+class CryptoTimeoutError(EnigmaError):
+    """Raised when a cryptographic operation exceeds its allowed time limit."""
+
+
+class ConcurrencyError(EnigmaError):
+    """Raised when a concurrency operation fails (lock acquisition, etc.)."""

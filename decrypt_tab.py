@@ -6,14 +6,30 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import threading
 import logging
+from queue import Queue
 from services.encryption_service import DecryptionError
+from services.crypto_task_queue import TaskPriority
+from src.exceptions import CryptoTimeoutError
 
 logger = logging.getLogger(__name__)
 
 class DecryptTab:
-    def __init__(self, parent, app):
-        self.app = app
-        self.service = app.encryption_service   # use the same service layer
+    def __init__(self, parent, encryption_service, clipboard_service, task_queue: Queue,
+                 crypto_queue=None):
+        """
+        Args:
+            parent: Notebook widget
+            encryption_service: Handles decryption operations
+            clipboard_service: Handles clipboard operations
+            task_queue: Queue for scheduling UI updates from background threads
+            crypto_queue: Optional CryptoTaskQueue for managed background execution.
+                         If provided, replaces ad-hoc threading with pool-based
+                         task submission and timeout enforcement.
+        """
+        self.service = encryption_service
+        self.clipboard_service = clipboard_service
+        self.task_queue = task_queue
+        self.crypto_queue = crypto_queue
         self.frame = ttk.Frame(parent)
         self._build_ui()
 
@@ -70,7 +86,7 @@ class DecryptTab:
         self.mode_label.pack(pady=(0, 5))
 
     def paste_from_clipboard(self):
-        text = self.app.clipboard_service.get()
+        text = self.clipboard_service.get()
         if text is None:
             messagebox.showwarning("Clipboard",
                                    "Clipboard is empty or not accessible.")
@@ -89,11 +105,29 @@ class DecryptTab:
             messagebox.showwarning("Empty", "Paste a Base64 message to decrypt.")
             return
 
-        def task():
-            try:
-                result = self.service.decrypt(b64_text)
-            except DecryptionError as e:
-                err_msg = str(e)
+        def _do_decrypt():
+            """Perform the actual decryption (runs in worker thread)."""
+            return self.service.decrypt(b64_text)
+
+        def _on_success(result):
+            """Handle successful decryption (runs on main thread)."""
+            decrypt_mode = getattr(self.service, 'last_decrypt_mode', None)
+            self._show_decrypted(result, decrypt_mode)
+
+        def _on_error(exc):
+            """Handle decryption error (runs on main thread)."""
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror(
+                    "Timeout",
+                    "Decryption operation timed out. The message may be too "
+                    "large or the system is under heavy load. Please try again."
+                )
+                self.warning_label.config(text="")
+                self.mode_label.config(text="")
+                return
+
+            if isinstance(exc, DecryptionError):
+                err_msg = str(exc)
                 is_ratchet_missing = (
                     "ratchet session" in err_msg.lower()
                     or "no active ratchet" in err_msg.lower()
@@ -108,40 +142,81 @@ class DecryptTab:
                         "The Double Ratchet session may have been lost due to "
                         "database reset, app reinstall, or out-of-sync state."
                     )
-                    self.app.task_queue.put(
-                        lambda: messagebox.showerror(
-                            "Ratchet Session Missing", guidance
-                        )
-                    )
+                    messagebox.showerror("Ratchet Session Missing", guidance)
                 else:
-                    self.app.task_queue.put(
-                        lambda: messagebox.showerror("Decryption Error", err_msg)
-                    )
-                self.app.task_queue.put(lambda: self.warning_label.config(text=""))
-                self.app.task_queue.put(lambda: self.mode_label.config(text=""))
-                return
-            except Exception as e:
+                    messagebox.showerror("Decryption Error", err_msg)
+            else:
                 logger.exception("Unexpected decryption error")
-                self.app.task_queue.put(
-                    lambda: messagebox.showerror("Decryption Error",
-                                                 "An unexpected error occurred.")
+                messagebox.showerror(
+                    "Decryption Error", "An unexpected error occurred."
                 )
-                self.app.task_queue.put(lambda: self.warning_label.config(text=""))
-                self.app.task_queue.put(lambda: self.mode_label.config(text=""))
-                return
+            self.warning_label.config(text="")
+            self.mode_label.config(text="")
 
-            # Success - show in the output area with mode indicator
-            decrypt_mode = getattr(self.service, 'last_decrypt_mode', None)
-            self.app.task_queue.put(
-                lambda: self._show_decrypted(result, decrypt_mode)
-            )
-
-        # Show a subtle self-destruct reminder (the actual expiry is enforced
-        # inside the service layer)
+        # Show a subtle self-destruct reminder
         self.warning_label.config(
             text="\u26a0\ufe0f Self-destruct depends on recipient's client. Not 100% secure."
         )
-        threading.Thread(target=task, daemon=True).start()
+
+        # Use CryptoTaskQueue if available, otherwise fall back to raw threading
+        if self.crypto_queue is not None:
+            from src.constants import CONCURRENCY_CONSTANTS
+            self.crypto_queue.submit(
+                _do_decrypt,
+                on_success=_on_success,
+                on_error=_on_error,
+                priority=TaskPriority.HIGH,
+                timeout=CONCURRENCY_CONSTANTS.get("RSA_OPERATION_TIMEOUT", 30.0),
+            )
+        else:
+            # Legacy fallback: ad-hoc thread with task_queue marshalling
+            def task():
+                try:
+                    result = _do_decrypt()
+                except DecryptionError as e:
+                    err_msg = str(e)
+                    is_ratchet_missing = (
+                        "ratchet session" in err_msg.lower()
+                        or "no active ratchet" in err_msg.lower()
+                    )
+                    if is_ratchet_missing:
+                        guidance = (
+                            f"{err_msg}\n\n"
+                            "To fix this:\n"
+                            "1. Go to the Friends tab\n"
+                            "2. Select the sender and perform a new key exchange\n"
+                            "3. Both parties must complete the handshake\n\n"
+                            "The Double Ratchet session may have been lost due to "
+                            "database reset, app reinstall, or out-of-sync state."
+                        )
+                        self.task_queue.put(
+                            lambda: messagebox.showerror(
+                                "Ratchet Session Missing", guidance
+                            )
+                        )
+                    else:
+                        self.task_queue.put(
+                            lambda: messagebox.showerror("Decryption Error", err_msg)
+                        )
+                    self.task_queue.put(lambda: self.warning_label.config(text=""))
+                    self.task_queue.put(lambda: self.mode_label.config(text=""))
+                    return
+                except Exception as e:
+                    logger.exception("Unexpected decryption error")
+                    self.task_queue.put(
+                        lambda: messagebox.showerror("Decryption Error",
+                                                     "An unexpected error occurred.")
+                    )
+                    self.task_queue.put(lambda: self.warning_label.config(text=""))
+                    self.task_queue.put(lambda: self.mode_label.config(text=""))
+                    return
+
+                decrypt_mode = getattr(self.service, 'last_decrypt_mode', None)
+                self.task_queue.put(
+                    lambda: self._show_decrypted(result, decrypt_mode)
+                )
+
+            threading.Thread(target=task, daemon=True).start()
 
     def _show_decrypted(self, text, decrypt_mode=None):
         # Detect hybrid signature verification in the decrypted text

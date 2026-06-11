@@ -7,7 +7,7 @@ import threading
 import time
 import logging
 import gc
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 from contextlib import closing
 
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -16,6 +16,7 @@ from cryptography.hazmat.backends import default_backend
 
 import database
 from src.exceptions import KeyStoreError
+from src.secure_string import SecureString
 from services.pqc_service import is_pqc_available
 
 try:
@@ -30,8 +31,23 @@ logger = logging.getLogger(__name__)
 def _pem_to_pubkey(pem: str):
     return serialization.load_pem_public_key(pem.encode(), backend=default_backend())
 
-def _pem_to_privkey(pem: bytes, password: bytes):
-    return serialization.load_pem_private_key(pem, password=password, backend=default_backend)
+def _pem_to_privkey(pem: bytes, password: Union[str, bytes, SecureString]):
+    """Load a PEM private key, decrypting with the given password.
+    
+    Args:
+        pem: PEM-encoded private key bytes.
+        password: Password as str, bytes, or SecureString.
+    """
+    # Convert password to bytes
+    if hasattr(password, 'to_bytes'):
+        pw_bytes = password.to_bytes()
+    elif isinstance(password, str):
+        pw_bytes = password.encode('utf-8')
+    elif isinstance(password, bytes):
+        pw_bytes = password
+    else:
+        pw_bytes = str(password).encode('utf-8')
+    return serialization.load_pem_private_key(pem, password=pw_bytes, backend=default_backend)
 
 def pubkey_to_pem(pub) -> str:
     return pub.public_bytes(
@@ -39,11 +55,27 @@ def pubkey_to_pem(pub) -> str:
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     ).decode('ascii')
 
-def _privkey_to_encrypted_pem(priv, password: bytes) -> str:
+def _privkey_to_encrypted_pem(priv, password: Union[str, bytes, SecureString]) -> str:
+    """Encrypt a private key to PEM format.
+    
+    Args:
+        priv: Private key object.
+        password: Password as str, bytes, or SecureString.
+    """
+    # Convert password to bytes
+    if hasattr(password, 'to_bytes'):
+        pw_bytes = password.to_bytes()
+    elif isinstance(password, str):
+        pw_bytes = password.encode('utf-8')
+    elif isinstance(password, bytes):
+        pw_bytes = password
+    else:
+        pw_bytes = str(password).encode('utf-8')
+    
     return priv.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.BestAvailableEncryption(password)
+        encryption_algorithm=serialization.BestAvailableEncryption(pw_bytes)
     ).decode('ascii')
 
 
@@ -85,11 +117,33 @@ class KeyStoreModel:
             "needs_rotation": self._needs_rotation,
         }
 
-    def load(self, password: str) -> None:
+    @classmethod
+    def from_dict(cls, data: dict) -> "KeyStoreModel":
+        """Reconstruct a KeyStoreModel from a dictionary produced by to_dict().
+
+        Note: This restores only non-sensitive metadata. Actual key material
+        must be loaded separately via load(password). This method is intended
+        for restoring UI state or inspecting serialized snapshots.
+
+        Args:
+            data: Dictionary previously returned by to_dict().
+
+        Returns:
+            A new KeyStoreModel instance with metadata fields populated.
+        """
+        instance = cls()
+        instance._needs_rotation = data.get("needs_rotation", False)
+        # Friend names are restored as placeholder entries (no key material)
+        friend_names = data.get("friends", [])
+        instance.friends = [(name, None, None) for name in friend_names]
+        # Boolean flags are informational only; actual keys require load()
+        return instance
+
+    def load(self, password: Union[str, bytes, SecureString]) -> None:
         """Load all keys from the database using the provided password.
         
         Args:
-            password: Master password for decrypting stored keys.
+            password: Master password for decrypting stored keys as str, bytes, or SecureString.
             
         Raises:
             KeyStoreError: If loading fails due to missing keys or decryption errors.
@@ -303,7 +357,7 @@ class KeyStoreModel:
                     pass
 
     def save_friend(self, name: str, pem: str, shared_secret: Optional[bytes] = None,
-                    password: str = "", x25519_pub_b64: Optional[str] = None,
+                    password: Union[str, bytes, SecureString] = "", x25519_pub_b64: Optional[str] = None,
                     capabilities: Optional[dict] = None,
                     pqc_combined_pub_b64: Optional[str] = None,
                     hybrid_sig_pub_b64: Optional[str] = None) -> None:
@@ -313,7 +367,7 @@ class KeyStoreModel:
             name: Friend identifier.
             pem: PEM-encoded public key.
             shared_secret: Optional shared secret to encrypt and store.
-            password: Master password for encrypting the shared secret.
+            password: Master password as str, bytes, or SecureString for encrypting the shared secret.
             x25519_pub_b64: Base64-encoded X25519 public key.
             capabilities: Dictionary of friend capabilities.
             pqc_combined_pub_b64: Base64-encoded PQC combined public key.

@@ -9,7 +9,7 @@ import logging
 import gc
 import struct
 import hashlib
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Union
 from contextlib import closing
 
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -22,6 +22,7 @@ from crypto import rsa_sign, rsa_verify, sha256_fingerprint
 import database
 from services.pqc_service import HybridKEM, is_pqc_available
 from src.exceptions import KeyStoreError
+from src.secure_string import SecureString
 
 try:
     from services.pqc_signatures import HybridSigner
@@ -48,8 +49,23 @@ def _get_rsa_key_size(pub_key) -> int:
     except AttributeError:
         return 0
 
-def _pem_to_privkey(pem: bytes, password: bytes):
-    return serialization.load_pem_private_key(pem, password=password, backend=default_backend())
+def _pem_to_privkey(pem: bytes, password: Union[str, bytes, SecureString]):
+    """Load a PEM private key, decrypting with the given password.
+    
+    Args:
+        pem: PEM-encoded private key bytes.
+        password: Password as str, bytes, or SecureString.
+    """
+    # Convert password to bytes
+    if hasattr(password, 'to_bytes'):
+        pw_bytes = password.to_bytes()
+    elif isinstance(password, str):
+        pw_bytes = password.encode('utf-8')
+    elif isinstance(password, bytes):
+        pw_bytes = password
+    else:
+        pw_bytes = str(password).encode('utf-8')
+    return serialization.load_pem_private_key(pem, password=pw_bytes, backend=default_backend())
 
 def pubkey_to_pem(pub) -> str:
     return pub.public_bytes(
@@ -57,15 +73,35 @@ def pubkey_to_pem(pub) -> str:
         format=serialization.PublicFormat.SubjectPublicKeyInfo
     ).decode('ascii')
 
-def _privkey_to_encrypted_pem(priv, password: bytes) -> str:
+def _privkey_to_encrypted_pem(priv, password: Union[str, bytes, SecureString]) -> str:
+    """Encrypt a private key to PEM format.
+    
+    Args:
+        priv: Private key object.
+        password: Password as str, bytes, or SecureString.
+    """
+    # Convert password to bytes
+    if hasattr(password, 'to_bytes'):
+        pw_bytes = password.to_bytes()
+    elif isinstance(password, str):
+        pw_bytes = password.encode('utf-8')
+    elif isinstance(password, bytes):
+        pw_bytes = password
+    else:
+        pw_bytes = str(password).encode('utf-8')
+    
     return priv.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.BestAvailableEncryption(password)
+        encryption_algorithm=serialization.BestAvailableEncryption(pw_bytes)
     ).decode('ascii')
 
-def init_db(password: str) -> bool:
-    """Create database and first keys if missing. Returns True if new keys were generated."""
+def init_db(password: Union[str, bytes, SecureString]) -> bool:
+    """Create database and first keys if missing. Returns True if new keys were generated.
+    
+    Args:
+        password: Master password as str, bytes, or SecureString.
+    """
     database.init_db()
     new_keys = False
     with closing(database.get_connection()) as conn:
@@ -73,7 +109,7 @@ def init_db(password: str) -> bool:
         if cur.fetchone() is None:
             priv = rsa.generate_private_key(65537, 4096, default_backend())
             pub = priv.public_key()
-            encrypted_priv = _privkey_to_encrypted_pem(priv, password.encode())
+            encrypted_priv = _privkey_to_encrypted_pem(priv, password)
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("public_key", pubkey_to_pem(pub)))
             conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("private_key_encrypted", encrypted_priv))
             global_secret = secrets.token_bytes(32)
@@ -203,8 +239,12 @@ class KeyStore:
         """True if the last successful authentication used the duress password."""
         return self._duress_mode
 
-    def load(self, password: str) -> bool:
-        """Load all keys from database. Password is used for decryption and then discarded."""
+    def load(self, password: Union[str, bytes, SecureString]) -> bool:
+        """Load all keys from database. Password is used for decryption and then discarded.
+        
+        Args:
+            password: Master password as str, bytes, or SecureString.
+        """
         # Ensure migration-safe columns exist
         try:
             conn = database.get_connection()
@@ -415,7 +455,19 @@ class KeyStore:
         finally:
             conn.close()
 
-    def verify_password(self, password: str) -> tuple:
+        # Log what was loaded
+        logger.info(
+            "Keys loaded: RSA=%d-bit, global_secret=%s, friends=%d, "
+            "pqc=%s, hybrid_sig=%s",
+            _get_rsa_key_size(self.my_pub),
+            "yes" if self.global_secret else "no",
+            len(self.friends),
+            "yes" if self.my_kyber_priv else "no",
+            "yes" if self.my_hybrid_sig_combined_pub else "no",
+        )
+        return True
+
+    def verify_password(self, password: Union[str, bytes, SecureString]) -> tuple:
         """Check if `password` matches master or duress password.
 
         Implements persistent exponential backoff and hard account lockout.
@@ -425,6 +477,9 @@ class KeyStore:
             0-4: none | 5: 5s | 6: 10s | 7: 30s | 8: 60s | 9: 2min
             10: 5min | 11: 10min | 12: 30min | 13-14: 1h
             15+: hard lockout (1 hour)
+
+        Args:
+            password: Password as str, bytes, or SecureString.
 
         Returns:
             (is_valid: bool, is_duress: bool)
@@ -500,12 +555,15 @@ class KeyStore:
             self._save_lockout_state()
             return False, False
 
-    def set_duress_password(self, duress_password: str) -> None:
+    def set_duress_password(self, duress_password: Union[str, bytes, SecureString]) -> None:
         """Set up a duress password that triggers decoy mode.
 
         Creates a dummy secret encrypted with the duress password.
         When this password is entered at login, verify_password() will
         succeed and flag duress mode, causing the app to load decoy data.
+        
+        Args:
+            duress_password: Duress password as str, bytes, or SecureString.
         """
         dummy_secret = secrets.token_bytes(32)
         enc = database.encrypt_secret(dummy_secret, duress_password)
@@ -517,7 +575,13 @@ class KeyStore:
             conn.commit()
         logger.info("Duress password configured")
 
-    def update_global_secret(self, new_secret: bytes, password: str) -> None:
+    def update_global_secret(self, new_secret: bytes, password: Union[str, bytes, SecureString]) -> None:
+        """Update the global secret with a new value.
+        
+        Args:
+            new_secret: New secret bytes.
+            password: Master password as str, bytes, or SecureString.
+        """
         enc = database.encrypt_secret(new_secret, password)
         with closing(database.get_connection()) as conn:
             conn.execute("UPDATE settings SET value=? WHERE key='global_secret'", (json.dumps(enc),))
@@ -526,7 +590,7 @@ class KeyStore:
         self.global_secret = bytearray(new_secret)
 
     def save_friend(self, name: str, pem: str, shared_secret: Optional[bytes] = None,
-                    password: str = "", x25519_pub_b64: Optional[str] = None,
+                    password: Union[str, bytes, SecureString] = "", x25519_pub_b64: Optional[str] = None,
                     capabilities: Optional[dict] = None,
                     pqc_combined_pub_b64: Optional[str] = None,
                     hybrid_sig_pub_b64: Optional[str] = None) -> None:
@@ -534,7 +598,11 @@ class KeyStore:
         x25519_pub_b64 is the Base64 of the raw 32-byte X25519 public key.
         capabilities is an optional dict of supported features (e.g. {"double_ratchet": True}).
         pqc_combined_pub_b64 is the Base64 of the hybrid PQC combined public key.
-        hybrid_sig_pub_b64 is the Base64 of the hybrid signing combined public key."""
+        hybrid_sig_pub_b64 is the Base64 of the hybrid signing combined public key.
+        
+        Args:
+            password: Master password as str, bytes, or SecureString.
+        """
         if shared_secret:
             if not password:
                 raise ValueError("Master password required to encrypt friend shared secret")
@@ -614,14 +682,14 @@ class KeyStore:
 
     # ---------- PQC Hybrid KEM key management ----------
 
-    def ensure_pqc_keys(self, password: str) -> None:
+    def ensure_pqc_keys(self, password: Union[str, bytes, SecureString]) -> None:
         """Generate and persist hybrid PQC keys if they don't already exist.
 
         Creates a HybridKEM keypair (X25519 + Kyber768), stores the Kyber
         private key encrypted in settings, and caches both keys in memory.
 
         Args:
-            password: Master password used to encrypt the Kyber private key.
+            password: Master password as str, bytes, or SecureString used to encrypt the Kyber private key.
 
         Raises:
             KeyStoreError: If PQC is unavailable or key generation/storage fails.
@@ -699,11 +767,14 @@ class KeyStore:
             "Use ensure_pqc_keys_with_bundle() or pqc_decapsulate_with_password() instead."
         )
 
-    def ensure_pqc_keys_full(self, password: str) -> Optional[dict]:
+    def ensure_pqc_keys_full(self, password: Union[str, bytes, SecureString]) -> Optional[dict]:
         """Generate/store full PQC key bundle including X25519 private key.
 
         Returns the full key dict from HybridKEM.generate_keys() on success,
         or loads existing keys from DB. Returns None on failure.
+        
+        Args:
+            password: Master password as str, bytes, or SecureString.
         """
         if not is_pqc_available():
             logger.warning("Cannot generate full PQC bundle: liboqs is not available")
@@ -765,10 +836,13 @@ class KeyStore:
             logger.error("Failed to generate full PQC key bundle: %s", e)
             return None
 
-    def load_pqc_bundle(self, password: str) -> Optional[dict]:
+    def load_pqc_bundle(self, password: Union[str, bytes, SecureString]) -> Optional[dict]:
         """Load existing PQC key bundle from database.
 
         Returns the key dict suitable for HybridKEM.decapsulate(), or None.
+        
+        Args:
+            password: Master password as str, bytes, or SecureString.
         """
         try:
             conn = database.get_connection()
@@ -815,7 +889,7 @@ class KeyStore:
         """True if the current RSA key is below CNSA 2.0 minimum size (4096-bit)."""
         return self._needs_rotation
 
-    def rotate_rsa_key(self, password: str) -> None:
+    def rotate_rsa_key(self, password: Union[str, bytes, SecureString]) -> None:
         """Generate a new 4096-bit RSA key pair and retire the current key.
 
         The old private key is stored encrypted as 'legacy_private_key_encrypted'
@@ -823,7 +897,7 @@ class KeyStore:
         still be decrypted during the transition period.
 
         Args:
-            password: Master password used to encrypt the new and legacy keys.
+            password: Master password as str, bytes, or SecureString used to encrypt the new and legacy keys.
 
         Raises:
             KeyStoreError: If rotation fails (database rolled back).
@@ -912,11 +986,16 @@ class KeyStore:
 
         Returns a tuple of (my_priv, friends_for_sig, secrets, legacy_priv).
         legacy_priv may be None if no legacy key exists or it has expired.
+        friends_for_sig includes the user's own public key (labeled "myself")
+        so that self-signed RSA signatures can be verified.
         """
         with self._lock:
             my_priv = self.my_priv
             legacy_priv = self.legacy_priv
             friends_for_sig = [(name, pub) for name, pub, _ in self.friends]
+            # Include own public key for self-signature verification
+            if self.my_pub is not None:
+                friends_for_sig.append(("myself", self.my_pub))
             # Build secrets list: global_secret (bytes-like) and each friend secret (bytes-like)
             secrets = []
             if self.global_secret is not None:
@@ -926,7 +1005,7 @@ class KeyStore:
                     secrets.append(sec)
             return my_priv, friends_for_sig, secrets, legacy_priv
 
-    def change_password(self, old_password: str, new_password: str) -> None:
+    def change_password(self, old_password: Union[str, bytes, SecureString], new_password: Union[str, bytes, SecureString]) -> None:
         """Re-encrypt all stored secrets with a new master password.
 
         Steps:
@@ -934,6 +1013,10 @@ class KeyStore:
           2. Decrypt every secret (global, friends, private key, TOTP).
           3. Re-encrypt each with new_password.
           4. Update in-memory state.
+
+        Args:
+            old_password: Current master password as str, bytes, or SecureString.
+            new_password: New master password as str, bytes, or SecureString.
 
         Raises:
             KeyStoreError: If verification fails or re-encryption encounters an error.
@@ -1064,6 +1147,8 @@ class KeyStore:
             finally:
                 conn.close()
 
+        return True
+
     def wipe(self):
         """Securely erase all sensitive keys from memory."""
         with self._lock:
@@ -1134,10 +1219,15 @@ _FILE_KDF_LEGACY_PBKDF2_ITERATIONS = 300_000
 
 
 # ---------- Password‑based file encryption ----------
-def file_encrypt(input_path: str, output_path: str, password: str) -> None:
+def file_encrypt(input_path: str, output_path: str, password: Union[str, bytes, SecureString]) -> None:
     """Encrypt a file using AES-GCM with Argon2id-derived key.
 
     File format: A2ID(4) + salt(16) + nonce(12) + ciphertext
+    
+    Args:
+        input_path: Path to plaintext input file.
+        output_path: Path to write encrypted output file.
+        password: Password as str, bytes, or SecureString.
     """
     salt = secrets.token_bytes(database.ARGON2_SALT_LEN)
     key = database._derive_key_argon2id(password, salt)
@@ -1153,11 +1243,16 @@ def file_encrypt(input_path: str, output_path: str, password: str) -> None:
         f.write(ct)
 
 
-def file_decrypt(input_path: str, output_path: str, password: str) -> None:
+def file_decrypt(input_path: str, output_path: str, password: Union[str, bytes, SecureString]) -> None:
     """Decrypt a file with automatic KDF detection.
 
     Supports Argon2id (new, tagged with A2ID header) and
     PBKDF2-HMAC-SHA256 (legacy, no header).
+    
+    Args:
+        input_path: Path to encrypted input file.
+        output_path: Path to write decrypted output file.
+        password: Password as str, bytes, or SecureString.
     """
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from cryptography.hazmat.primitives import hashes

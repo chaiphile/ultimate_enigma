@@ -187,10 +187,26 @@ def init_db():
     except sqlite3.Error as exc:
         raise _classify_sqlite_error(exc)
 
-def _derive_key_argon2id(password: str, salt: bytes) -> bytes:
-    """Derive a 32-byte key using Argon2id."""
+def _derive_key_argon2id(password, salt: bytes) -> bytes:
+    """Derive a 32-byte key using Argon2id.
+    
+    Args:
+        password: Password as str, bytes, or SecureString.
+        salt: Random salt bytes.
+    """
+    # Handle SecureString, str, or bytes
+    if hasattr(password, 'to_bytes'):
+        # SecureString
+        pw_bytes = password.to_bytes()
+    elif isinstance(password, str):
+        pw_bytes = password.encode("utf-8")
+    elif isinstance(password, bytes):
+        pw_bytes = password
+    else:
+        pw_bytes = str(password).encode("utf-8")
+    
     return hash_secret_raw(
-        secret=password.encode("utf-8"),
+        secret=pw_bytes,
         salt=salt,
         time_cost=ARGON2_TIME_COST,
         memory_cost=ARGON2_MEMORY_COST,
@@ -200,10 +216,14 @@ def _derive_key_argon2id(password: str, salt: bytes) -> bytes:
     )
 
 
-def encrypt_secret(plain_bytes: bytes, password: str) -> dict:
+def encrypt_secret(plain_bytes: bytes, password) -> dict:
     """Encrypt bytes using AES-GCM with Argon2id-derived key.
 
     Returns a dict tagged with kdf='argon2id' for version tracking.
+    
+    Args:
+        plain_bytes: Data to encrypt.
+        password: Password as str, bytes, or SecureString.
     """
     salt = secrets.token_bytes(ARGON2_SALT_LEN)
     nonce = secrets.token_bytes(12)
@@ -218,11 +238,15 @@ def encrypt_secret(plain_bytes: bytes, password: str) -> dict:
     }
 
 
-def decrypt_secret(enc_dict: dict, password: str) -> bytes:
+def decrypt_secret(enc_dict: dict, password) -> bytes:
     """Decrypt bytes with automatic KDF detection.
 
     Supports both Argon2id (new) and PBKDF2-HMAC-SHA256 (legacy).
     Legacy entries are identified by the absence of the 'kdf' tag.
+    
+    Args:
+        enc_dict: Encrypted data dict with 'salt', 'nonce', 'ct' keys.
+        password: Password as str, bytes, or SecureString.
     """
     kdf_type = enc_dict.get("kdf", "pbkdf2")
     salt = base64.b64decode(enc_dict["salt"])
@@ -233,6 +257,16 @@ def decrypt_secret(enc_dict: dict, password: str) -> bytes:
         key = _derive_key_argon2id(password, salt)
     else:
         # Legacy PBKDF2 path - auto-migrate on next save
+        # Handle SecureString, str, or bytes
+        if hasattr(password, 'to_bytes'):
+            pw_bytes = password.to_bytes()
+        elif isinstance(password, str):
+            pw_bytes = password.encode()
+        elif isinstance(password, bytes):
+            pw_bytes = password
+        else:
+            pw_bytes = str(password).encode()
+        
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
@@ -240,17 +274,20 @@ def decrypt_secret(enc_dict: dict, password: str) -> bytes:
             iterations=SECRET_KDF_ITERATIONS,
             backend=default_backend()
         )
-        key = kdf.derive(password.encode())
+        key = kdf.derive(pw_bytes)
 
     aesgcm = AESGCM(key)
     return aesgcm.decrypt(nonce, ct, None)
 
 
-def migrate_secrets_to_argon2id(password: str) -> int:
+def migrate_secrets_to_argon2id(password) -> int:
     """Re-encrypt all legacy PBKDF2 secrets with Argon2id.
 
     Should be called after first successful login post-upgrade.
     Returns the number of secrets migrated.
+    
+    Args:
+        password: Password as str, bytes, or SecureString.
     """
     migrated = 0
     try:
