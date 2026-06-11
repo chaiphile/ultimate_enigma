@@ -226,7 +226,7 @@ class DecryptTab:
             mode_indicator = "\U0001f6e1\ufe0f Decrypted via Post-Quantum Hybrid KEM"
             self.mode_label.config(text=mode_indicator, bootstyle="success")
         elif decrypt_mode == "ratchet":
-            mode_indicator = "\U0001f512 Decrypted via Double Ratchet"
+            mode_indicator = "\U0001f512 Decrypted via Double Ratchet (XChaCha20-Poly1305)"
             self.mode_label.config(text=mode_indicator, bootstyle="success")
         elif decrypt_mode == "legacy":
             mode_indicator = "\U0001f511 Decrypted via Legacy AES-GCM"

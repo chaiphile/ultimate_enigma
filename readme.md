@@ -142,6 +142,7 @@ See [docs/SETUP.md](docs/SETUP.md) for complete installation steps, liboqs/PQC s
 2. The app generates a 4096-bit RSA key pair and 256-bit global shared secret
 3. TOTP setup is required for secure unlock capability
 4. All keys are encrypted with your master password and stored securely
+5. **Set your display name** (required for Double Ratchet): In the Friends tab, click **"✏️ Set My Name"** and enter the exact name your contacts use for you — this is embedded in ratchet envelopes so recipients can identify your session
 
 ### Main Interface
 

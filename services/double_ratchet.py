@@ -15,13 +15,17 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey, X25519PublicKey
 )
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
-import secrets
 import struct
 import hmac as hmac_module
 import hashlib
+
+from services.xchacha20_poly1305 import (
+    XChaCha20Poly1305,
+    generate_nonce as _xchacha_nonce,
+    XCHACHA20_NONCE_SIZE,
+)
 
 
 class RatchetState:
@@ -171,10 +175,12 @@ class RatchetState:
         # Step the send chain to get a new message key
         self.send_chain_key, message_key = self._hkdf_ck(self.send_chain_key)
         
-        # Encrypt with message key using AES-GCM
-        nonce = secrets.token_bytes(12)
-        aesgcm = AESGCM(message_key)
-        ct = aesgcm.encrypt(nonce, plaintext, None)
+        # Encrypt with message key using XChaCha20-Poly1305
+        # 192-bit nonce makes random collisions negligible — a major upgrade
+        # over AES-GCM's 96-bit nonce where birthday attacks are realistic.
+        nonce = _xchacha_nonce()
+        aead = XChaCha20Poly1305(message_key)
+        ct = aead.encrypt(nonce, plaintext, None)
         
         # Build header
         dh_pub_bytes = self.dh_priv.public_key().public_bytes(
@@ -249,13 +255,13 @@ class RatchetState:
 
     @staticmethod
     def _decrypt_with_key(key: bytes, data: bytes) -> bytes:
-        """Decrypt data with a given message key."""
-        if len(data) < 12:
+        """Decrypt data with a given message key using XChaCha20-Poly1305."""
+        if len(data) < XCHACHA20_NONCE_SIZE:
             raise ValueError("Ciphertext too short")
-        nonce = data[:12]
-        ct = data[12:]
-        aesgcm = AESGCM(key)
-        return aesgcm.decrypt(nonce, ct, None)
+        nonce = data[:XCHACHA20_NONCE_SIZE]
+        ct = data[XCHACHA20_NONCE_SIZE:]
+        aead = XChaCha20Poly1305(key)
+        return aead.decrypt(nonce, ct, None)
 
     def get_local_dh_public_key(self) -> bytes:
         """Get our current DH public key as raw bytes."""

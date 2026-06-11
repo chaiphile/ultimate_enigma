@@ -54,8 +54,10 @@ class FriendsTab:
             ("➕ Add Friend", self.add_friend_dialog, "success"),
             ("➖ Remove", self.remove_friend_dialog, "danger-outline"),
             ("🔑 My Public Key", self.show_my_pubkey, "info-outline"),
+            ("✏️ Set My Name", self.set_my_name_dialog, "primary-outline"),
             ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline"),
             ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info"),
+            ("✍️ Hybrid Sig Exchange", self.hybrid_sig_exchange_dialog, "success"),
             ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline"),
         ]
         for text, cmd, style in btn_specs:
@@ -774,8 +776,18 @@ class FriendsTab:
         ):
             return
 
+        # Master password is required to re-encrypt the shared secret
+        # during the save_friend REPLACE that updates capabilities.
+        parent = self.frame.winfo_toplevel()
+        pw = password_dialog(parent, "Enter Master Password", confirm=False)
+        if not pw:
+            return
+        if not self.service.verify_password(pw):
+            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            return
+
         try:
-            self.service.reset_ratchet(name)
+            self.service.reset_ratchet(name, master_password=pw)
             self.refresh_list()
             messagebox.showinfo("Reset Complete",
                                 f"Ratchet session for '{name}' has been deleted.")
@@ -788,6 +800,9 @@ class FriendsTab:
     def pqc_exchange_dialog(self):
         """Dialog for Post-Quantum Hybrid KEM key exchange.
 
+        Requires master password authentication before granting access to
+        any PQC key material or operations.
+
         Allows users to:
         1. Generate local PQC keys and view/copy the combined public key.
         2. Import a friend's PQC combined public key.
@@ -795,6 +810,25 @@ class FriendsTab:
         4. Perform decapsulation (recover shared secret from received ciphertext).
         """
         parent = self.frame.winfo_toplevel()
+
+        # ── Master Password Gate ────────────────────────────────────────
+        # Require authentication before exposing any PQC key material
+        pqc_pw = password_dialog(
+            parent,
+            "🛡 PQC Key Exchange – Master Password Required",
+            confirm=False,
+        )
+        if not pqc_pw:
+            return  # User cancelled
+        if not self.service.verify_password(pqc_pw):
+            messagebox.showerror(
+                "Access Denied",
+                "Incorrect master password.\n"
+                "PQC key exchange requires authentication.",
+                parent=parent,
+            )
+            return
+
         dlg = tk.Toplevel(parent)
         dlg.title("🛡 Post-Quantum Hybrid Key Exchange")
         dlg.geometry("680x720")
@@ -1091,11 +1125,29 @@ class FriendsTab:
                 secret = self.service.get_friend_secret(fname)
                 x_b64 = self.service.get_friend_x25519_key(fname)
                 caps = self.service.get_friend_capabilities(fname)
+
+                # If friend has an existing shared secret, we need the master
+                # password to re-encrypt it during the save_friend REPLACE.
+                pw = ""
+                if secret:
+                    pw = password_dialog(
+                        dlg,
+                        "Enter Master Password to encrypt shared secret",
+                        confirm=False,
+                    )
+                    if not pw:
+                        return
+                    if not self.service.verify_password(pw):
+                        messagebox.showerror("Wrong Password",
+                                             "Master password incorrect.",
+                                             parent=dlg)
+                        return
+
                 self.service.add_friend(
                     name=fname,
                     public_key_pem=details["public_key_pem"],
                     shared_secret=secret,
-                    master_password="",  # no re-encryption needed
+                    master_password=pw,
                     x25519_pub_b64=x_b64,
                     capabilities=caps if caps else None,
                     pqc_combined_pub_b64=key_b64,
@@ -1114,6 +1166,36 @@ class FriendsTab:
         # Close button
         ttk.Button(dlg, text="Close", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))
+
+    # ---- Set My Name dialog ----
+    def set_my_name_dialog(self):
+        """Allow the user to set their display name for ratchet envelopes."""
+        parent = self.frame.winfo_toplevel()
+        current_name = getattr(self.service, '_ks', None)
+        if current_name is not None:
+            current_name = current_name.my_name
+        else:
+            current_name = ""
+
+        new_name = simpledialog.askstring(
+            "Set My Display Name",
+            "Your display name is embedded in Double Ratchet messages so that\n"
+            "recipients can identify which ratchet session to use.\n\n"
+            "This name MUST match what your contacts have saved as your friend name.",
+            initialvalue=current_name,
+            parent=parent,
+        )
+        if new_name is not None:
+            new_name = new_name.strip()
+            if not new_name:
+                messagebox.showwarning("Empty Name", "Name cannot be empty.", parent=parent)
+                return
+            ks = getattr(self.service, '_ks', None)
+            if ks is not None:
+                ks.set_my_name(new_name)
+                messagebox.showinfo("Success", f"Display name set to '{new_name}'.", parent=parent)
+            else:
+                messagebox.showerror("Error", "KeyStore not available.", parent=parent)
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self):

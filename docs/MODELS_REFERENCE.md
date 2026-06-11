@@ -33,7 +33,7 @@ Structured representation of a Double Ratchet message envelope. Immutable datacl
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `sender_name` | `str` | UTF-8 encoded friend name |
+| `sender_name` | `str` | UTF-8 encoded sender display name (set via `KeyStore.my_name`) |
 | `header` | `bytes` | Raw Double Ratchet header (DH pub + msg_num + prev_chain_len) |
 | `ciphertext` | `bytes` | AES-GCM encrypted payload including nonce and tag |
 
@@ -154,6 +154,7 @@ Pure data model and persistence manager for cryptographic keys. Strictly a data/
 | `my_dil_priv` | `Optional[bytes]` | Hybrid signing Dilithium3 key |
 | `my_hybrid_sig_combined_pub` | `Optional[bytes]` | Hybrid signing combined pub |
 | `friends_hybrid_sig_pubs` | `Dict[str, tuple]` | Name → `(ed_pub, dil_pub)` |
+| `my_name` (property) | `str` | Display name for ratchet envelope sender identification; falls back to `user-<8-char-hash>` if unset |
 
 ### Methods
 
@@ -165,6 +166,7 @@ Pure data model and persistence manager for cryptographic keys. Strictly a data/
 | `save_friend(name, pem, ...)` | Save friend to DB and memory |
 | `remove_friend(name)` | Remove from DB and memory |
 | `get_friend_secret(name)` | Retrieve friend's shared secret |
+| `get_decryption_snapshot()` | Returns tuple of `(my_priv, friends_for_crypto, secrets_to_try, legacy_priv)` for thread-safe decryption operations. `friends_for_crypto` is list of `(name, pub, secret)` tuples. `secrets_to_try` includes global secret and all friend shared secrets. Returns `None` for missing keys. |
 | `wipe()` | Securely erase all sensitive keys |
 
 ---
@@ -199,6 +201,7 @@ Full runtime key store with authentication, lockout, PQC key management, and pas
 | `change_password(old, new)` | Re-encrypt all secrets |
 | `get_decryption_snapshot()` | Thread-safe snapshot for background decryption |
 | `load_duress_decoy() -> bool` | Load fake decoy state |
+| `set_my_name(name)` | Persist display name to `settings` table for ratchet sender identity |
 | `wipe()` | Securely erase all keys |
 
 ### File Encryption Functions (in key_manager.py)
@@ -226,7 +229,7 @@ SQLite database at `~/.ultimate_enigma/enigma.db` with WAL mode and foreign keys
 | `key` | TEXT PK | Setting name |
 | `value` | TEXT NOT NULL | Setting value (JSON for encrypted data) |
 
-Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_private_key_encrypted`, `legacy_key_expiry`, `kyber_priv_encrypted`, `pqc_combined_pub_b64`, `pqc_x25519_priv_encrypted`, `ed25519_priv_encrypted`, `dilithium_priv_encrypted`, `hybrid_sig_combined_pub_b64`, `totp_secret_encrypted`, `totp_setup_complete`, `totp_enabled`, `lockout_data`, `duress_verifier`, `last_backup_ts`
+Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_private_key_encrypted`, `legacy_key_expiry`, `kyber_priv_encrypted`, `pqc_combined_pub_b64`, `pqc_x25519_priv_encrypted`, `ed25519_priv_encrypted`, `dilithium_priv_encrypted`, `hybrid_sig_combined_pub_b64`, `totp_secret_encrypted`, `totp_setup_complete`, `totp_enabled`, `lockout_data`, `duress_verifier`, `last_backup_ts`, `my_name`
 
 #### `friends`
 | Column | Type | Description |

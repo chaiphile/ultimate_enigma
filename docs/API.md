@@ -295,12 +295,29 @@ class KeyStore:
     def wipe(self) -> None
         """Zero all keys from memory."""
     
+    def get_decryption_snapshot(self) -> tuple
+        """Returns thread-safe snapshot for decryption operations.
+        Returns (my_priv, friends_for_crypto, secrets_to_try, legacy_priv)
+        where:
+        - my_priv: Current RSA private key or None
+        - friends_for_crypto: List of (name, pub, secret) tuples
+        - secrets_to_try: List of shared secrets including global + friend secrets
+        - legacy_priv: Legacy RSA private key or None
+        """
+    
     @property
     def private_key(self) -> rsa.RSAPrivateKey
     @property
     def public_key(self) -> rsa.RSAPublicKey
     @property
     def global_secret(self) -> bytes
+    @property
+    def my_name(self) -> str
+        """Display name for ratchet envelope sender identification.
+        Falls back to 'user-<8-char-hash>' if not configured."""
+    
+    def set_my_name(self, name: str) -> None
+        """Persist display name to settings table."""
 ```
 
 ### FriendProfile

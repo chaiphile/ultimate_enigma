@@ -368,7 +368,13 @@ The `UltimateEnigma.spec` file configures PyInstaller to:
    - Or manually enter the Base32 secret
    - TOTP is required for unlock after emergency lock
 
-4. **Ready to Use**
+4. **Set Your Display Name** (required for Double Ratchet)
+   - In the Friends tab, click **"✏️ Set My Name"**
+   - Enter the exact name your contacts use for you in their friend list
+   - This name is embedded in ratchet envelopes so recipients can look up the correct session
+   - If not set, a fallback identifier (`user-<8-char-hash>`) is derived from your public key
+
+5. **Ready to Use**
    - Add friends via the Friends tab
    - Perform ECDH key exchange for per-friend secrets
    - Encrypt/decrypt messages and files

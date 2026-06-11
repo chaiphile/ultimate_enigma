@@ -239,7 +239,7 @@ DecryptTab(parent, encryption_service, clipboard_service, task_queue, crypto_que
 
 | Method | Description |
 |--------|-------------|
-| `receive_message()` | Decrypt via CryptoTaskQueue, show result with mode indicator |
+| `receive_message()` | Decrypt via CryptoTaskQueue using thread-safe `get_decryption_snapshot()`, show result with mode indicator |
 | `paste_from_clipboard()` | Paste clipboard content |
 | `clear()` | Clear input and output |
 | `_show_decrypted(text, decrypt_mode)` | Display result with PQC/Ratchet/Legacy indicator |
@@ -302,7 +302,7 @@ FriendsTab(parent, friends_service, style_config=None)
 ```
 
 #### UI Elements
-- Action bar: Add, Remove, My Public Key, ECDH Exchange, PQC Exchange, Init Ratchet
+- Action bar: Add, Remove, My Public Key, Set My Name, ECDH Exchange, PQC Exchange, Init Ratchet
 - Search box with live filtering
 - Treeview table with columns: Status, Name, RSA FP, ECDH, PQC, Hybrid Sig, Ratchet
 - Detail panel with PEM display
@@ -320,6 +320,7 @@ FriendsTab(parent, friends_service, style_config=None)
 | `show_my_pubkey()` | Display own public key and fingerprint |
 | `init_ratchet_dialog()` | Initialize Double Ratchet (Alice/Bob role) |
 | `reset_ratchet_dialog()` | Delete ratchet session |
+| `set_my_name_dialog()` | Set display name for ratchet sender identity; persists via `KeyStore.set_my_name()` |
 | `pqc_exchange_dialog()` | Multi-tab PQC key exchange dialog |
 | `on_select(event)` | Update detail panel |
 

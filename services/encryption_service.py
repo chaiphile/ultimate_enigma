@@ -363,10 +363,13 @@ class EncryptionService:
                 f"Ratchet encryption failed for '{friend_name}': {exc}"
             ) from exc
 
-        # Build envelope using structured model
+        # Build envelope using structured model.
+        # sender_name must be OUR identity so the recipient can look up
+        # the ratchet session stored under our name on their machine.
+        my_name = getattr(self._ks, 'my_name', None) or friend_name
         try:
             env_model = RatchetEnvelope(
-                sender_name=friend_name,
+                sender_name=my_name,
                 header=header,
                 ciphertext=ciphertext,
             )

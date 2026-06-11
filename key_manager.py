@@ -890,6 +890,49 @@ class KeyStore:
         return self._cached_pqc_bundle
 
     @property
+    def my_name(self) -> str:
+        """Return the user's display name for ratchet envelope identification.
+
+        Reads from the 'my_name' setting in the database. If not set,
+        falls back to a truncated SHA-256 fingerprint of the public key
+        so that ratchet messages always carry a valid sender identifier.
+        """
+        try:
+            conn = database.get_connection()
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key='my_name'"
+            ).fetchone()
+            conn.close()
+            if row and row[0]:
+                return row[0]
+        except Exception:
+            pass
+
+        # Fallback: derive a short identifier from the public key
+        if self.my_pub is not None:
+            try:
+                pem = pubkey_to_pem(self.my_pub)
+                fp = hashlib.sha256(pem.encode()).hexdigest()[:8]
+                return f"user-{fp}"
+            except Exception:
+                pass
+        return "anonymous"
+
+    def set_my_name(self, name: str) -> None:
+        """Persist the user's display name to the settings table.
+
+        Args:
+            name: Display name to use as sender identity in ratchet envelopes.
+        """
+        with closing(database.get_connection()) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("my_name", name)
+            )
+            conn.commit()
+        logger.info("User display name set to '%s'", name)
+
+    @property
     def needs_key_rotation(self) -> bool:
         """True if the current RSA key is below CNSA 2.0 minimum size (4096-bit)."""
         return self._needs_rotation
@@ -989,24 +1032,31 @@ class KeyStore:
     def get_decryption_snapshot(self):
         """Thread-safe snapshot for background decryption.
 
-        Returns a tuple of (my_priv, friends_for_sig, secrets).
-        friends_for_sig includes the user's own public key (labeled "myself")
-        so that self-signed RSA signatures can be verified.
+        Returns a tuple of (my_priv, friends_for_crypto, secrets_to_try, legacy_priv):
+            - my_priv: Current RSA private key (or None)
+            - friends_for_crypto: List of friend tuples (name, pub, secret) for
+              signature verification and decryption. Includes the user's own
+              public key (labeled "myself") so that self-signed RSA signatures
+              can be verified.
+            - secrets_to_try: List of shared secrets to try for decryption
+            - legacy_priv: Legacy RSA private key for backward compatibility (or None)
         """
         with self._lock:
             my_priv = self.my_priv
-            friends_for_sig = [(name, pub) for name, pub, _ in self.friends]
+            legacy_priv = self.legacy_priv
+            # Return full (name, pub, secret) tuples for crypto module compatibility
+            friends_for_crypto = list(self.friends)
             # Include own public key for self-signature verification
             if self.my_pub is not None:
-                friends_for_sig.append(("myself", self.my_pub))
+                friends_for_crypto.append(("myself", self.my_pub, None))
             # Build secrets list: global_secret (bytes-like) and each friend secret (bytes-like)
-            secrets = []
+            secrets_to_try = []
             if self.global_secret is not None:
-                secrets.append(self.global_secret)   # bytearray is bytes-like
+                secrets_to_try.append(bytes(self.global_secret))
             for _, _, sec in self.friends:
                 if sec is not None:
-                    secrets.append(sec)
-            return my_priv, friends_for_sig, secrets
+                    secrets_to_try.append(bytes(sec))
+            return my_priv, friends_for_crypto, secrets_to_try, legacy_priv
 
     def change_password(self, old_password: Union[str, bytes, SecureString], new_password: Union[str, bytes, SecureString]) -> None:
         """Re-encrypt all stored secrets with a new master password.

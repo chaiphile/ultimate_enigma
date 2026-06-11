@@ -70,7 +70,7 @@ class EncryptTab:
         # Encryption mode
         ttk.Label(opts, text="Mode:").grid(row=0, column=3, padx=(10, 5), sticky=tk.W)
         self._pqc_available = is_pqc_available()
-        mode_values = ["Shared Secret (time‑based)", "Public Key (RSA)"]
+        mode_values = ["Double Ratchet (XChaCha20)", "Shared Secret (time‑based)", "Public Key (RSA)"]
         if self._pqc_available:
             mode_values.append("Post-Quantum (Hybrid KEM)")
         self.mode_combo = ttk.Combobox(
@@ -140,14 +140,19 @@ class EncryptTab:
         choice = self.friend_combo.get()
         if not choice or choice == "(none)":
             self.mode_combo.config(state="disabled")
-            self.mode_combo.set("Shared Secret (time‑based)")
+            self.mode_combo.set("Double Ratchet (XChaCha20)")
             return
 
-        # Use service to check secret existence
+        # Use service to check capabilities — priority: Ratchet > PQC > Shared Secret > RSA
+        has_ratchet = self.friends_service.has_active_ratchet(choice)
         has_secret = self.friends_service.friend_has_secret(choice)
         has_pqc = self.friends_service.friend_has_pqc_key(choice)
 
-        if has_pqc and self._pqc_available:
+        if has_ratchet:
+            # Double Ratchet active – use XChaCha20-Poly1305 forward-secret encryption
+            self.mode_combo.config(state="readonly")
+            self.mode_combo.set("Double Ratchet (XChaCha20)")
+        elif has_pqc and self._pqc_available:
             # PQC key available – default to PQC mode
             self.mode_combo.config(state="readonly")
             self.mode_combo.set("Post-Quantum (Hybrid KEM)")
@@ -182,7 +187,9 @@ class EncryptTab:
 
         # Parse mode from combo selection
         mode_text = self.mode_combo.get()
-        if "Post-Quantum" in mode_text:
+        if "Double Ratchet" in mode_text:
+            mode = "shared"  # Ratchet is a sub-mode of shared-secret encryption
+        elif "Post-Quantum" in mode_text:
             mode = "pqc"
         elif "Shared" in mode_text:
             mode = "shared"
@@ -269,7 +276,7 @@ class EncryptTab:
         if mode == "pqc":
             mode_label = "\U0001f6e1\ufe0f Post-Quantum (Hybrid KEM)"
         elif mode == "ratchet":
-            mode_label = "\U0001f512 Double Ratchet"
+            mode_label = "\U0001f512 Double Ratchet (XChaCha20-Poly1305)"
         elif mode == "legacy":
             mode_label = "\U0001f511 Legacy AES-GCM"
         else:

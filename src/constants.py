@@ -40,8 +40,12 @@ CRYPTO_CONSTANTS = {
     "AES_KEY_SIZE": 32,             # AES-256 key size in bytes
     "RSA_MIN_KEY_SIZE": 4096,       # CNSA 2.0 minimum RSA key size (bits)
     "LEGACY_KEY_RETENTION_DAYS": 30,  # Days to retain rotated RSA keys
-    "AES_GCM_NONCE_SIZE": 12,       # AES-GCM nonce size in bytes
-    "AES_GCM_TAG_SIZE": 16,         # AES-GCM authentication tag size in bytes
+    "AES_GCM_NONCE_SIZE": 12,       # AES-GCM nonce size in bytes (legacy path only)
+    "AES_GCM_TAG_SIZE": 16,         # AES-GCM authentication tag size in bytes (legacy path only)
+    # XChaCha20-Poly1305 — modern AEAD used by Double Ratchet
+    "XCHACHA20_KEY_SIZE": 32,       # 256-bit key
+    "XCHACHA20_NONCE_SIZE": 24,     # 192-bit nonce — birthday-bound collision risk negligible
+    "XCHACHA20_TAG_SIZE": 16,       # Poly1305 128-bit authentication tag
 }
 
 # ---------------------------------------------------------------------------

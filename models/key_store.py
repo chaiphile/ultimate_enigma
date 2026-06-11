@@ -450,6 +450,43 @@ class KeyStoreModel:
                 return bytes(s) if s is not None else None
         return None
 
+    def get_decryption_snapshot(self):
+        """Return a snapshot of keys needed for decryption.
+        
+        Returns a tuple of (my_priv, friends_for_crypto, secrets_to_try, legacy_priv):
+            - my_priv: Current RSA private key (or None)
+            - friends_for_crypto: List of friend tuples (name, pub, secret)
+            - secrets_to_try: List of shared secrets to try for decryption
+            - legacy_priv: Legacy RSA private key for backward compatibility (or None)
+        """
+        # Build list of secrets to try: global secret + all friend shared secrets
+        secrets_to_try = []
+        if self.global_secret:
+            secrets_to_try.append(bytes(self.global_secret))
+        for name, pub, secret in self.friends:
+            if secret is not None:
+                secrets_to_try.append(bytes(secret))
+        
+        return (
+            self.my_priv,
+            self.friends,
+            secrets_to_try,
+            self.legacy_priv,
+        )
+
+    @property
+    def pqc_decryption_bundle(self) -> Optional[dict]:
+        """Return the cached PQC decryption bundle for decapsulation.
+        
+        Returns a dictionary with keys:
+            - 'x25519_priv': X25519PrivateKey object
+            - 'kyber_priv': Kyber private key bytes
+            - 'combined_pub': Combined PQC public key bytes
+        
+        Returns None if PQC keys are not loaded or incomplete.
+        """
+        return self._cached_pqc_bundle
+
     def wipe(self):
         """Securely erase all sensitive keys from memory."""
         with self._lock:

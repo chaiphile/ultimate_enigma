@@ -135,13 +135,25 @@ class TestEncryptDecrypt:
     def test_single_message_roundtrip(self, alice_bob_pair):
         alice, bob = alice_bob_pair
 
-        # Alice needs to do a DH ratchet step first to get send_chain_key
-        # Actually, Alice already has send_chain_key from initialize_as_alice
-
+        # Alice encrypts using XChaCha20-Poly1305 via the message key derived
+        # from the chain. Bob must be able to decrypt with his matching chain.
         header, ct = alice.encrypt(b"Hello Bob!")
 
         plaintext = bob.decrypt(header, ct)
         assert plaintext == b"Hello Bob!"
+
+    def test_encrypt_uses_xchacha20_nonce_size(self, alice_bob_pair):
+        """Verify the ciphertext has a 24-byte nonce (XChaCha20, not AES-GCM)."""
+        from services.xchacha20_poly1305 import XCHACHA20_NONCE_SIZE
+        alice, bob = alice_bob_pair
+
+        header, ct = alice.encrypt(b"nonce-size-check")
+        # The ciphertext starts with the nonce, which must be 24 bytes for XChaCha20
+        # (not 12 bytes as in legacy AES-GCM)
+        assert len(ct) >= XCHACHA20_NONCE_SIZE
+        # Sanity: a 16-byte message + 24-byte nonce + 16-byte tag = 56 bytes
+        expected_min = XCHACHA20_NONCE_SIZE + 16 + 16  # nonce + plaintext + tag
+        assert len(ct) >= expected_min
 
     def test_multiple_messages(self, alice_bob_pair):
         alice, bob = alice_bob_pair
@@ -409,12 +421,14 @@ class TestForwardSecrecy:
 # ---------------------------------------------------------------------------
 
 class TestDecryptWithKey:
+    """Test the _decrypt_with_key static method which now uses XChaCha20-Poly1305."""
+
     def test_valid_decrypt(self):
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from services.xchacha20_poly1305 import XChaCha20Poly1305, generate_nonce
         key = secrets.token_bytes(32)
-        nonce = secrets.token_bytes(12)
-        aesgcm = AESGCM(key)
-        ct = aesgcm.encrypt(nonce, b"plaintext", None)
+        nonce = generate_nonce()  # 24-byte nonce
+        aead = XChaCha20Poly1305(key)
+        ct = aead.encrypt(nonce, b"plaintext", None)
         data = nonce + ct
         result = RatchetState._decrypt_with_key(key, data)
         assert result == b"plaintext"
@@ -424,15 +438,37 @@ class TestDecryptWithKey:
             RatchetState._decrypt_with_key(secrets.token_bytes(32), b"\x00" * 10)
 
     def test_wrong_key_raises(self):
-        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from services.xchacha20_poly1305 import XChaCha20Poly1305, generate_nonce
         key1 = secrets.token_bytes(32)
         key2 = secrets.token_bytes(32)
-        nonce = secrets.token_bytes(12)
-        aesgcm = AESGCM(key1)
-        ct = aesgcm.encrypt(nonce, b"plaintext", None)
+        nonce = generate_nonce()
+        aead = XChaCha20Poly1305(key1)
+        ct = aead.encrypt(nonce, b"plaintext", None)
         data = nonce + ct
         with pytest.raises(Exception):
             RatchetState._decrypt_with_key(key2, data)
+
+    def test_large_plaintext_roundtrip(self):
+        """XChaCha20-Poly1305 should handle large messages (e.g., attachments)."""
+        from services.xchacha20_poly1305 import XChaCha20Poly1305, generate_nonce
+        key = secrets.token_bytes(32)
+        nonce = generate_nonce()
+        large_plaintext = b"A" * (1024 * 1024)  # 1 MB
+        aead = XChaCha20Poly1305(key)
+        ct = aead.encrypt(nonce, large_plaintext, None)
+        data = nonce + ct
+        result = RatchetState._decrypt_with_key(key, data)
+        assert result == large_plaintext
+
+    def test_empty_plaintext_roundtrip(self):
+        from services.xchacha20_poly1305 import XChaCha20Poly1305, generate_nonce
+        key = secrets.token_bytes(32)
+        nonce = generate_nonce()
+        aead = XChaCha20Poly1305(key)
+        ct = aead.encrypt(nonce, b"", None)
+        data = nonce + ct
+        result = RatchetState._decrypt_with_key(key, data)
+        assert result == b""
 
 
 if __name__ == "__main__":

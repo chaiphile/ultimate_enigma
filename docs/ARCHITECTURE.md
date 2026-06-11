@@ -109,6 +109,7 @@ Core cryptographic operations:
 - Time-based key derivation with sliding window
 - Digital signatures (RSA-PSS)
 - Self-destruct message support
+- Thread-safe decryption via `KeyStore.get_decryption_snapshot()`
 
 ### FileService
 File encryption operations:
@@ -134,6 +135,7 @@ Signal Protocol implementation:
 - Per-conversation ratchet state
 - Forward secrecy and break-in recovery
 - Thread-safe per-friend locking
+- Sender identity via `KeyStore.my_name` in ratchet envelopes
 
 ### PQCService
 Post-quantum cryptography:
@@ -184,6 +186,7 @@ The EventBus enables loose coupling between components:
 - **Crypto Workers**: ThreadPoolExecutor for async crypto operations
 - **Background Tasks**: NTP sync, clipboard auto-clear timers
 - **Thread Safety**: EventBus dispatches to main thread via `root.after()`
+- **Decryption Snapshots**: `KeyStore.get_decryption_snapshot()` provides thread-safe key material snapshots for background decryption tasks
 
 ## Data Flow
 

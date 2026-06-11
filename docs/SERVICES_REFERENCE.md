@@ -39,7 +39,9 @@ EncryptionService(key_store)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `key_store` | KeyStore | Must expose `global_secret`, `my_priv`, `friends`, `get_decryption_snapshot()` |
+| `key_store` | KeyStore or KeyStoreModel | Must expose `global_secret`, `my_priv`, `friends`, and `get_decryption_snapshot()` method |
+
+**Note:** The service now uses `get_decryption_snapshot()` for thread-safe decryption operations, which returns a tuple of `(my_priv, friends_for_crypto, secrets_to_try, legacy_priv)`.
 
 ### Properties
 
@@ -88,7 +90,8 @@ Decrypts a Base64-encoded message. Auto-detects envelope type (Ratchet `0xD0`, P
 | `_decrypt_with_rsa(packet, my_priv, friends, legacy_priv)` | Tries current then legacy RSA key |
 | `_decrypt_with_shared_secrets(packet, secrets, friends)` | Tries each shared secret |
 | `_friend_supports_ratchet(friend_name)` | Checks active session or capability flag |
-| `_encrypt_with_ratchet(plaintext, friend_name)` | Encrypts via Double Ratchet, wraps in `RatchetEnvelope` |
+| `_get_my_name()` | Returns `KeyStore.my_name` for ratchet envelope sender identification |
+| `_encrypt_with_ratchet(plaintext, friend_name)` | Encrypts via Double Ratchet, wraps in `RatchetEnvelope` with `sender_name` set to `KeyStore.my_name` (not the recipient) |
 | `_decrypt_with_ratchet(packet)` | Parses `RatchetEnvelope`, decrypts via Double Ratchet |
 | `_encrypt_with_pqc(plaintext, friend_name)` | Encrypts via Hybrid KEM, wraps in `PQCEncvelope` |
 | `_decrypt_with_pqc(packet)` | Parses `PQCEncvelope`, decapsulates and decrypts |

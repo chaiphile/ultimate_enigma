@@ -69,6 +69,7 @@ Ultimate Enigma Messenger implements defense-in-depth security with multiple lay
   - Application close
   - Failed authentication
   - Service rebuild
+- Thread-safe key snapshots via `KeyStore.get_decryption_snapshot()` prevent race conditions during background decryption
 
 ## Authentication
 
@@ -118,6 +119,7 @@ Message → AES-GCM encrypt → Ciphertext
 - Forward secrecy: past messages secure if current key compromised
 - Break-in recovery: future messages secure after compromise healed
 - Thread-safe per-friend locking prevents race conditions
+- Sender identity: each ratchet envelope embeds the sender's display name (`KeyStore.my_name`) so recipients can look up the correct session; must match the name the recipient has saved as their friend entry
 
 ## File Encryption
 
