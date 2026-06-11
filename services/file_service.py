@@ -3,6 +3,11 @@ File encryption/decryption service layer.
 Handles password and shared-secret file operations, fingerprint detection,
 and signature verification.  Keeps UI logic minimal by raising dedicated
 exceptions when user confirmation is required.
+
+Timeout Integration:
+    Argon2id KDF and large file operations are wrapped in timeouts to
+    prevent indefinite blocking when processing large files or under
+    heavy system load.
 """
 
 import os
@@ -21,6 +26,9 @@ from cryptography.hazmat.backends import default_backend
 
 import database
 from crypto import rsa_sign, rsa_verify, sha256_fingerprint
+from src.timeout import run_with_timeout
+from src.constants import CONCURRENCY_CONSTANTS
+from src.exceptions import CryptoTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +51,37 @@ def file_encrypt(input_path: str, output_path: str, password: str) -> None:
     """Encrypt a file using AES-GCM with Argon2id-derived key.
 
     File format: A2ID(4) + salt(16) + nonce(12) + ciphertext
+
+    Timeout: The Argon2id KDF is wrapped in a timeout to prevent indefinite
+    blocking on memory-hard key derivation.
     """
     salt = secrets.token_bytes(database.ARGON2_SALT_LEN)
-    key = database._derive_key_argon2id(password, salt)
+
+    # Wrap KDF in timeout to prevent indefinite blocking
+    kdf_timeout = CONCURRENCY_CONSTANTS.get("ARGON2ID_TIMEOUT", 90.0)
+    try:
+        key = run_with_timeout(
+            database._derive_key_argon2id, kdf_timeout, password, salt
+        )
+    except CryptoTimeoutError:
+        raise ValueError(
+            f"Key derivation timed out after {kdf_timeout:.0f}s. "
+            "The system may be under heavy load."
+        )
+
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(12)
-    with open(input_path, 'rb') as f:
-        plaintext = f.read()
+
+    # Read file with timeout for very large files
+    file_timeout = CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0)
+    try:
+        plaintext = run_with_timeout(_read_file_bytes, file_timeout, input_path)
+    except CryptoTimeoutError:
+        raise ValueError(
+            f"File read timed out after {file_timeout:.0f}s. "
+            "The file may be too large."
+        )
+
     ct = aesgcm.encrypt(nonce, plaintext, None)
     with open(output_path, 'wb') as f:
         f.write(_FILE_KDF_VERSION_ARGON2ID)
@@ -63,7 +95,12 @@ def file_decrypt(input_path: str, output_path: str, password: str) -> None:
 
     Supports Argon2id (new, tagged with A2ID header) and
     PBKDF2-HMAC-SHA256 (legacy, no header).
+
+    Timeout: KDF operations and file I/O are wrapped in timeouts.
     """
+    file_timeout = CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0)
+    kdf_timeout = CONCURRENCY_CONSTANTS.get("ARGON2ID_TIMEOUT", 90.0)
+
     with open(input_path, 'rb') as f:
         header = f.read(4)
         if header == _FILE_KDF_VERSION_ARGON2ID:
@@ -71,28 +108,52 @@ def file_decrypt(input_path: str, output_path: str, password: str) -> None:
             salt = f.read(16)
             nonce = f.read(12)
             ct = f.read()
-            key = database._derive_key_argon2id(password, salt)
+            try:
+                key = run_with_timeout(
+                    database._derive_key_argon2id, kdf_timeout, password, salt
+                )
+            except CryptoTimeoutError:
+                raise ValueError(
+                    f"Key derivation timed out after {kdf_timeout:.0f}s. "
+                    "The system may be under heavy load."
+                )
         else:
             # Legacy PBKDF2 format: header is actually first 4 bytes of salt
             salt = header + f.read(12)  # remaining 12 bytes of 16-byte salt
             nonce = f.read(12)
             ct = f.read()
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=_FILE_KDF_LEGACY_PBKDF2_ITERATIONS,
-                backend=default_backend()
-            )
-            key = kdf.derive(password.encode())
+
+            def _derive_pbkdf2():
+                kdf = PBKDF2HMAC(
+                    algorithm=hashes.SHA256(),
+                    length=32,
+                    salt=salt,
+                    iterations=_FILE_KDF_LEGACY_PBKDF2_ITERATIONS,
+                    backend=default_backend()
+                )
+                return kdf.derive(password.encode())
+
+            try:
+                key = run_with_timeout(_derive_pbkdf2, kdf_timeout)
+            except CryptoTimeoutError:
+                raise ValueError(
+                    f"Key derivation timed out after {kdf_timeout:.0f}s."
+                )
 
     aesgcm = AESGCM(key)
     try:
         plaintext = aesgcm.decrypt(nonce, ct, None)
     except Exception:
         raise ValueError("Wrong password or corrupted file")
+
     with open(output_path, 'wb') as f:
         f.write(plaintext)
+
+
+def _read_file_bytes(path: str) -> bytes:
+    """Read entire file contents. Helper for timeout wrapping."""
+    with open(path, 'rb') as f:
+        return f.read()
 
 
 def _pubkey_to_pem(pub) -> str:

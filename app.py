@@ -71,7 +71,9 @@ class EnigmaApp:
         self.ks = self.auth_controller.ks
 
         # 4. Initialize Service Orchestrator
-        self.service_orchestrator = ServiceOrchestrator(root, self.ks)
+        self.service_orchestrator = ServiceOrchestrator(
+            root, self.ks, crypto_queue=self.app_controller.crypto_queue
+        )
 
         # 5. Mandatory TOTP setup enforcement
         if not self.auth_controller.enforce_mandatory_totp_setup():
@@ -183,7 +185,8 @@ class EnigmaApp:
             notebook, 
             self.service_orchestrator.encryption_service, 
             self.service_orchestrator.friends_service,
-            self.service_orchestrator.clipboard_service
+            self.service_orchestrator.clipboard_service,
+            self.app_controller.crypto_queue
         )
         notebook.add(self.encrypt_tab.frame, text="✉️ Encrypt & Send")
 

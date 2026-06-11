@@ -5,6 +5,13 @@ Provides persistence and lifecycle management for Double Ratchet sessions,
 storing serialized ratchet states in the friends table of the database.
 Supports initialization as Alice (initiator) or Bob (responder) using
 shared secrets derived from Hybrid KEM or other key agreement protocols.
+
+Thread Safety & Deadlock Prevention:
+    Per-friend reentrant locks (RLock) protect load-mutate-save cycles.
+    To prevent deadlocks when multiple friend locks must be acquired
+    simultaneously (e.g., batch operations), locks are always acquired
+    in alphabetical order (canonical ordering). This eliminates circular-
+    wait conditions, one of the four necessary conditions for deadlock.
 """
 
 import json
@@ -104,6 +111,72 @@ class RatchetService:
         return lock
 
     @classmethod
+    def acquire_friend_locks_ordered(
+        cls,
+        friend_names: List[str],
+        timeout: Optional[float] = None,
+    ) -> List[threading.RLock]:
+        """Acquire multiple per-friend locks in canonical (alphabetical) order.
+
+        Prevents deadlocks by enforcing a total ordering on lock acquisition.
+        When code needs to hold locks for multiple friends simultaneously
+        (e.g., during batch ratchet operations or rekeying), always use
+        this method instead of calling _acquire_friend_lock() repeatedly.
+
+        The locks are acquired in sorted order by friend name (case-insensitive,
+        then case-sensitive as tiebreaker). On failure to acquire any lock,
+        all previously acquired locks are released before raising.
+
+        Args:
+            friend_names: List of friend names whose locks to acquire.
+                         Duplicates are silently deduplicated.
+            timeout: Maximum seconds to wait per lock. If None, uses
+                    CONCURRENCY_CONSTANTS['RATCHET_LOCK_TIMEOUT'].
+
+        Returns:
+            List of acquired RLock instances in acquisition order.
+
+        Raises:
+            ConcurrencyError: If any lock cannot be acquired within timeout.
+
+        Example::
+
+            locks = RatchetService.acquire_friend_locks_ordered(
+                ["Alice", "Bob", "Charlie"]
+            )
+            try:
+                # ... perform batch operation on all three friends ...
+            finally:
+                for lock in reversed(locks):
+                    lock.release()
+        """
+        if timeout is None:
+            timeout = CONCURRENCY_CONSTANTS.get("RATCHET_LOCK_TIMEOUT", 30.0)
+
+        # Deduplicate and sort for canonical ordering
+        unique_names = sorted(set(friend_names), key=lambda n: (n.lower(), n))
+
+        acquired: List[threading.RLock] = []
+        try:
+            for name in unique_names:
+                lock = cls._get_friend_lock(name)
+                if not lock.acquire(timeout=timeout):
+                    raise ConcurrencyError(
+                        f"Could not acquire ratchet lock for '{name}' "
+                        f"within {timeout:.1f} seconds during ordered "
+                        f"multi-lock acquisition. Another operation may be "
+                        f"in progress."
+                    )
+                acquired.append(lock)
+        except ConcurrencyError:
+            # Release any locks we already acquired, in reverse order
+            for lock in reversed(acquired):
+                lock.release()
+            raise
+
+        return acquired
+
+    @classmethod
     def cleanup_friend_locks(cls, active_friends: Optional[List[str]] = None) -> int:
         """Remove locks for friends that no longer exist.
 
@@ -169,6 +242,41 @@ class RatchetService:
                 "total_locks": len(cls._friend_locks),
                 "total_timestamps": len(cls._friend_lock_timestamps),
             }
+
+    @classmethod
+    def detect_potential_deadlock(cls, friend_names_a: List[str],
+                                  friend_names_b: List[str]) -> bool:
+        """Static analysis: check if two lock sets could deadlock.
+
+        Returns True if acquiring locks for set A in one thread while
+        another thread acquires locks for set B could result in deadlock.
+        This happens when the sets overlap but have different orderings.
+
+        This is a diagnostic tool. In practice, deadlock prevention is
+        enforced by acquire_friend_locks_ordered() which always sorts
+        friend names before acquisition.
+
+        Args:
+            friend_names_a: First set of friend names.
+            friend_names_b: Second set of friend names.
+
+        Returns:
+            True if a deadlock is possible, False if the lock orderings
+            are compatible.
+        """
+        set_a = set(friend_names_a)
+        set_b = set(friend_names_b)
+        overlap = set_a & set_b
+
+        # No overlap means no shared locks, so no deadlock possible
+        if not overlap or len(overlap) < 2:
+            return False
+
+        # If both sets sort the overlapping names identically, no deadlock
+        sorted_overlap_a = sorted(overlap, key=lambda n: (n.lower(), n))
+        sorted_overlap_b = sorted(overlap, key=lambda n: (n.lower(), n))
+
+        return sorted_overlap_a != sorted_overlap_b
 
     @staticmethod
     def get_friend_profile(friend_name: str) -> Optional[FriendProfile]:

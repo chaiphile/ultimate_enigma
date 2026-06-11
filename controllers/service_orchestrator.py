@@ -76,6 +76,8 @@ class ServiceOrchestrator:
                 tabs["encrypt"].service = self.encryption_service
                 tabs["encrypt"].friends_service = self.friends_service
                 tabs["encrypt"].clipboard_service = self.clipboard_service
+                if self._crypto_queue:
+                    tabs["encrypt"].crypto_queue = self._crypto_queue
                 
             if "decrypt" in tabs:
                 tabs["decrypt"].service = self.encryption_service

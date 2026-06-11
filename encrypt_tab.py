@@ -1,4 +1,7 @@
-"""Encrypt & Send tab – decoupled via dependency injection."""
+"""Encrypt & Send tab – decoupled via dependency injection.
+
+Uses CryptoTaskQueue for non-blocking encryption with timeout enforcement.
+"""
 
 import tkinter as tk
 from tkinter import messagebox
@@ -11,6 +14,8 @@ from services.encryption_service import EncryptionService, EncryptionError
 from services.friends_service import FriendsService
 from services.clipboard_service import ClipboardService
 from services.pqc_service import is_pqc_available
+from services.crypto_task_queue import TaskPriority
+from src.exceptions import CryptoTimeoutError
 
 logger = logging.getLogger(__name__)
 
@@ -20,17 +25,22 @@ MAX_MESSAGE_SIZE = 1024 * 1024
 
 class EncryptTab:
     def __init__(self, parent, encryption_service: EncryptionService,
-                 friends_service: FriendsService, clipboard_service: ClipboardService):
+                 friends_service: FriendsService, clipboard_service: ClipboardService,
+                 crypto_queue=None):
         """
         Args:
             parent: Notebook widget
             encryption_service: Handles crypto operations
             friends_service: Provides friend data (no direct KeyStore access)
             clipboard_service: Handles clipboard operations
+            crypto_queue: Optional CryptoTaskQueue for managed background execution.
+                         If provided, replaces ad-hoc threading with pool-based
+                         task submission and timeout enforcement.
         """
         self.service = encryption_service
         self.friends_service = friends_service
         self.clipboard_service = clipboard_service
+        self.crypto_queue = crypto_queue
         
         # Store last sent message locally instead of on app instance
         self.last_sent_b64 = ""
@@ -194,25 +204,64 @@ class EncryptTab:
             }
             self_destruct_seconds = mapping.get(self.destruct_combo.get(), None)
 
-        # Offload to a thread so the UI stays responsive
-        def task():
-            try:
-                b64 = self.service.encrypt_base64(
-                    plaintext=plaintext,
-                    friend_name=friend_name,
-                    mode=mode,
-                    sign=sign,
-                    self_destruct_seconds=self_destruct_seconds,
-                )
-                self.last_sent_b64 = b64
-                # Schedule UI update on main thread
-                self.frame.after(0, lambda: self._log_sent(b64))
-            except EncryptionError as exc:
-                logger.exception("Encryption failed")
-                self.frame.after(0, lambda: messagebox.showerror(
-                    "Encryption Error", str(exc)))
+        # Offload to CryptoTaskQueue (or raw thread as fallback) so the UI stays responsive
+        def _do_encrypt():
+            """Perform the actual encryption (runs in worker thread)."""
+            return self.service.encrypt_base64(
+                plaintext=plaintext,
+                friend_name=friend_name,
+                mode=mode,
+                sign=sign,
+                self_destruct_seconds=self_destruct_seconds,
+            )
 
-        threading.Thread(target=task, daemon=True).start()
+        def _on_success(b64):
+            """Handle successful encryption (runs on main thread)."""
+            self.last_sent_b64 = b64
+            self._log_sent(b64)
+
+        def _on_error(exc):
+            """Handle encryption error (runs on main thread)."""
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror(
+                    "Timeout",
+                    "Encryption operation timed out. The system may be under "
+                    "heavy load. Please try again."
+                )
+            else:
+                logger.exception("Encryption failed")
+                messagebox.showerror("Encryption Error", str(exc))
+
+        if self.crypto_queue is not None:
+            from src.constants import CONCURRENCY_CONSTANTS
+            # Determine timeout based on mode
+            if mode == "pqc":
+                timeout = CONCURRENCY_CONSTANTS.get("PQC_OPERATION_TIMEOUT", 60.0)
+            elif mode == "rsa":
+                timeout = CONCURRENCY_CONSTANTS.get("RSA_OPERATION_TIMEOUT", 30.0)
+            else:
+                timeout = CONCURRENCY_CONSTANTS.get("RSA_OPERATION_TIMEOUT", 30.0)
+
+            self.crypto_queue.submit(
+                _do_encrypt,
+                on_success=_on_success,
+                on_error=_on_error,
+                priority=TaskPriority.HIGH,
+                timeout=timeout,
+            )
+        else:
+            # Legacy fallback: ad-hoc thread
+            def task():
+                try:
+                    b64 = _do_encrypt()
+                    self.last_sent_b64 = b64
+                    self.frame.after(0, lambda: self._log_sent(b64))
+                except EncryptionError as exc:
+                    logger.exception("Encryption failed")
+                    self.frame.after(0, lambda: messagebox.showerror(
+                        "Encryption Error", str(exc)))
+
+            threading.Thread(target=task, daemon=True).start()
 
     def _log_sent(self, b64_text):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")

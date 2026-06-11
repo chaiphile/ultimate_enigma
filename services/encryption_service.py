@@ -25,6 +25,8 @@ from models.envelope import (
     PQCEncvelope,
     identify_envelope_type,
 )
+from src.timeout import run_with_timeout
+from src.constants import CONCURRENCY_CONSTANTS
 
 logger = logging.getLogger(__name__)
 
@@ -425,6 +427,9 @@ class EncryptionService:
 
         The shared secret from HybridKEM.encapsulate is used directly as
         the AES-256-GCM key (it is already HKDF-derived inside HybridKEM).
+
+        Timeout: Uses PQC_OPERATION_TIMEOUT from CONCURRENCY_CONSTANTS to
+        prevent blocking the caller indefinitely during encapsulation.
         """
         if not is_pqc_available():
             raise EncryptionError(
@@ -439,9 +444,19 @@ class EncryptionService:
                 "Import their PQC combined public key first."
             )
 
+        # Wrap PQC encapsulation in timeout to prevent indefinite blocking
+        pqc_timeout = CONCURRENCY_CONSTANTS.get("PQC_OPERATION_TIMEOUT", 60.0)
         try:
-            kem_result = HybridKEM.encapsulate(combined_pub)
+            kem_result = run_with_timeout(
+                HybridKEM.encapsulate, pqc_timeout, combined_pub
+            )
         except Exception as exc:
+            from src.exceptions import CryptoTimeoutError
+            if isinstance(exc, CryptoTimeoutError):
+                raise EncryptionError(
+                    f"PQC encapsulation timed out after {pqc_timeout:.0f}s. "
+                    "The system may be under heavy load."
+                ) from exc
             raise EncryptionError(
                 f"PQC encapsulation failed for '{friend_name}': {exc}"
             ) from exc
@@ -474,6 +489,9 @@ class EncryptionService:
 
         Uses the cached PQC private key bundle from KeyStore to decapsulate
         the KEM ciphertext and recover the AES key.
+
+        Timeout: Uses PQC_OPERATION_TIMEOUT to guard against indefinite
+        blocking during decapsulation.
         """
         if not is_pqc_available():
             raise DecryptionError(
@@ -497,10 +515,19 @@ class EncryptionService:
         nonce = env_model.nonce
         aes_ct = env_model.aes_ciphertext
 
-        # Decapsulate to recover shared secret
+        # Decapsulate with timeout to prevent indefinite blocking
+        pqc_timeout = CONCURRENCY_CONSTANTS.get("PQC_OPERATION_TIMEOUT", 60.0)
         try:
-            shared_secret = HybridKEM.decapsulate(bundle, kem_ciphertext)
+            shared_secret = run_with_timeout(
+                HybridKEM.decapsulate, pqc_timeout, bundle, kem_ciphertext
+            )
         except Exception as exc:
+            from src.exceptions import CryptoTimeoutError
+            if isinstance(exc, CryptoTimeoutError):
+                raise DecryptionError(
+                    f"PQC decapsulation timed out after {pqc_timeout:.0f}s. "
+                    "The system may be under heavy load."
+                ) from exc
             raise DecryptionError(
                 f"PQC decapsulation failed: {exc}"
             ) from exc
