@@ -21,6 +21,9 @@ from contextlib import closing
 logger = logging.getLogger(__name__)
 
 
+from models.friend_profile import FriendProfile
+from models.envelope import RatchetEnvelope
+
 from src.exceptions import (
     RatchetStateError,
     RatchetNotFoundError,
@@ -56,8 +59,25 @@ class RatchetService:
             return cls._friend_locks[friend_name]
 
     @staticmethod
+    def get_friend_profile(friend_name: str) -> Optional[FriendProfile]:
+        """Load a structured FriendProfile from the database.
+
+        This is the preferred entry point for obtaining friend data.
+        Replaces direct dictionary/tuple access patterns.
+
+        Args:
+            friend_name: The exact name of the friend to look up.
+
+        Returns:
+            A FriendProfile instance, or None if the friend does not exist.
+        """
+        return FriendProfile.from_database(friend_name)
+
+    @staticmethod
     def has_active_ratchet(friend_name: str) -> bool:
         """Check if a friend has an active Double Ratchet session.
+
+        Uses FriendProfile internally for consistent data access.
 
         Args:
             friend_name: The name of the friend to check.
@@ -65,16 +85,10 @@ class RatchetService:
         Returns:
             True if a ratchet state exists for this friend, False otherwise.
         """
-        try:
-            with closing(get_connection()) as conn:
-                row = conn.execute(
-                    "SELECT ratchet_state_json FROM friends WHERE name=?",
-                    (friend_name,)
-                ).fetchone()
-                return row is not None and row[0] is not None
-        except DatabaseError as e:
-            logger.error("Failed to check ratchet state for '%s': %s", friend_name, e)
+        profile = FriendProfile.from_database(friend_name)
+        if profile is None:
             return False
+        return profile.has_active_ratchet
 
     @staticmethod
     def get_ratchet_state(friend_name: str) -> RatchetState:
@@ -347,6 +361,32 @@ class RatchetService:
             # Persist the advanced state
             RatchetService.save_ratchet_state(friend_name, state)
         return header, ciphertext
+
+    @staticmethod
+    def encrypt_to_envelope(friend_name: str, plaintext: bytes) -> RatchetEnvelope:
+        """Encrypt a message and return a structured RatchetEnvelope.
+
+        Preferred over encrypt_message() when the caller needs to build
+        a wire-format packet. Encapsulates both the cryptographic operation
+        and the envelope construction in a single call.
+
+        Args:
+            friend_name: The name of the friend to encrypt for.
+            plaintext: The message bytes to encrypt.
+
+        Returns:
+            A RatchetEnvelope containing sender name, header, and ciphertext.
+
+        Raises:
+            RatchetNotFoundError: If no active ratchet session exists.
+            RatchetServiceError: If encryption or state persistence fails.
+        """
+        header, ciphertext = RatchetService.encrypt_message(friend_name, plaintext)
+        return RatchetEnvelope(
+            sender_name=friend_name,
+            header=header,
+            ciphertext=ciphertext,
+        )
 
     @staticmethod
     def decrypt_message(
