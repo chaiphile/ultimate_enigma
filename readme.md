@@ -62,7 +62,7 @@ All sensitive keys are encrypted at rest and stored in a SQLCipher-encrypted SQL
 - **TOTP Verification** – Time-based one-time password for unlock
 - **Emergency Lock** – Instant key wipe with hotkey support
 - **Lockout Protection** – Exponential backoff on failed attempts
-- **Anti-Tamper** – Debugger detection and binary integrity checks in compiled .exe
+- **Anti-Tamper** – Debugger detection, binary integrity checks, and hardware breakpoint detection in compiled .exe
 
 ### File Operations
 - **File Encryption** – Encrypt/decrypt any file with password (AES-GCM + Argon2id)
@@ -298,7 +298,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 - **TOTP** – Required for unlock after emergency lock; prevents unauthorized access.
 - **Lockout** – Exponential backoff and hard lockout protect against brute force.
 - **Post-Quantum** – CRYSTALS-Kyber provides quantum-safe key encapsulation.
-- **Anti-Tamper** – Compiled .exe includes debugger detection, binary integrity checks, and hooking framework detection. Process exits silently if tampering is detected.
+- **Anti-Tamper** – Compiled .exe includes debugger detection, binary integrity checks, hooking framework detection, and hardware breakpoint detection. Process exits silently if tampering is detected.
 
 For the complete security model, see [docs/SECURITY.md](docs/SECURITY.md).
 

@@ -390,6 +390,7 @@ EnigmaError (base)
 | `SILENT_EXIT` | True | Exit without warning message |
 | `EXIT_CODE` | 1 | Process exit code |
 | `HIDE_THREADS` | True | Hide threads from debugger |
+| `HARDWARE_BREAKPOINT_CHECK` | True | Enable detection of hardware breakpoints via debug registers |
 
 ### Helper Functions
 

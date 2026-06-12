@@ -219,7 +219,7 @@ Source: `src/anti_tamper.py`
 
 ### Detection Methods
 
-#### Anti-Debugger (8 methods)
+#### Anti-Debugger (9 methods)
 | Method | Technique | Details |
 |--------|-----------|---------|
 | `IsDebuggerPresent()` | Windows API | Detects local user-mode debugger |
@@ -227,9 +227,10 @@ Source: `src/anti_tamper.py`
 | `NtQueryInformationProcess` | NT Kernel API | Checks `DebugPort`, `DebugFlags`, `DebugObjectHandle` via PEB |
 | `sys.gettrace()` | Python runtime | Detects active trace hooks (pydevd, pdb, etc.) |
 | `sys.getprofile()` | Python runtime | Detects active profiling hooks |
-| Window enumeration | Win32 API | Scans for debugger window classes (OllyDbg, x64dbg, IDA, WinDbg, Ghidra, etc.) |
+| Window enumeration | Win32 API | Scans for debugger window classes (exact match for short names ≤3 chars to avoid false positives); detects OllyDbg, x64dbg, IDA, WinDbg, Ghidra, etc. |
 | Process enumeration | `tasklist` | Checks running processes against 30+ known debugger names |
 | Timing analysis | `time.perf_counter_ns()` | Detects debugger stepping via RDTSC timing anomalies (threshold: 0.5ms) |
+| Hardware breakpoint detection | Windows API | Reads Dr0-Dr3 debug registers via `GetThreadContext` |
 
 #### Anti-Tamper (5 methods)
 | Method | Technique | Details |
@@ -272,12 +273,13 @@ ANTI_TAMPER_CONSTANTS = {
 
 ### Testing
 
-26 unit tests in `tests/test_anti_tamper.py` cover:
+50 unit tests in `tests/test_anti_tamper.py` cover:
 - All detection methods in isolation
 - Skipped behavior when not frozen
 - Exception resilience in the check pipeline
 - Background thread startup
 - Mocked Windows API calls for cross-platform testing
+- Test classes: TestDebuggerWindows, TestDebuggerPresent, TestRemoteDebugger, TestPEBDebuggerFlag, TestSilentExit
 
 ### Build Integration
 

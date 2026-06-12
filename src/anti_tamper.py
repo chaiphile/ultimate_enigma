@@ -242,6 +242,20 @@ IsWindowVisible = ctypes.windll.user32.IsWindowVisible
 IsWindowVisible.restype = ctypes.wintypes.BOOL
 IsWindowVisible.argtypes = [ctypes.wintypes.HANDLE]
 
+GetThreadContext = kernel32.GetThreadContext
+GetThreadContext.restype = ctypes.wintypes.BOOL
+GetThreadContext.argtypes = [ctypes.wintypes.HANDLE, ctypes.c_void_p]
+
+SuspendThread = kernel32.SuspendThread
+SuspendThread.restype = ctypes.wintypes.DWORD
+SuspendThread.argtypes = [ctypes.wintypes.HANDLE]
+
+ResumeThread = kernel32.ResumeThread
+ResumeThread.restype = ctypes.wintypes.DWORD
+ResumeThread.argtypes = [ctypes.wintypes.HANDLE]
+
+CONTEXT_DEBUG_REGISTERS = 0x00100010  # CONTEXT_FULL | CONTEXT_DEBUG_REGISTERS
+
 PROCESS_QUERY_INFORMATION = 0x0400
 PROCESS_VM_READ = 0x0010
 
@@ -312,7 +326,7 @@ def _check_peb_debugger_flag() -> bool:
         pass
 
     try:
-        debug_handle = ctypes.c_void_p(None)
+        debug_handle = ctypes.c_void_p(0)
         status = nt_query_info(
             ctypes.wintypes.HANDLE(-1),
             ProcessDebugObjectHandle,
@@ -323,6 +337,42 @@ def _check_peb_debugger_flag() -> bool:
         if status == 0:
             _log_trigger("PEB_Debugger", f"DebugObjectHandle exists (status={status})")
             return True
+    except Exception:
+        pass
+
+    return False
+
+
+def _check_hardware_breakpoints() -> bool:
+    """Check for hardware breakpoints via debug registers (Dr0-Dr7)."""
+    try:
+        thread_handle = GetCurrentThread()
+        # Allocate CONTEXT structure (enough space for x64)
+        context_buf = ctypes.create_string_buffer(1232)  # sizeof(CONTEXT) for x64
+        ctypes.memset(ctypes.addressof(context_buf), 0, 1232)
+        # Set ContextFlags
+        struct.pack_into("I", context_buf, 48, CONTEXT_DEBUG_REGISTERS)  # ContextFlags offset
+
+        # SuspendThread to safely read context (GetCurrentThread is pseudo-handle, need real handle)
+        process_handle = ctypes.windll.kernel32.GetCurrentProcess()
+        thread_id = ctypes.windll.kernel32.GetCurrentThreadId()
+        real_thread_handle = OpenProcess(0x0010, False, thread_id)  # THREAD_QUERY_INFORMATION
+
+        if real_thread_handle:
+            SuspendThread(real_thread_handle)
+
+            # For main thread we can use pseudo-handle with GetThreadContext
+            result = GetThreadContext(thread_handle, ctypes.addressof(context_buf))
+            ResumeThread(real_thread_handle)
+            CloseHandle(real_thread_handle)
+
+            if result:
+                # Dr0-Dr3 are at offsets 512, 520, 528, 536 in CONTEXT
+                for i in range(4):
+                    dr_value = struct.unpack_from("Q", context_buf, 512 + i * 8)[0]
+                    if dr_value != 0:
+                        _log_trigger("HardwareBreakpoints", f"Dr{i}={dr_value:#x} (non-zero)")
+                        return True
     except Exception:
         pass
 
@@ -364,18 +414,32 @@ def _check_debugger_windows() -> bool:
         class_name = class_buf.value.lower()
 
         for cls in DEBUGGER_WINDOW_CLASSES:
-            if cls.lower() in class_name:
-                found.append(f"class={class_buf.value}")
-                return False
+            cls_lower = cls.lower()
+            # Use exact match for short strings to avoid false positives
+            # (e.g. "ID" matching inside "chrome_widgetwin_1")
+            if len(cls_lower) <= 3:
+                if cls_lower == class_name:
+                    found.append(f"class={class_buf.value}")
+                    return False
+            else:
+                if cls_lower in class_name:
+                    found.append(f"class={class_buf.value}")
+                    return False
 
         title_buf = ctypes.create_unicode_buffer(256)
         GetWindowTextW(hwnd, title_buf, 256)
         title = title_buf.value.lower()
 
         for t in DEBUGGER_WINDOW_TITLES:
-            if t in title:
-                found.append(f"title={title_buf.value}")
-                return False
+            # Use exact match for short strings to avoid false positives
+            if len(t) <= 3:
+                if t == title:
+                    found.append(f"title={title_buf.value}")
+                    return False
+            else:
+                if t in title:
+                    found.append(f"title={title_buf.value}")
+                    return False
 
         return True
 
@@ -482,8 +546,8 @@ def _check_import_hooks() -> bool:
                     suspicious_hooks.append(f"{hook_type}: {hook_str}")
                     break
 
-            if "frozenimporthook" not in hook_str and "frozenimport":
-                pass
+            if "frozenimporthook" in hook_str:
+                continue
 
         if suspicious_hooks:
             _log_trigger("ImportHooks", f"Suspicious hooks found: {', '.join(suspicious_hooks)}")
@@ -710,6 +774,7 @@ def _run_all_checks() -> bool:
         ("IsDebuggerPresent", _check_debugger_present),
         ("RemoteDebugger", _check_remote_debugger),
         ("PEB_Debugger", _check_peb_debugger_flag),
+        ("HardwareBreakpoints", _check_hardware_breakpoints),
         ("PythonDebuggerFlags", _check_python_debugger_flags),
         ("DebuggerWindows", _check_debugger_windows),
         ("DebuggerProcesses", _check_debugger_processes),

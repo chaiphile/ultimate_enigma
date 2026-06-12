@@ -56,7 +56,6 @@ class TestPythonDebuggerFlags:
         with mock.patch("src.anti_tamper.sys") as mock_sys:
             mock_sys.gettrace.return_value = None
             mock_sys.getprofile.return_value = None
-            mock_sys.monitoring = None
             assert _check_python_debugger_flags() is False
 
     def test_active_trace_returns_true(self, frozen_env):
@@ -64,7 +63,6 @@ class TestPythonDebuggerFlags:
         with mock.patch("src.anti_tamper.sys") as mock_sys:
             mock_sys.gettrace.return_value = lambda *a: None
             mock_sys.getprofile.return_value = None
-            mock_sys.monitoring = None
             assert _check_python_debugger_flags() is True
 
     def test_active_profile_returns_true(self, frozen_env):
@@ -72,7 +70,6 @@ class TestPythonDebuggerFlags:
         with mock.patch("src.anti_tamper.sys") as mock_sys:
             mock_sys.gettrace.return_value = None
             mock_sys.getprofile.return_value = lambda *a: None
-            mock_sys.monitoring = None
             assert _check_python_debugger_flags() is True
 
 
@@ -258,6 +255,7 @@ class TestRunAllChecks:
         with mock.patch("src.anti_tamper._check_debugger_present", return_value=False), \
              mock.patch("src.anti_tamper._check_remote_debugger", return_value=False), \
              mock.patch("src.anti_tamper._check_peb_debugger_flag", return_value=False), \
+             mock.patch("src.anti_tamper._check_hardware_breakpoints", return_value=False), \
              mock.patch("src.anti_tamper._check_python_debugger_flags", return_value=False), \
              mock.patch("src.anti_tamper._check_debugger_windows", return_value=False), \
              mock.patch("src.anti_tamper._check_debugger_processes", return_value=False), \
@@ -274,6 +272,7 @@ class TestRunAllChecks:
         with mock.patch("src.anti_tamper._check_debugger_present", return_value=True), \
              mock.patch("src.anti_tamper._check_remote_debugger", return_value=False), \
              mock.patch("src.anti_tamper._check_peb_debugger_flag", return_value=False), \
+             mock.patch("src.anti_tamper._check_hardware_breakpoints", return_value=False), \
              mock.patch("src.anti_tamper._check_python_debugger_flags", return_value=False), \
              mock.patch("src.anti_tamper._check_debugger_windows", return_value=False), \
              mock.patch("src.anti_tamper._check_debugger_processes", return_value=False), \
@@ -290,6 +289,7 @@ class TestRunAllChecks:
         with mock.patch("src.anti_tamper._check_debugger_present", side_effect=RuntimeError), \
              mock.patch("src.anti_tamper._check_remote_debugger", return_value=False), \
              mock.patch("src.anti_tamper._check_peb_debugger_flag", return_value=False), \
+             mock.patch("src.anti_tamper._check_hardware_breakpoints", return_value=False), \
              mock.patch("src.anti_tamper._check_python_debugger_flags", return_value=False), \
              mock.patch("src.anti_tamper._check_debugger_windows", return_value=False), \
              mock.patch("src.anti_tamper._check_debugger_processes", return_value=False), \
@@ -369,3 +369,305 @@ class TestLogging:
             _log_trigger("TestCheck", "details")
         finally:
             at_mod.ANTI_TAMPER_LOG_FILE = original
+
+
+class TestDebuggerWindows:
+    """Test debugger window class/title detection."""
+
+    def test_chrome_widgetwin_not_flagged(self, frozen_env):
+        """Chrome_WidgetWin_1 should NOT trigger detection (the ID substring fix)."""
+        from src.anti_tamper import _check_debugger_windows
+        import ctypes
+
+        fake_windows = []
+
+        def fake_enum_windows(callback, lparam):
+            # Simulate a Chrome_WidgetWin_1 window
+            hwnd = 0x12345
+            # The callback checks class name via GetClassNameW - we mock that
+            return True
+
+        mock_classes = {"chrome_widgetwin_1"}
+
+        with mock.patch("src.anti_tamper.EnumWindows") as mock_enum:
+            def intercept_enum(callback, lparam):
+                for hwnd_val in [0x12345]:
+                    # Create mock buffers
+                    class_buf = ctypes.create_unicode_buffer(256)
+                    class_buf.value = "Chrome_WidgetWin_1"
+                    # Call the callback - it will use GetClassNameW which we mock
+                    result = callback(hwnd_val, 0)
+                return True
+            mock_enum.side_effect = intercept_enum
+
+            with mock.patch("src.anti_tamper.GetClassNameW") as mock_getclass:
+                mock_getclass.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', 'Chrome_WidgetWin_1') or 17
+                with mock.patch("src.anti_tamper.IsWindowVisible", return_value=True):
+                    with mock.patch("src.anti_tamper.GetWindowTextW") as mock_gettitle:
+                        mock_gettitle.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', '') or 0
+                        assert _check_debugger_windows() is False
+
+    def test_actual_ida_window_detected(self, frozen_env):
+        """A window with class 'TIdaWindow' should be detected."""
+        from src.anti_tamper import _check_debugger_windows
+
+        def intercept_enum(callback, lparam):
+            hwnd_val = 0x12345
+            callback(hwnd_val, 0)
+            return True
+
+        with mock.patch("src.anti_tamper.EnumWindows", side_effect=intercept_enum):
+            with mock.patch("src.anti_tamper.GetClassNameW") as mock_getclass:
+                mock_getclass.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', 'TIdaWindow') or 11
+                with mock.patch("src.anti_tamper.IsWindowVisible", return_value=True):
+                    with mock.patch("src.anti_tamper.GetWindowTextW") as mock_gettitle:
+                        mock_gettitle.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', '') or 0
+                        assert _check_debugger_windows() is True
+
+    def test_x64dbg_window_detected(self, frozen_env):
+        """A window with 'x64dbg' in class name should be detected."""
+        from src.anti_tamper import _check_debugger_windows
+
+        def intercept_enum(callback, lparam):
+            callback(0x12345, 0)
+            return True
+
+        with mock.patch("src.anti_tamper.EnumWindows", side_effect=intercept_enum):
+            with mock.patch("src.anti_tamper.GetClassNameW") as mock_getclass:
+                mock_getclass.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', 'x64dbgMainWindow') or 17
+                with mock.patch("src.anti_tamper.IsWindowVisible", return_value=True):
+                    with mock.patch("src.anti_tamper.GetWindowTextW") as mock_gettitle:
+                        mock_gettitle.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', '') or 0
+                        assert _check_debugger_windows() is True
+
+    def test_short_window_title_exact_match(self, frozen_env):
+        """Short titles (<=3 chars) should use exact match, not substring."""
+        from src.anti_tamper import _check_debugger_windows
+
+        def intercept_enum(callback, lparam):
+            callback(0x12345, 0)
+            return True
+
+        with mock.patch("src.anti_tamper.EnumWindows", side_effect=intercept_enum):
+            with mock.patch("src.anti_tamper.GetClassNameW") as mock_getclass:
+                mock_getclass.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', 'SomeClass') or 9
+                with mock.patch("src.anti_tamper.IsWindowVisible", return_value=True):
+                    with mock.patch("src.anti_tamper.GetWindowTextW") as mock_gettitle:
+                        # "r2" is 2 chars, should exact-match only if title is exactly "r2"
+                        mock_gettitle.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', 'my r2 tool') or 10
+                        # "my r2 tool" != "r2", so should NOT match
+                        assert _check_debugger_windows() is False
+
+    def test_hidden_windows_skipped(self, frozen_env):
+        """Invisible windows should not be checked."""
+        from src.anti_tamper import _check_debugger_windows
+
+        with mock.patch("src.anti_tamper.EnumWindows") as mock_enum:
+            def intercept_enum(callback, lparam):
+                callback(0x12345, 0)
+                return True
+            mock_enum.side_effect = intercept_enum
+
+            with mock.patch("src.anti_tamper.IsWindowVisible", return_value=False):
+                with mock.patch("src.anti_tamper.GetClassNameW") as mock_getclass:
+                    mock_getclass.side_effect = lambda hwnd, buf, size: setattr(buf, 'value', 'x64dbg') or 6
+                    assert _check_debugger_windows() is False
+
+    def test_no_windows_no_detection(self, frozen_env):
+        """No windows enumerated means no detection."""
+        from src.anti_tamper import _check_debugger_windows
+
+        with mock.patch("src.anti_tamper.EnumWindows", return_value=True):
+            assert _check_debugger_windows() is False
+
+    def test_enumwindows_exception_handled(self, frozen_env):
+        """Exception in EnumWindows should not crash."""
+        from src.anti_tamper import _check_debugger_windows
+
+        with mock.patch("src.anti_tamper.EnumWindows", side_effect=OSError("fail")):
+            assert _check_debugger_windows() is False
+
+
+class TestDebuggerPresent:
+    """Test IsDebuggerPresent API check."""
+
+    def test_debugger_present_returns_true(self, frozen_env):
+        from src.anti_tamper import _check_debugger_present
+        with mock.patch("src.anti_tamper.IsDebuggerPresent", return_value=True):
+            assert _check_debugger_present() is True
+
+    def test_no_debugger_returns_false(self, frozen_env):
+        from src.anti_tamper import _check_debugger_present
+        with mock.patch("src.anti_tamper.IsDebuggerPresent", return_value=False):
+            assert _check_debugger_present() is False
+
+    def test_api_exception_returns_false(self, frozen_env):
+        from src.anti_tamper import _check_debugger_present
+        with mock.patch("src.anti_tamper.IsDebuggerPresent", side_effect=OSError("fail")):
+            assert _check_debugger_present() is False
+
+
+class TestRemoteDebugger:
+    """Test CheckRemoteDebuggerPresent API check."""
+
+    def test_remote_debugger_returns_true(self, frozen_env):
+        from src.anti_tamper import _check_remote_debugger
+        import ctypes as ct
+
+        original_func = None
+        captured_ref = []
+
+        def capture_and_set(handle, is_debugged_ptr):
+            captured_ref.append(is_debugged_ptr)
+
+        with mock.patch("src.anti_tamper.CheckRemoteDebuggerPresent") as mock_check:
+            mock_check.side_effect = capture_and_set
+            # Run the function, then manually set the value
+            import src.anti_tamper as at_mod
+            orig = at_mod.CheckRemoteDebuggerPresent
+            at_mod.CheckRemoteDebuggerPresent = mock_check
+            try:
+                # The function creates is_debugged = ctypes.wintypes.BOOL(False)
+                # and passes ctypes.byref(is_debugged). We need to intercept.
+                # Instead, mock the whole function to return True directly.
+                mock_check.return_value = True
+                with mock.patch.object(at_mod, 'CheckRemoteDebuggerPresent', return_value=True):
+                    pass  # Can't easily test this way
+
+                # Better approach: mock at a higher level
+            finally:
+                at_mod.CheckRemoteDebuggerPresent = orig
+
+        # Simplest correct approach: mock the entire function to control the return path
+        # The function checks `if result and is_debugged.value != 0`
+        # We need to make the function see is_debugged.value != 0
+        # Use a custom mock that writes to the byref'd object
+        with mock.patch("src.anti_tamper.CheckRemoteDebuggerPresent") as mock_check:
+            def side_effect(handle, is_debugged_byref):
+                # is_debugged_byref is a ctypes byref object; we can't easily write to it
+                # So instead, we mock at the function level
+                pass
+            # Return True but the function still checks is_debugged.value
+            # The cleanest test: just verify the logic path by mocking result
+            pass
+
+        # The actual working approach: override the function entirely
+        with mock.patch.object(
+            __import__("src.anti_tamper", fromlist=["_check_remote_debugger"]),
+            "_check_remote_debugger",
+            return_value=True
+        ):
+            pass  # This is pointless
+
+        # OK, the real solution: the function creates a local BOOL, passes byref to API.
+        # We need the API mock to write through the byref pointer.
+        # ctypes byref objects don't support __setitem__, but we can use memmove.
+        with mock.patch("src.anti_tamper.CheckRemoteDebuggerPresent") as mock_check:
+            def write_true(handle, bool_byref):
+                # Use ctypes to write to the memory address
+                import ctypes
+                addr = ctypes.addressof(bool_byref._obj) if hasattr(bool_byref, '_obj') else None
+                if addr is not None:
+                    ctypes.memmove(addr, ctypes.byref(ctypes.c_long(1)), ctypes.sizeof(ctypes.c_long))
+                return True
+            mock_check.side_effect = write_true
+            assert _check_remote_debugger() is True
+
+    def test_no_remote_debugger_returns_false(self, frozen_env):
+        from src.anti_tamper import _check_remote_debugger
+
+        with mock.patch("src.anti_tamper.CheckRemoteDebuggerPresent") as mock_check:
+            mock_check.return_value = True
+            # is_debugged stays False (default), so should return False
+            assert _check_remote_debugger() is False
+
+    def test_api_exception_returns_false(self, frozen_env):
+        from src.anti_tamper import _check_remote_debugger
+        with mock.patch("src.anti_tamper.CheckRemoteDebuggerPresent", side_effect=OSError("fail")):
+            assert _check_remote_debugger() is False
+
+
+class TestPEBDebuggerFlag:
+    """Test NtQueryInformationProcess PEB checks."""
+
+    def test_debug_port_nonzero_returns_true(self, frozen_env):
+        from src.anti_tamper import _check_peb_debugger_flag
+        import ctypes as ct
+
+        def mock_nt_query(handle, info_class, buf, buf_len, ret_len):
+            if info_class == 7:  # ProcessDebugPort
+                # Write a non-zero value to the buffer
+                ct.memmove(buf, ct.byref(ct.c_ulong(1234)), ct.sizeof(ct.c_ulong))
+                return 0
+            return 0xC000000D  # STATUS_INFO_LENGTH_MISMATCH
+
+        with mock.patch("src.anti_tamper.nt_query_info", side_effect=mock_nt_query):
+            assert _check_peb_debugger_flag() is True
+
+    def test_debug_flags_zero_returns_true(self, frozen_env):
+        from src.anti_tamper import _check_peb_debugger_flag
+        import ctypes as ct
+
+        def mock_nt_query(handle, info_class, buf, buf_len, ret_len):
+            if info_class == 0x1F:  # ProcessDebugFlags
+                # Write zero (zero means debugged)
+                ct.memmove(buf, ct.byref(ct.c_ulong(0)), ct.sizeof(ct.c_ulong))
+                return 0
+            return 0xC000000D
+
+        with mock.patch("src.anti_tamper.nt_query_info", side_effect=mock_nt_query):
+            assert _check_peb_debugger_flag() is True
+
+    def test_debug_object_handle_exists_returns_true(self, frozen_env):
+        from src.anti_tamper import _check_peb_debugger_flag
+
+        def mock_nt_query(handle, info_class, buf, buf_len, ret_len):
+            if info_class == 0x1E:  # ProcessDebugObjectHandle
+                return 0  # STATUS_SUCCESS means handle exists
+            return 0xC000000D
+
+        with mock.patch("src.anti_tamper.nt_query_info", side_effect=mock_nt_query):
+            assert _check_peb_debugger_flag() is True
+
+    def test_all_clean_returns_false(self, frozen_env):
+        from src.anti_tamper import _check_peb_debugger_flag
+
+        def mock_nt_query(handle, info_class, buf, buf_len, ret_len):
+            return 0xC000000D  # STATUS_INFO_LENGTH_MISMATCH for all
+
+        with mock.patch("src.anti_tamper.nt_query_info", side_effect=mock_nt_query):
+            assert _check_peb_debugger_flag() is False
+
+    def test_api_exception_returns_false(self, frozen_env):
+        from src.anti_tamper import _check_peb_debugger_flag
+        with mock.patch("src.anti_tamper.nt_query_info", side_effect=OSError("fail")):
+            assert _check_peb_debugger_flag() is False
+
+
+class TestSilentExit:
+    """Test silent exit mechanism."""
+
+    def test_silent_exit_calls_os_exit(self, frozen_env):
+        from src.anti_tamper import _silent_exit
+        with mock.patch("os._exit") as mock_exit:
+            _silent_exit()
+            mock_exit.assert_called_once_with(1)
+
+    def test_silent_exit_clears_sensitive_modules(self, frozen_env):
+        from src.anti_tamper import _silent_exit
+        import src.anti_tamper as at_mod
+        original_log = at_mod.ANTI_TAMPER_LOG_FILE
+        try:
+            at_mod.ANTI_TAMPER_LOG_FILE = None
+            sys.modules["crypto_test_mod"] = mock.MagicMock()
+            sys.modules["password_test_mod"] = mock.MagicMock()
+            sys.modules["safe_module"] = mock.MagicMock()
+            with mock.patch("os._exit"):
+                _silent_exit()
+            assert "crypto_test_mod" not in sys.modules
+            assert "password_test_mod" not in sys.modules
+            assert "safe_module" in sys.modules
+        finally:
+            at_mod.ANTI_TAMPER_LOG_FILE = original_log
+            for k in ["crypto_test_mod", "password_test_mod", "safe_module"]:
+                sys.modules.pop(k, None)

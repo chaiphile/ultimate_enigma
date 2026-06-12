@@ -362,6 +362,7 @@ Protections include:
 - PyInstaller bundle integrity verification
 - Import hook and Frida detection
 - PE header validation
+- Hardware breakpoint detection (Dr0-Dr3 debug registers via `GetThreadContext`)
 
 **If tampering or debugging is detected, the process exits silently with no warning.**
 
