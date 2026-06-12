@@ -241,16 +241,26 @@ class CryptoTaskQueue:
         """Execute a function, optionally enforcing a timeout.
 
         If timeout is specified and the function exceeds it, a
-        CryptoTimeoutError is raised. The function itself runs in the
-        worker thread that calls this method.
+        CryptoTimeoutError is raised. Uses a shared inner executor
+        (created once per queue lifetime) to avoid the overhead and
+        resource churn of spawning per-task executors.
+
+        Thread safety:
+            The _inner_executor is shared across all worker threads.
+            ThreadPoolExecutor is thread-safe; submitting futures
+            from multiple worker threads is safe.
         """
         if timeout is None or timeout <= 0:
             return func(*args, **kwargs)
 
-        # Use a nested future to enforce the timeout within the worker thread
-        inner_executor = ThreadPoolExecutor(max_workers=1)
+        # Use a shared inner executor (lazily created) for timeout enforcement
+        if not hasattr(self, '_inner_executor') or self._inner_executor is None:
+            self._inner_executor = ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix="crypto-timeout"
+            )
         try:
-            inner_future = inner_executor.submit(func, *args, **kwargs)
+            inner_future = self._inner_executor.submit(func, *args, **kwargs)
             return inner_future.result(timeout=timeout)
         except FuturesTimeoutError:
             from src.exceptions import CryptoTimeoutError
@@ -262,8 +272,6 @@ class CryptoTaskQueue:
                 f"Cryptographic operation '{func.__name__}' timed out "
                 f"after {timeout:.1f} seconds."
             )
-        finally:
-            inner_executor.shutdown(wait=False)
 
     def _dispatch_to_main(self, callback: Callable, *args):
         """Dispatch a callback to the Tkinter main thread.

@@ -36,6 +36,25 @@ class ServiceOrchestrator:
         self.friends_service = FriendsService(key_store)
         self.clipboard_service = ClipboardService(root)
         self.global_secret_service = GlobalSecretService(key_store)
+        
+        # Derive and set the ratchet storage encryption key from the master secret
+        self._init_ratchet_storage_key(key_store)
+    
+    @staticmethod
+    def _init_ratchet_storage_key(key_store: KeyStore) -> None:
+        """Derive and set the ratchet at-rest encryption key from global_secret."""
+        from services.ratchet_service import RatchetService
+        if key_store.global_secret is not None:
+            storage_key = RatchetService._derive_storage_key(
+                bytes(key_store.global_secret)
+            )
+            RatchetService.set_ratchet_storage_key(storage_key)
+            logger.info("Ratchet state storage encryption key initialized")
+        else:
+            logger.warning(
+                "No global_secret available — ratchet states will not be "
+                "encrypted at rest"
+            )
 
     @property
     def service_lock(self):
@@ -61,6 +80,9 @@ class ServiceOrchestrator:
             self.friends_service = FriendsService(new_key_store)
             self.clipboard_service = ClipboardService(self.root)
             self.global_secret_service = GlobalSecretService(new_key_store)
+            
+            # Re-initialize ratchet storage encryption key
+            self._init_ratchet_storage_key(new_key_store)
 
             # Update tab references if provided
             if tab_references:

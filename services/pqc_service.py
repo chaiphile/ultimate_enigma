@@ -33,6 +33,11 @@ logger = logging.getLogger(__name__)
 KEM_ALGORITHM = "Kyber768"
 
 
+# Expected key/length constants for defensive validation
+X25519_PUB_KEY_LEN = 32
+MIN_COMBINED_PUB_LEN = 2 + X25519_PUB_KEY_LEN + 2  # at least header + x25519 + header
+
+
 def is_pqc_available() -> bool:
     """Return True if the liboqs native library is loaded and Kyber768 is supported."""
     if not _OQS_AVAILABLE or oqs is None:
@@ -72,12 +77,20 @@ class HybridKEM:
         # Classical key
         x_priv = X25519PrivateKey.generate()
         x_pub_bytes = x_priv.public_key().public_bytes_raw()
+        if len(x_pub_bytes) != X25519_PUB_KEY_LEN:
+            raise RuntimeError(
+                f"Unexpected X25519 public key length: {len(x_pub_bytes)} "
+                f"(expected {X25519_PUB_KEY_LEN})"
+            )
 
         # Post-quantum key
         with oqs.KeyEncapsulation(KEM_ALGORITHM) as kem:
             ky_pub = kem.generate_keypair()
             ky_priv = kem.export_secret_key()
             ky_pub_bytes = ky_pub
+
+        if len(ky_pub_bytes) == 0:
+            raise RuntimeError("Kyber768 generated an empty public key")
 
         # Combined public key for exchange: [len_x(2) | x25519(32) | len_ky(2) | kyber_pub]
         combined = struct.pack(">H", len(x_pub_bytes)) + x_pub_bytes
@@ -97,6 +110,66 @@ class HybridKEM:
         }
 
     @staticmethod
+    def _parse_combined_pub(combined_pub: bytes) -> tuple:
+        """Parse a combined public key, returning (x25519_pub_bytes, kyber_pub_bytes).
+        
+        Args:
+            combined_pub: Combined public key bytes in [len_x(2) | x25519(32) | len_ky(2) | kyber_pub] format.
+            
+        Returns:
+            Tuple of (x25519_pub_bytes, kyber_pub_bytes).
+            
+        Raises:
+            ValueError: If the combined key is malformed.
+        """
+        if len(combined_pub) < MIN_COMBINED_PUB_LEN:
+            raise ValueError(
+                f"Combined public key too short: {len(combined_pub)} bytes "
+                f"(minimum {MIN_COMBINED_PUB_LEN})"
+            )
+        
+        offset = 0
+        try:
+            x_len = struct.unpack(">H", combined_pub[offset:offset+2])[0]
+        except struct.error as e:
+            raise ValueError(f"Failed to parse X25519 key length: {e}") from e
+        offset += 2
+        
+        if x_len != X25519_PUB_KEY_LEN:
+            raise ValueError(
+                f"Unexpected X25519 key length in combined pub: {x_len} "
+                f"(expected {X25519_PUB_KEY_LEN})"
+            )
+        
+        if offset + x_len > len(combined_pub):
+            raise ValueError(
+                f"Combined pub truncated: need {x_len} bytes at offset {offset}, "
+                f"have {len(combined_pub)}"
+            )
+        remote_x_pub = combined_pub[offset:offset+x_len]
+        offset += x_len
+        
+        if offset + 2 > len(combined_pub):
+            raise ValueError("Combined pub truncated: missing Kyber key length")
+        try:
+            ky_len = struct.unpack(">H", combined_pub[offset:offset+2])[0]
+        except struct.error as e:
+            raise ValueError(f"Failed to parse Kyber key length: {e}") from e
+        offset += 2
+        
+        if offset + ky_len > len(combined_pub):
+            raise ValueError(
+                f"Combined pub truncated: need {ky_len} bytes at offset {offset}, "
+                f"have {len(combined_pub)}"
+            )
+        remote_ky_pub = combined_pub[offset:offset+ky_len]
+        
+        if len(remote_ky_pub) == 0:
+            raise ValueError("Kyber public key is empty in combined pub")
+        
+        return remote_x_pub, remote_ky_pub
+
+    @staticmethod
     def encapsulate(remote_combined_pub: bytes) -> dict:
         """
         Encapsulate: generate shared secrets for both classical and PQ.
@@ -106,15 +179,9 @@ class HybridKEM:
         }
         """
         HybridKEM._require_oqs()
-        offset = 0
-        x_len = struct.unpack(">H", remote_combined_pub[offset:offset+2])[0]
-        offset += 2
-        remote_x_pub = remote_combined_pub[offset:offset+x_len]
-        offset += x_len
-
-        ky_len = struct.unpack(">H", remote_combined_pub[offset:offset+2])[0]
-        offset += 2
-        remote_ky_pub = remote_combined_pub[offset:offset+ky_len]
+        
+        # Defensive parsing with validation
+        remote_x_pub, remote_ky_pub = HybridKEM._parse_combined_pub(remote_combined_pub)
 
         # Classical ECDH
         x_priv = X25519PrivateKey.generate()
@@ -158,9 +225,22 @@ class HybridKEM:
         Returns 32-byte derived key.
         """
         HybridKEM._require_oqs()
+        
+        # Validate ciphertext length
+        if len(ciphertext) < X25519_PUB_KEY_LEN + 1:
+            raise ValueError(
+                f"Ciphertext too short for decapsulation: {len(ciphertext)} bytes "
+                f"(minimum {X25519_PUB_KEY_LEN + 1})"
+            )
+        
         # Extract classical ECDH
-        remote_x_pub_bytes = ciphertext[:32]
-        kyber_ct = ciphertext[32:]
+        remote_x_pub_bytes = ciphertext[:X25519_PUB_KEY_LEN]
+        kyber_ct = ciphertext[X25519_PUB_KEY_LEN:]
+
+        if 'x25519_priv' not in keys:
+            raise KeyError("PQC key bundle missing 'x25519_priv'")
+        if 'kyber_priv' not in keys:
+            raise KeyError("PQC key bundle missing 'kyber_priv'")
 
         x_shared = keys['x25519_priv'].exchange(
             X25519PublicKey.from_public_bytes(remote_x_pub_bytes)

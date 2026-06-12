@@ -15,12 +15,18 @@ Thread Safety & Deadlock Prevention:
 """
 
 import json
+import base64
 import logging
+import secrets
 import threading
 import time
 from typing import Optional, Tuple, Dict, List
 
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.backends import default_backend
 
 from services.double_ratchet import RatchetState
 from database import get_connection, safe_execute, DatabaseError
@@ -63,6 +69,113 @@ class RatchetService:
     _friend_locks: Dict[str, threading.RLock] = {}
     _friend_lock_timestamps: Dict[str, float] = {}  # Creation timestamps for cleanup
     _locks_guard = threading.RLock()
+
+    # Ratchet state encryption key (derived once at app start).
+    # Set via set_ratchet_storage_key() during service initialization.
+    _storage_key: Optional[bytes] = None  # 32-byte AES-256 key for encrypting ratchet blobs at rest
+
+    @classmethod
+    def set_ratchet_storage_key(cls, key: bytes) -> None:
+        """Set the key used to encrypt ratchet states before persisting to DB.
+        
+        This key should be derived from the user's master secret so that
+        ratchet state is encrypted-at-rest with a key not stored in the DB.
+        
+        Args:
+            key: 32-byte AES-256 key.
+        """
+        if len(key) != 32:
+            raise ValueError("Ratchet storage key must be 32 bytes")
+        cls._storage_key = key
+
+    @classmethod
+    def _derive_storage_key(cls, master_secret: bytes) -> bytes:
+        """Derive a ratchet storage encryption key from the master secret.
+        
+        Uses HKDF-SHA256 with a domain-separated info string so that
+        the derived key is distinct from any other keys derived from
+        the same master secret.
+        
+        Args:
+            master_secret: The user's master shared secret (32 bytes).
+            
+        Returns:
+            32-byte AES-256 key for encrypting ratchet states at rest.
+        """
+        hkdf = HKDF(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"enigma-ratchet-storage-key-v1",
+            backend=default_backend()
+        )
+        return hkdf.derive(master_secret)
+
+    @staticmethod
+    def _encrypt_ratchet_blob(plaintext_json: str) -> str:
+        """Encrypt a serialized ratchet state JSON string for at-rest storage.
+        
+        Uses AES-256-GCM. Returns a Base64-encoded blob containing
+        nonce (12 bytes) + ciphertext + tag (16 bytes).
+        
+        Falls back to plain JSON if no storage key is set (backward compatibility).
+        
+        Args:
+            plaintext_json: The JSON string of the serialized ratchet state.
+            
+        Returns:
+            Base64-encoded encrypted blob, or the original JSON if no key set.
+        """
+        key = RatchetService._storage_key
+        if key is None:
+            # No encryption key configured — store as plaintext (backward compat)
+            return plaintext_json
+        
+        plaintext = plaintext_json.encode('utf-8')
+        nonce = secrets.token_bytes(12)
+        aesgcm = AESGCM(key)
+        ct = aesgcm.encrypt(nonce, plaintext, None)
+        blob = nonce + ct
+        return base64.b64encode(blob).decode('ascii')
+
+    @staticmethod
+    def _decrypt_ratchet_blob(encrypted_blob: str) -> str:
+        """Decrypt a ratchet state blob that was encrypted with _encrypt_ratchet_blob.
+        
+        Detects whether the blob is plain JSON (legacy/unencrypted) or
+        Base64-encoded encrypted data by trying JSON parse first.
+        
+        Args:
+            encrypted_blob: The encrypted Base64 blob or plain JSON string.
+            
+        Returns:
+            The decrypted JSON string.
+            
+        Raises:
+            RatchetServiceError: If decryption fails.
+        """
+        key = RatchetService._storage_key
+        if key is None:
+            # No encryption key — assume plaintext (backward compat)
+            return encrypted_blob
+        
+        # Try to detect if this is plain JSON (starts with '{')
+        if encrypted_blob.startswith('{'):
+            return encrypted_blob
+        
+        try:
+            blob = base64.b64decode(encrypted_blob)
+            if len(blob) < 12 + 16:  # nonce(12) + min ciphertext(16 tag)
+                raise ValueError("Encrypted blob too short")
+            nonce = blob[:12]
+            ct = blob[12:]
+            aesgcm = AESGCM(key)
+            plaintext = aesgcm.decrypt(nonce, ct, None)
+            return plaintext.decode('utf-8')
+        except Exception as e:
+            raise RatchetServiceError(
+                f"Failed to decrypt ratchet state blob: {e}"
+            ) from e
 
     @classmethod
     def _get_friend_lock(cls, friend_name: str) -> threading.RLock:
@@ -340,7 +453,9 @@ class RatchetService:
                         f"No active ratchet session for '{friend_name}'"
                     )
 
-                state_dict = json.loads(row[0])
+                # Decrypt the blob if encrypted-at-rest
+                decrypted_json = RatchetService._decrypt_ratchet_blob(row[0])
+                state_dict = json.loads(decrypted_json)
                 return RatchetState.deserialize(state_dict)
 
         except RatchetNotFoundError:
@@ -349,6 +464,8 @@ class RatchetService:
             raise RatchetServiceError(
                 f"Corrupted ratchet state JSON for '{friend_name}': {e}"
             ) from e
+        except RatchetServiceError:
+            raise
         except DatabaseError as e:
             raise RatchetServiceError(
                 f"Database error loading ratchet for '{friend_name}': {e}"
@@ -371,11 +488,13 @@ class RatchetService:
         """
         try:
             state_json = json.dumps(state.serialize())
+            # Encrypt the blob before persisting to DB (at-rest encryption)
+            encrypted_blob = RatchetService._encrypt_ratchet_blob(state_json)
             with closing(get_connection()) as conn:
                 safe_execute(
                     conn,
                     "UPDATE friends SET ratchet_state_json=? WHERE name=?",
-                    (state_json, friend_name)
+                    (encrypted_blob, friend_name)
                 )
                 conn.commit()
             logger.debug("Saved ratchet state for '%s'", friend_name)

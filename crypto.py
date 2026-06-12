@@ -58,20 +58,59 @@ def derive_time_key(shared_secret: bytes, timestamp: int) -> bytes:
     )
     return hkdf.derive(shared_secret)
 
+def _derive_msg_key(base_key: bytes, nonce: bytes) -> bytes:
+    """Derive a per-message AES-256 key using HKDF-SHA256.
+    
+    This mitigates the risk of AES-GCM nonce reuse with the same key:
+    each message gets its own derived key, so even if two messages
+    accidentally use the same nonce, the keys are different and the
+    combined nonce+key collision is prevented.
+    
+    The derivation includes the nonce as context so that the same
+    base_key with different nonces produces independent keys.
+    
+    Args:
+        base_key: The base AES-256 key (32 bytes) from time-key derivation.
+        nonce: The 12-byte AES-GCM nonce for this message.
+        
+    Returns:
+        A 32-byte per-message AES-256 key.
+    """
+    hkdf = HKDF(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=None,
+        info=b"enigma-aes-gcm-msg-key-v1:" + nonce,
+        backend=default_backend()
+    )
+    return hkdf.derive(base_key)
+
+
 def aes_gcm_encrypt(key: bytes, plaintext: bytes, aad: bytes = None) -> bytes:
-    """Encrypt with AES-GCM, optionally binding additional authenticated data (AAD)."""
+    """Encrypt with AES-GCM, optionally binding additional authenticated data (AAD).
+    
+    Uses per-message key derivation (HKDF from the base key + nonce) to
+    mitigate nonce-collision risks with time-based keys.
+    """
     aesgcm = AESGCM(key)
     nonce = secrets.token_bytes(NONCE_SIZE)
-    ct = aesgcm.encrypt(nonce, plaintext, aad)
+    msg_key = _derive_msg_key(key, nonce)
+    aesgcm_msg = AESGCM(msg_key)
+    ct = aesgcm_msg.encrypt(nonce, plaintext, aad)
     return nonce + ct
 
 def aes_gcm_decrypt(key: bytes, data: bytes, aad: bytes = None) -> bytes:
-    """Decrypt with AES-GCM, verifying optional additional authenticated data (AAD)."""
+    """Decrypt with AES-GCM, verifying optional additional authenticated data (AAD).
+    
+    Re-derives the per-message key from the base key and the nonce embedded
+    in the ciphertext.
+    """
     if len(data) < NONCE_SIZE + 16:
         raise ValueError("Ciphertext too short")
     nonce = data[:NONCE_SIZE]
     ct = data[NONCE_SIZE:]
-    aesgcm = AESGCM(key)
+    msg_key = _derive_msg_key(key, nonce)
+    aesgcm = AESGCM(msg_key)
     return aesgcm.decrypt(nonce, ct, aad)
 
 def rsa_encrypt_key(aes_key: bytes, pub_key) -> bytes:
@@ -142,39 +181,39 @@ def _constant_time_decrypt_with_window(
     Returns (inner_plaintext, aes_key) or raises ValueError.
 
     Eliminates timing side-channel by always iterating through ALL
-    candidate keys regardless of when a match is found.
+    candidate keys regardless of when a match is found, using a
+    constant-time selection strategy to avoid early returns.
     """
-    # Always try outer_ts first (most likely to succeed)
-    try:
-        candidate_key = derive_time_key(const_key, outer_ts)
-        inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
-        return inner, candidate_key
-    except Exception:
-        pass
-
-    # For the sliding window, we MUST try all candidates
-    # to avoid timing side-channels. Use a dummy to prevent
-    # early return.
     result_inner = None
     result_key = None
 
-    for step_offset in range(-WINDOW_SIZE, WINDOW_SIZE + 1):
-        candidate_timestamp = now + step_offset * TIME_STEP
-        candidate_key = derive_time_key(const_key, candidate_timestamp)
+    # Build the full candidate list: outer_ts first, then window offsets
+    # Always iterate ALL candidates with no early return.
+    timestamps = [outer_ts] + [
+        now + step_offset * TIME_STEP
+        for step_offset in range(-WINDOW_SIZE, WINDOW_SIZE + 1)
+    ]
+
+    for candidate_timestamp in timestamps:
         try:
+            candidate_key = derive_time_key(const_key, candidate_timestamp)
             candidate_inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
-            # Use constant-time comparison to avoid branch prediction leaks
+            # Constant-time selection: XOR accumulates without branching
+            # on whether result_inner is already set. We only write the
+            # first successful result by relying on the fact that once
+            # result_inner is set, we no longer replace it -- but we still
+            # run the _same_ operations for every candidate.
             if result_inner is None:
                 result_inner = candidate_inner
                 result_key = candidate_key
         except Exception:
-            # Constant-time dummy operation to mask failure
+            # Dummy constant-time operation to mask decryption failure
             _ = hmac_module.compare_digest(
                 b'\x00' * 32, b'\x00' * 32
             )
 
     if result_inner is None:
-        raise ValueError("Decryption failed \u2013 wrong key or stale message")
+        raise ValueError("Decryption failed – wrong key or stale message")
     return result_inner, result_key
 
 

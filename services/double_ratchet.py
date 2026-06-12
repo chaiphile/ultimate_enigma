@@ -32,6 +32,11 @@ from services.xchacha20_poly1305 import (
 class RatchetState:
     """Persistent state for one side of a Double Ratchet conversation."""
 
+    # Maximum number of skipped message keys to store per session.
+    # Prevents memory exhaustion attacks where a malicious sender sends
+    # messages with large gaps, forcing the receiver to store many keys.
+    MAX_SKIPPED_KEYS = 1000
+
     def __init__(self):
         # DH ratchet
         self.dh_priv: X25519PrivateKey = None
@@ -49,6 +54,7 @@ class RatchetState:
         
         # Skipped message keys (for out-of-order delivery)
         self.skipped_keys: dict = {}  # (dh_pub_bytes, msg_num) -> message_key
+        self._skipped_key_order: list = []  # FIFO order for eviction
 
     @staticmethod
     def _hkdf_rk(rk: bytes, dh_out: bytes) -> tuple:
@@ -180,9 +186,9 @@ class RatchetState:
         # 192-bit nonce makes random collisions negligible — a major upgrade
         # over AES-GCM's 96-bit nonce where birthday attacks are realistic.
         nonce = _xchacha_nonce()
-        # Convert message_key to bytearray for actual memory wiping capability
+        # Convert message_key to mutable bytearray for secure zeroing after use
         mk_bytes = bytearray(message_key)
-        aead = XChaCha20Poly1305(message_key)
+        aead = XChaCha20Poly1305(mk_bytes)
         ct = aead.encrypt(nonce, plaintext, None)
         
         # Build header
@@ -198,8 +204,6 @@ class RatchetState:
         
         # Immediately zero the message key for security
         wipe_bytes(mk_bytes)
-        message_key = b'\x00' * 32
-        mk_bytes = None
         
         return header, nonce + ct
 
@@ -241,11 +245,11 @@ class RatchetState:
         
         # Skip ahead if needed (store skipped message keys for later)
         while self.recv_msg_num < msg_num:
-            # Store skipped message keys
+            # Store skipped message keys with FIFO eviction cap
             self.recv_chain_key, mk = self._hkdf_ck(self.recv_chain_key)
-            self.skipped_keys[
-                (remote_dh_pub_bytes, self.recv_msg_num)
-            ] = mk
+            self._store_skipped_key(
+                (remote_dh_pub_bytes, self.recv_msg_num), mk
+            )
             self.recv_msg_num += 1
         
         # Decrypt current message
@@ -260,6 +264,15 @@ class RatchetState:
         mk_bytes = None
         
         return plaintext
+
+    def _store_skipped_key(self, key: tuple, mk: bytes) -> None:
+        """Store a skipped message key with FIFO eviction when over limit."""
+        if len(self.skipped_keys) >= self.MAX_SKIPPED_KEYS:
+            # Evict oldest skipped key to prevent memory exhaustion
+            oldest = self._skipped_key_order.pop(0)
+            self.skipped_keys.pop(oldest, None)
+        self.skipped_keys[key] = mk
+        self._skipped_key_order.append(key)
 
     @staticmethod
     def _decrypt_with_key(key: bytes, data: bytes) -> bytes:
