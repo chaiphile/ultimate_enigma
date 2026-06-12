@@ -1,7 +1,7 @@
 """Comprehensive unit tests for utils.py – Password validation and utilities."""
 
 import pytest
-from utils import validate_password_strength, get_strength_label, MIN_PASSWORD_LENGTH
+from views.utils import validate_password_strength, get_strength_label, MIN_PASSWORD_LENGTH
 
 
 # ---------------------------------------------------------------------------

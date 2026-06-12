@@ -17,66 +17,29 @@ from cryptography.hazmat.backends import default_backend
 import database
 from src.exceptions import KeyStoreError
 from src.secure_string import SecureString
-from services.pqc_service import is_pqc_available
+# PQC dependencies - injected at runtime by the service layer to avoid
+# upward dependency from model -> service. Callers must invoke
+# configure_pqc_support() before using PQC-related model operations.
+is_pqc_available = None  # type: ignore[assignment]
+HybridSigner = None      # type: ignore[assignment]
+_HYBRID_SIG_AVAILABLE = False
 
-try:
-    from services.pqc_signatures import HybridSigner
-    _HYBRID_SIG_AVAILABLE = True
-except (ImportError, RuntimeError, OSError):
-    HybridSigner = None  # type: ignore[assignment,misc]
-    _HYBRID_SIG_AVAILABLE = False
+
+def configure_pqc_support(pqc_available_fn, hybrid_signer_cls=None):
+    """Inject PQC dependencies. Called once by the service orchestrator at startup."""
+    global is_pqc_available, HybridSigner, _HYBRID_SIG_AVAILABLE
+    is_pqc_available = pqc_available_fn
+    HybridSigner = hybrid_signer_cls
+    _HYBRID_SIG_AVAILABLE = hybrid_signer_cls is not None
 
 logger = logging.getLogger(__name__)
 
-def _pem_to_pubkey(pem: str):
-    return serialization.load_pem_public_key(pem.encode(), backend=default_backend())
-
-def _pem_to_privkey(pem: bytes, password: Union[str, bytes, SecureString]):
-    """Load a PEM private key, decrypting with the given password.
-    
-    Args:
-        pem: PEM-encoded private key bytes.
-        password: Password as str, bytes, or SecureString.
-    """
-    # Convert password to bytes
-    if hasattr(password, 'to_bytes'):
-        pw_bytes = password.to_bytes()
-    elif isinstance(password, str):
-        pw_bytes = password.encode('utf-8')
-    elif isinstance(password, bytes):
-        pw_bytes = password
-    else:
-        pw_bytes = str(password).encode('utf-8')
-    return serialization.load_pem_private_key(pem, password=pw_bytes, backend=default_backend)
-
-def pubkey_to_pem(pub) -> str:
-    return pub.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode('ascii')
-
-def _privkey_to_encrypted_pem(priv, password: Union[str, bytes, SecureString]) -> str:
-    """Encrypt a private key to PEM format.
-    
-    Args:
-        priv: Private key object.
-        password: Password as str, bytes, or SecureString.
-    """
-    # Convert password to bytes
-    if hasattr(password, 'to_bytes'):
-        pw_bytes = password.to_bytes()
-    elif isinstance(password, str):
-        pw_bytes = password.encode('utf-8')
-    elif isinstance(password, bytes):
-        pw_bytes = password
-    else:
-        pw_bytes = str(password).encode('utf-8')
-    
-    return priv.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.BestAvailableEncryption(pw_bytes)
-    ).decode('ascii')
+from src.crypto_utils import (
+    pem_to_pubkey as _pem_to_pubkey,
+    pem_to_privkey as _pem_to_privkey,
+    pubkey_to_pem,
+    privkey_to_encrypted_pem as _privkey_to_encrypted_pem,
+)
 
 
 class KeyStoreModel:

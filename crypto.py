@@ -25,6 +25,8 @@ except (ImportError, RuntimeError, OSError):
 
 logger = logging.getLogger(__name__)
 
+from src.crypto_utils import pubkey_to_pem
+
 # Cryptographic constants
 AES_KEY_SIZE = 32       # 256-bit AES key
 NONCE_SIZE = 12         # 96-bit nonce for AES-GCM
@@ -216,13 +218,6 @@ def _constant_time_decrypt_with_window(
         raise ValueError("Decryption failed – wrong key or stale message")
     return result_inner, result_key
 
-
-def pubkey_to_pem(pub_key) -> str:
-    """Convert a public key object to its PEM string."""
-    return pub_key.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode('utf-8')
 
 class EncryptOptions(TypedDict, total=False):
     sign: bool

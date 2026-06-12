@@ -18,7 +18,7 @@ import gc
 import json
 import logging
 from contextlib import closing
-from tkinter import messagebox
+
 from typing import Union
 
 from argon2 import PasswordHasher
@@ -30,26 +30,53 @@ from services.auth_manager import AuthManager
 from services.totp_service import TOTPService
 from services.event_bus import event_bus, Events
 from src.secure_string import SecureString
-from utils import password_dialog
+
 
 logger = logging.getLogger(__name__)
+
+
+class _DefaultUI:
+    """Default UI callbacks using tkinter messagebox/password_dialog."""
+
+    def __init__(self, root):
+        self.root = root
+
+    def password_dialog(self, title, confirm=False, **kwargs):
+        from views.utils import password_dialog
+        return password_dialog(self.root, title, confirm=confirm, **kwargs)
+
+    def show_error(self, title, message):
+        from tkinter import messagebox
+        messagebox.showerror(title, message)
+
+    def show_info(self, title, message):
+        from tkinter import messagebox
+        messagebox.showinfo(title, message)
+
+    def show_warning(self, title, message):
+        from tkinter import messagebox
+        messagebox.showwarning(title, message)
+
 
 # Database keys for TOTP settings
 TOTP_SECRET_KEY = "totp_secret_encrypted"
 TOTP_SETUP_KEY = "totp_setup_complete"
 TOTP_ENABLED_KEY = "totp_enabled"
 
+_DURESS_PLACEHOLDER = "duress_placeholder"
+
 
 class AuthController:
     """Manages all authentication workflows."""
 
-    def __init__(self, root, key_store: KeyStore):
+    def __init__(self, root, key_store: KeyStore, ui=None):
         self.root = root
         self.ks = key_store
         self.auth_manager = AuthManager(key_store)
         self.totp_service = TOTPService()
         self._ph = PasswordHasher()
         self._master_password_hash = None
+        self._ui = ui or _DefaultUI(root)
 
     @property
     def master_password_hash(self):
@@ -75,7 +102,7 @@ class AuthController:
     def _first_run_setup(self) -> bool:
         from key_manager import init_db
         
-        pw = password_dialog(self.root, "Set Master Password", confirm=True)
+        pw = self._ui.password_dialog("Set Master Password", confirm=True)
         if not pw:
             logger.warning("First run: user cancelled password dialog")
             return False
@@ -83,7 +110,7 @@ class AuthController:
         try:
             init_db(pw)
             if not self.ks.load(pw):
-                messagebox.showerror("Error", "Failed to load new keys.")
+                self._ui.show_error("Error", "Failed to load new keys.")
                 return False
                 
             self._master_password_hash = self._ph.hash(pw.to_str() if isinstance(pw, SecureString) else pw)
@@ -100,7 +127,7 @@ class AuthController:
 
     def _existing_user_login(self) -> bool:
         for attempt in range(3):
-            pw = password_dialog(self.root, "Unlock Private Key", confirm=False)
+            pw = self._ui.password_dialog("Unlock Private Key", confirm=False)
             if not pw:
                 logger.warning("User cancelled password dialog (attempt %d)", attempt + 1)
                 return False
@@ -108,7 +135,7 @@ class AuthController:
             try:
                 is_valid = self.ks.verify_password(pw)
                 if not is_valid:
-                    messagebox.showerror("Wrong Password", "Incorrect password.")
+                    self._ui.show_error("Wrong Password", "Incorrect password.")
                     continue
 
                 if self.ks.is_duress_mode:
@@ -122,7 +149,7 @@ class AuthController:
                     event_bus.publish(Events.KEYS_LOADED, source="auth_controller", first_run=False)
                     return True
                 else:
-                    messagebox.showerror("Error", "Failed to load keys.")
+                    self._ui.show_error("Error", "Failed to load keys.")
                     return False
             finally:
                 # Securely wipe the password from memory
@@ -131,7 +158,7 @@ class AuthController:
                 pw = None
                 gc.collect()
                 
-        messagebox.showerror("Access Denied", "Too many attempts.")
+        self._ui.show_error("Access Denied", "Too many attempts.")
         return False
 
     # ------------------------------------------------------------------
@@ -157,18 +184,18 @@ class AuthController:
             try:
                 self._ph.verify(self._master_password_hash, pw_str)
             except VerifyMismatchError:
-                messagebox.showerror("Failed", "Incorrect master password.")
+                self._ui.show_error("Failed", "Incorrect master password.")
                 logger.warning("Unlock failed: incorrect password")
                 return False, None, None
             except Exception as e:
-                messagebox.showerror("Error", f"Password verification failed: {e}")
+                self._ui.show_error("Error", f"Password verification failed: {e}")
                 logger.error("Unlock failed: Argon2 verification error: %s", e)
                 return False, None, None
 
             # Reload keys
             temp_ks = KeyStore()
             if not temp_ks.load(pw):
-                messagebox.showerror("Error", "Failed to reload keys.\nPassword may be correct but keys corrupted.")
+                self._ui.show_error("Error", "Failed to reload keys.\nPassword may be correct but keys corrupted.")
                 logger.error("Unlock failed: KeyStore.load() returned False")
                 return False, None, None
 
@@ -177,7 +204,7 @@ class AuthController:
             if self.is_totp_enabled() and self.is_totp_setup_complete():
                 loaded = self.load_totp_secret(temp_totp, password=pw, ks=temp_ks)
                 if not loaded:
-                    messagebox.showerror("Error", "Failed to load TOTP secret from database.\nTOTP may need to be reconfigured.")
+                    self._ui.show_error("Error", "Failed to load TOTP secret from database.\nTOTP may need to be reconfigured.")
                     logger.error("Unlock failed: could not load TOTP secret from DB")
                     temp_ks.wipe()
                     return False, None, None
@@ -211,7 +238,7 @@ class AuthController:
                 temp_ks.wipe()
                 return True
             else:
-                messagebox.showerror("Error", "Unable to verify password.\nPlease restart the application.")
+                self._ui.show_error("Error", "Unable to verify password.\nPlease restart the application.")
                 logger.error("Unlock failed: could not recover password hash")
                 temp_ks.wipe()
                 return False
@@ -222,10 +249,7 @@ class AuthController:
             gc.collect()
 
     def _unlock_password_dialog(self) -> str | None:
-        return password_dialog(
-            self.root, "Unlock - Master Password",
-            confirm=False, topmost=True, bg="#1a1a1a", fg="#ffffff"
-        )
+        return self._ui.password_dialog("Unlock - Master Password", confirm=False, topmost=True, bg="#1a1a1a", fg="#ffffff")
 
     def _totp_verify_dialog(self, totp_service: TOTPService) -> bool:
         from components.totp_dialogs import TOTPVerifyDialog
@@ -369,7 +393,7 @@ class AuthController:
             event_bus.publish(Events.TOTP_SETUP_COMPLETE, source="auth_controller", mandatory=True)
             return True
         else:
-            messagebox.showerror(
+            self._ui.show_error(
                 "Mandatory Setup",
                 "TOTP two-factor authentication is MANDATORY.\n"
                 "The application cannot be used without completing TOTP setup.\n\n"
@@ -385,7 +409,7 @@ class AuthController:
         if self.is_totp_enabled() and self.is_totp_setup_complete() and self.totp_service.has_secret():
             verify_dlg = TOTPVerifyDialog(self.root, self.totp_service)
             if not verify_dlg.show():
-                messagebox.showerror("Access Denied", "TOTP verification failed.\nApplication will now exit.")
+                self._ui.show_error("Access Denied", "TOTP verification failed.\nApplication will now exit.")
                 self.totp_service.clear_secret()
                 return False
             event_bus.publish(Events.TOTP_VERIFIED, source="auth_controller")
@@ -478,29 +502,29 @@ class AuthController:
     # ------------------------------------------------------------------
     def change_password(self) -> bool:
         """Orchestrate master password change. Returns True on success."""
-        old_pw = password_dialog(self.root, "Change Password - Verify Current", confirm=False)
+        old_pw = self._ui.password_dialog("Change Password - Verify Current", confirm=False)
         if not old_pw:
             return False
 
         try:
             is_valid = self.ks.verify_password(old_pw)
             if not is_valid:
-                messagebox.showerror("Verification Failed", "Current password is incorrect.")
+                self._ui.show_error("Verification Failed", "Current password is incorrect.")
                 return False
 
-            new_pw = password_dialog(self.root, "Change Password - Set New Password", confirm=True, enforce_strength=True)
+            new_pw = self._ui.password_dialog("Change Password - Set New Password", confirm=True, enforce_strength=True)
             if not new_pw:
                 return False
 
             try:
                 # Compare passwords using SecureString's constant-time comparison
                 if old_pw == new_pw:
-                    messagebox.showwarning("Same Password", "New password must be different from the current password.")
+                    self._ui.show_warning("Same Password", "New password must be different from the current password.")
                     return False
 
                 success = self.ks.change_password(old_pw, new_pw)
                 if not success:
-                    messagebox.showerror("Password Change Failed", "An error occurred while changing the password.")
+                    self._ui.show_error("Password Change Failed", "An error occurred while changing the password.")
                     return False
 
                 self._master_password_hash = self._ph.hash(new_pw.to_str() if isinstance(new_pw, SecureString) else new_pw)
@@ -509,7 +533,7 @@ class AuthController:
                     actual_secret = self.totp_service.get_raw_secret()
                     self.persist_totp_secret(actual_secret, new_pw)
 
-                messagebox.showinfo("Password Changed", "Master password has been changed successfully.")
+                self._ui.show_info("Password Changed", "Master password has been changed successfully.")
                 logger.info("Master password changed successfully via UI")
                 event_bus.publish(Events.PASSWORD_CHANGED, source="auth_controller")
                 return True
@@ -526,7 +550,7 @@ class AuthController:
 
     def set_duress_password(self) -> bool:
         """Orchestrate duress password setup. Returns True on success."""
-        master_pw = password_dialog(self.root, "Set Duress Password - Verify Master", confirm=False)
+        master_pw = self._ui.password_dialog("Set Duress Password - Verify Master", confirm=False)
         if not master_pw:
             return False
 
@@ -534,26 +558,26 @@ class AuthController:
             is_valid = self.ks.verify_password(master_pw)
             is_duress = self.ks.is_duress_mode if is_valid else False
             if not is_valid or is_duress:
-                messagebox.showerror("Verification Failed", "Master password is incorrect.")
+                self._ui.show_error("Verification Failed", "Master password is incorrect.")
                 return False
 
-            duress_pw = password_dialog(self.root, "Set Duress Password", confirm=True, enforce_strength=True)
+            duress_pw = self._ui.password_dialog("Set Duress Password", confirm=True, enforce_strength=True)
             if not duress_pw:
                 return False
 
             try:
                 # Compare passwords using SecureString's constant-time comparison
                 if duress_pw == master_pw:
-                    messagebox.showwarning("Invalid Choice", "Duress password must be different from the master password.")
+                    self._ui.show_warning("Invalid Choice", "Duress password must be different from the master password.")
                     return False
 
                 try:
                     self.ks.set_duress_password(duress_pw)
-                    messagebox.showinfo("Duress Password Set", "Duress password has been configured successfully.")
+                    self._ui.show_info("Duress Password Set", "Duress password has been configured successfully.")
                     logger.info("Duress password set via UI")
                     return True
                 except Exception as e:
-                    messagebox.showerror("Error", f"Failed to set duress password:\n{e}")
+                    self._ui.show_error("Error", f"Failed to set duress password:\n{e}")
                     logger.error("Failed to set duress password: %s", e)
                     return False
             finally:
@@ -571,7 +595,7 @@ class AuthController:
         """Enter decoy mode with fake data."""
         logger.warning("Entering DURESS / DECOY mode")
         self.ks.load_duress_decoy()
-        self._master_password_hash = self._ph.hash("duress_placeholder")
+        self._master_password_hash = self._ph.hash(_DURESS_PLACEHOLDER)
         self.totp_service.clear_secret()
         event_bus.publish(Events.DURESS_MODE_ENTERED, source="auth_controller")
 

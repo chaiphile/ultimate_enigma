@@ -17,7 +17,7 @@ import base64
 
 from services.friends_service import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
-from utils import password_dialog
+from views.utils import password_dialog
 
 
 class FriendsTab:
@@ -570,7 +570,7 @@ class FriendsTab:
             messagebox.showerror("Error", "Friend not found in database")
             return
 
-        from ecdh import perform_ecdh
+        from views.ecdh import perform_ecdh
         parent = self.frame.winfo_toplevel()
         result = perform_ecdh(parent, purpose=f"friend: {name}")
         if result is None:

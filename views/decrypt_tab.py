@@ -4,12 +4,11 @@ import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-import threading
 import logging
 from queue import Queue
 from services.encryption_service import DecryptionError
-from services.crypto_task_queue import TaskPriority
 from src.exceptions import CryptoTimeoutError
+from src.crypto_task_helper import submit_crypto_task
 
 logger = logging.getLogger(__name__)
 
@@ -159,64 +158,54 @@ class DecryptTab:
         )
 
         # Use CryptoTaskQueue if available, otherwise fall back to raw threading
-        if self.crypto_queue is not None:
-            from src.constants import CONCURRENCY_CONSTANTS
-            self.crypto_queue.submit(
-                _do_decrypt,
-                on_success=_on_success,
-                on_error=_on_error,
-                priority=TaskPriority.HIGH,
-                timeout=CONCURRENCY_CONSTANTS.get("RSA_OPERATION_TIMEOUT", 30.0),
-            )
-        else:
-            # Legacy fallback: ad-hoc thread with task_queue marshalling
-            def task():
-                try:
-                    result = _do_decrypt()
-                except DecryptionError as e:
-                    err_msg = str(e)
-                    is_ratchet_missing = (
-                        "ratchet session" in err_msg.lower()
-                        or "no active ratchet" in err_msg.lower()
-                    )
-                    if is_ratchet_missing:
-                        guidance = (
-                            f"{err_msg}\n\n"
-                            "To fix this:\n"
-                            "1. Go to the Friends tab\n"
-                            "2. Select the sender and perform a new key exchange\n"
-                            "3. Both parties must complete the handshake\n\n"
-                            "The Double Ratchet session may have been lost due to "
-                            "database reset, app reinstall, or out-of-sync state."
-                        )
-                        self.task_queue.put(
-                            lambda: messagebox.showerror(
-                                "Ratchet Session Missing", guidance
-                            )
-                        )
-                    else:
-                        self.task_queue.put(
-                            lambda: messagebox.showerror("Decryption Error", err_msg)
-                        )
-                    self.task_queue.put(lambda: self.warning_label.config(text=""))
-                    self.task_queue.put(lambda: self.mode_label.config(text=""))
-                    return
-                except Exception as e:
-                    logger.exception("Unexpected decryption error")
-                    self.task_queue.put(
-                        lambda: messagebox.showerror("Decryption Error",
-                                                     "An unexpected error occurred.")
-                    )
-                    self.task_queue.put(lambda: self.warning_label.config(text=""))
-                    self.task_queue.put(lambda: self.mode_label.config(text=""))
-                    return
+        def _on_error(exc):
+            """Handle decryption error (runs on main thread)."""
+            self.warning_label.config(text="")
+            self.mode_label.config(text="")
 
-                decrypt_mode = getattr(self.service, 'last_decrypt_mode', None)
-                self.task_queue.put(
-                    lambda: self._show_decrypted(result, decrypt_mode)
+        def _error_dialog(exc):
+            """Show appropriate error dialog for decryption failures."""
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror(
+                    "Timeout",
+                    "Decryption operation timed out. The message may be too "
+                    "large or the system is under heavy load. Please try again."
+                )
+            elif isinstance(exc, DecryptionError):
+                err_msg = str(exc)
+                is_ratchet_missing = (
+                    "ratchet session" in err_msg.lower()
+                    or "no active ratchet" in err_msg.lower()
+                )
+                if is_ratchet_missing:
+                    guidance = (
+                        f"{err_msg}\n\n"
+                        "To fix this:\n"
+                        "1. Go to the Friends tab\n"
+                        "2. Select the sender and perform a new key exchange\n"
+                        "3. Both parties must complete the handshake\n\n"
+                        "The Double Ratchet session may have been lost due to "
+                        "database reset, app reinstall, or out-of-sync state."
+                    )
+                    messagebox.showerror("Ratchet Session Missing", guidance)
+                else:
+                    messagebox.showerror("Decryption Error", err_msg)
+            else:
+                logger.exception("Unexpected decryption error")
+                messagebox.showerror(
+                    "Decryption Error", "An unexpected error occurred."
                 )
 
-            threading.Thread(target=task, daemon=True).start()
+        submit_crypto_task(
+            crypto_queue=self.crypto_queue,
+            do_work=_do_decrypt,
+            on_success=_on_success,
+            on_error=_on_error,
+            task_queue=self.task_queue,
+            frame=self.frame,
+            fallback_timeout=30.0,
+            error_dialog=_error_dialog,
+        )
 
     def _show_decrypted(self, text, decrypt_mode=None):
         # Detect hybrid signature verification in the decrypted text

@@ -18,6 +18,7 @@ from services.friends_service import FriendsService
 from services.clipboard_service import ClipboardService
 from services.global_secret_service import GlobalSecretService
 from services.event_bus import event_bus, Events
+from models.key_store import configure_pqc_support
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,14 @@ class ServiceOrchestrator:
         
         # Derive and set the ratchet storage encryption key from the master secret
         self._init_ratchet_storage_key(key_store)
+
+        # Wire PQC dependencies into the model layer (avoids model → service import)
+        try:
+            from services.pqc_service import is_pqc_available
+            from services.pqc_signatures import HybridSigner
+            configure_pqc_support(is_pqc_available, HybridSigner)
+        except (ImportError, RuntimeError, OSError):
+            configure_pqc_support(lambda: False)
     
     @staticmethod
     def _init_ratchet_storage_key(key_store: KeyStore) -> None:
@@ -83,6 +92,14 @@ class ServiceOrchestrator:
             
             # Re-initialize ratchet storage encryption key
             self._init_ratchet_storage_key(new_key_store)
+
+            # Re-wire PQC dependencies after service rebuild
+            try:
+                from services.pqc_service import is_pqc_available as _pqc_avail
+                from services.pqc_signatures import HybridSigner as _HS
+                configure_pqc_support(_pqc_avail, _HS)
+            except (ImportError, RuntimeError, OSError):
+                configure_pqc_support(lambda: False)
 
             # Update tab references if provided
             if tab_references:

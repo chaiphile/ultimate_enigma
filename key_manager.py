@@ -39,8 +39,13 @@ FILE_MAGIC = b'ENIGMA\x01'   # 7‑byte magic for shared‑secret encrypted file
 _MIN_RSA_KEY_SIZE = 4096       # CNSA 2.0 minimum
 _LEGACY_KEY_RETENTION_DAYS = 30  # Keep old key for legacy message decryption
 
-def _pem_to_pubkey(pem: str):
-    return serialization.load_pem_public_key(pem.encode(), backend=default_backend())
+from src.crypto_utils import (
+    pem_to_pubkey as _pem_to_pubkey,
+    pem_to_privkey as _pem_to_privkey,
+    pubkey_to_pem,
+    privkey_to_encrypted_pem as _privkey_to_encrypted_pem,
+)
+
 
 def _get_rsa_key_size(pub_key) -> int:
     """Return the bit size of an RSA public key."""
@@ -48,53 +53,6 @@ def _get_rsa_key_size(pub_key) -> int:
         return pub_key.key_size
     except AttributeError:
         return 0
-
-def _pem_to_privkey(pem: bytes, password: Union[str, bytes, SecureString]):
-    """Load a PEM private key, decrypting with the given password.
-    
-    Args:
-        pem: PEM-encoded private key bytes.
-        password: Password as str, bytes, or SecureString.
-    """
-    # Convert password to bytes
-    if hasattr(password, 'to_bytes'):
-        pw_bytes = password.to_bytes()
-    elif isinstance(password, str):
-        pw_bytes = password.encode('utf-8')
-    elif isinstance(password, bytes):
-        pw_bytes = password
-    else:
-        pw_bytes = str(password).encode('utf-8')
-    return serialization.load_pem_private_key(pem, password=pw_bytes, backend=default_backend())
-
-def pubkey_to_pem(pub) -> str:
-    return pub.public_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PublicFormat.SubjectPublicKeyInfo
-    ).decode('ascii')
-
-def _privkey_to_encrypted_pem(priv, password: Union[str, bytes, SecureString]) -> str:
-    """Encrypt a private key to PEM format.
-    
-    Args:
-        priv: Private key object.
-        password: Password as str, bytes, or SecureString.
-    """
-    # Convert password to bytes
-    if hasattr(password, 'to_bytes'):
-        pw_bytes = password.to_bytes()
-    elif isinstance(password, str):
-        pw_bytes = password.encode('utf-8')
-    elif isinstance(password, bytes):
-        pw_bytes = password
-    else:
-        pw_bytes = str(password).encode('utf-8')
-    
-    return priv.private_bytes(
-        encoding=serialization.Encoding.PEM,
-        format=serialization.PrivateFormat.PKCS8,
-        encryption_algorithm=serialization.BestAvailableEncryption(pw_bytes)
-    ).decode('ascii')
 
 def init_db(password: Union[str, bytes, SecureString]) -> bool:
     """Create database and first keys if missing. Returns True if new keys were generated.
@@ -516,8 +474,8 @@ class KeyStore:
                     self._duress_mode = False
                     self._save_lockout_state()
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Master password verification failed: %s", e)
 
             # --- Check duress password ---
             try:
@@ -536,8 +494,8 @@ class KeyStore:
                     self._save_lockout_state()
                     logger.warning("DURESS PASSWORD USED - entering decoy mode")
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Duress password verification failed: %s", e)
 
             # --- Failed attempt: escalate lockout ---
             self.failed_attempts += 1
@@ -733,44 +691,6 @@ class KeyStore:
         except Exception as e:
             logger.error("Failed to generate PQC keys: %s", e)
             raise KeyStoreError(f"Failed to generate PQC keys: {e}") from e
-
-    def get_pqc_key_bundle(self) -> dict:
-        """Return the local PQC key material needed for encaps/decaps.
-
-        Returns:
-            Dict with 'x25519_priv', 'kyber_priv' suitable for HybridKEM.decapsulate().
-            Raises ValueError if PQC keys are not available.
-        """
-        if self.my_kyber_priv is None:
-            raise ValueError("PQC keys not initialized. Call ensure_pqc_keys() first.")
-
-        # We need to reconstruct the x25519 private key from the combined pub.
-        # However, HybridKEM.generate_keys() creates an ephemeral X25519 key
-        # that is NOT persisted separately. For decapsulation we need it.
-        # Solution: store the full key bundle. Let's fix this by also storing
-        # the X25519 private key alongside the Kyber key.
-        # For now, we'll re-generate on demand and store both.
-        row_x25519 = None
-        try:
-            conn = database.get_connection()
-            row_x25519 = conn.execute(
-                "SELECT value FROM settings WHERE key='pqc_x25519_priv_encrypted'"
-            ).fetchone()
-            conn.close()
-        except Exception:
-            pass
-
-        if row_x25519:
-            try:
-                # This requires password - but we don't have it here.
-                # The caller must provide password context.
-                pass
-            except Exception:
-                pass
-
-        raise ValueError(
-            "Use ensure_pqc_keys_with_bundle() or pqc_decapsulate_with_password() instead."
-        )
 
     def ensure_pqc_keys_full(self, password: Union[str, bytes, SecureString]) -> Optional[dict]:
         """Generate/store full PQC key bundle including X25519 private key.

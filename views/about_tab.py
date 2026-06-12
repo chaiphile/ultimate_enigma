@@ -7,7 +7,7 @@ import ttkbootstrap as ttkb
 from ttkbootstrap.constants import *
 
 from services.backup_service import BackupService, BackupServiceError
-from utils import password_dialog
+from views.utils import password_dialog
 from controllers.auth_controller import AuthController
 from key_manager import KeyStore
 

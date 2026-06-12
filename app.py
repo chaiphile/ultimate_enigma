@@ -12,16 +12,16 @@ import gc
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
-from visual_enigma import VisualEnigma
+from views.visual_enigma import VisualEnigma
 from key_manager import KeyStore
-from encrypt_tab import EncryptTab
-from decrypt_tab import DecryptTab
-from friends_tab import FriendsTab
-from secret_tab import SecretTab
-from file_tab import FileTab
-from about_tab import AboutTab
-from ntp_tab import NtpTab
-from lock_screen import LockScreen
+from views.encrypt_tab import EncryptTab
+from views.decrypt_tab import DecryptTab
+from views.friends_tab import FriendsTab
+from views.secret_tab import SecretTab
+from views.file_tab import FileTab
+from views.about_tab import AboutTab
+from views.ntp_tab import NtpTab
+from views.lock_screen import LockScreen
 from controllers.application_controller import ApplicationController
 from controllers.auth_controller import AuthController
 from controllers.service_orchestrator import ServiceOrchestrator

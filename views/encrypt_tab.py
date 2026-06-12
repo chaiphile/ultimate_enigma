@@ -7,15 +7,14 @@ import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
-import threading
 import datetime
 import logging
 from services.encryption_service import EncryptionService, EncryptionError
 from services.friends_service import FriendsService
 from services.clipboard_service import ClipboardService
 from services.pqc_service import is_pqc_available
-from services.crypto_task_queue import TaskPriority
 from src.exceptions import CryptoTimeoutError
+from src.crypto_task_helper import submit_crypto_task
 
 logger = logging.getLogger(__name__)
 
@@ -229,46 +228,34 @@ class EncryptTab:
 
         def _on_error(exc):
             """Handle encryption error (runs on main thread)."""
-            if isinstance(exc, CryptoTimeoutError):
-                messagebox.showerror(
-                    "Timeout",
-                    "Encryption operation timed out. The system may be under "
-                    "heavy load. Please try again."
-                )
-            else:
-                logger.exception("Encryption failed")
-                messagebox.showerror("Encryption Error", str(exc))
+            logger.exception("Encryption failed")
 
-        if self.crypto_queue is not None:
-            from src.constants import CONCURRENCY_CONSTANTS
-            # Determine timeout based on mode
-            if mode == "pqc":
-                timeout = CONCURRENCY_CONSTANTS.get("PQC_OPERATION_TIMEOUT", 60.0)
-            elif mode == "rsa":
-                timeout = CONCURRENCY_CONSTANTS.get("RSA_OPERATION_TIMEOUT", 30.0)
-            else:
-                timeout = CONCURRENCY_CONSTANTS.get("RSA_OPERATION_TIMEOUT", 30.0)
+        error_map = {
+            CryptoTimeoutError: (
+                "Timeout",
+                "Encryption operation timed out. The system may be under "
+                "heavy load. Please try again."
+            ),
+            EncryptionError: ("Encryption Error", None),
+        }
 
-            self.crypto_queue.submit(
-                _do_encrypt,
-                on_success=_on_success,
-                on_error=_on_error,
-                priority=TaskPriority.HIGH,
-                timeout=timeout,
-            )
+        # Determine timeout based on mode
+        if mode == "pqc":
+            timeout = 60.0
+        elif mode == "rsa":
+            timeout = 30.0
         else:
-            # Legacy fallback: ad-hoc thread
-            def task():
-                try:
-                    b64 = _do_encrypt()
-                    self.last_sent_b64 = b64
-                    self.frame.after(0, lambda: self._log_sent(b64))
-                except EncryptionError as exc:
-                    logger.exception("Encryption failed")
-                    self.frame.after(0, lambda: messagebox.showerror(
-                        "Encryption Error", str(exc)))
+            timeout = 30.0
 
-            threading.Thread(target=task, daemon=True).start()
+        submit_crypto_task(
+            crypto_queue=self.crypto_queue,
+            do_work=_do_encrypt,
+            on_success=_on_success,
+            on_error=_on_error,
+            frame=self.frame,
+            fallback_timeout=timeout,
+            error_map=error_map,
+        )
 
     def _log_sent(self, b64_text):
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")

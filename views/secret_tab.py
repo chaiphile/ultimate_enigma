@@ -7,7 +7,7 @@ from ttkbootstrap.constants import *
 
 from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
 from services.clipboard_service import ClipboardService
-from utils import password_dialog
+from views.utils import password_dialog
 
 
 class SecretTab:
@@ -129,7 +129,7 @@ class SecretTab:
             messagebox.showerror("Error", str(e))
 
     def start_ecdh(self):
-        from ecdh import perform_ecdh
+        from views.ecdh import perform_ecdh
         parent = self.frame.winfo_toplevel()
         result = perform_ecdh(parent, purpose="global")
         if result:
