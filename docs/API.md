@@ -374,6 +374,33 @@ class SecureString:
         # Context manager for automatic wiping
 ```
 
+### Anti-Tamper (src/anti_tamper.py)
+
+Anti-debugger and anti-tamper protections for the frozen .exe. All functions are no-ops when `sys.frozen` is not set.
+
+```python
+def run_anti_tamper_checks() -> None:
+    """Run all protection checks and exit silently if tampering detected.
+    
+    Call this function BEFORE any other imports in main.py when running frozen.
+    Handles: debugger detection, PE verification, import hooks, timing anomalies.
+    """
+
+def start_background_checks(interval: int = None) -> None:
+    """Start a daemon thread that periodically runs anti-tamper checks.
+    
+    Args:
+        interval: Seconds between checks. Defaults to 30.
+    """
+
+def check_on_demand() -> bool:
+    """Run a single check cycle on demand (e.g., before critical operations).
+    
+    Returns:
+        True if tampering detected, False if clean.
+    """
+```
+
 ### Timeout Decorator
 
 ```python

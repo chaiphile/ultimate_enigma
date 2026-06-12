@@ -377,6 +377,20 @@ EnigmaError (base)
 | `FILE_OPERATION_TIMEOUT` | 300s | Large file ops |
 | `RSA_OPERATION_TIMEOUT` | 30s | RSA operations |
 
+### Anti-Tamper Constants
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `BACKGROUND_CHECK_INTERVAL` | 30 | Seconds between background checks |
+| `TIMING_CHECK_THRESHOLD_NS` | 500,000 | Timing anomaly threshold (0.5ms) |
+| `TIMING_SAMPLES` | 5 | Timing samples per check |
+| `CRITICAL_MODULES` | list | Modules to verify bytecode integrity |
+| `DEBUGGER_PROCESSES` | list | Known debugger process names |
+| `HOOKING_FRAMEWORKS` | list | Known hooking framework indicators |
+| `SILENT_EXIT` | True | Exit without warning message |
+| `EXIT_CODE` | 1 | Process exit code |
+| `HIDE_THREADS` | True | Hide threads from debugger |
+
 ### Helper Functions
 
 | Function | Description |

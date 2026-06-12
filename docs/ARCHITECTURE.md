@@ -68,7 +68,8 @@ ultimate_enigma/
 │   ├── constants.py              # Centralized constants
 │   ├── exceptions.py             # Custom exception classes
 │   ├── secure_string.py          # Memory-safe string handling
-│   └── timeout.py                # Timeout decorators/utilities
+│   ├── timeout.py                # Timeout decorators/utilities
+│   └── anti_tamper.py            # Anti-debugger & anti-tamper protections (frozen .exe only)
 ├── *_tab.py                # View layer (Tkinter tabs)
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
@@ -204,3 +205,4 @@ The EventBus enables loose coupling between components:
 - Clipboard auto-clear prevents leakage
 - Per-friend ratchet locks prevent race conditions
 - TOTP required for unlock after emergency lock
+- Anti-tamper protections active in frozen .exe (debugger + binary integrity checks)

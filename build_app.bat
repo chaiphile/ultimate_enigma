@@ -13,6 +13,7 @@ pyinstaller --onefile --windowed --noconsole ^
   --add-data "%OQS_PATH%;oqs" ^
   --add-binary "%OQS_DLL%;." ^
   --hidden-import=oqs ^
+  --hidden-import=src.anti_tamper ^
   main.py
 
 echo Done!

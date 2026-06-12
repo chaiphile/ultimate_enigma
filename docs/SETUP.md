@@ -345,8 +345,27 @@ pyinstaller UltimateEnigma.spec
 The `UltimateEnigma.spec` file configures PyInstaller to:
 - Bundle all Python dependencies
 - Include the `liboqs` native library (if present)
+- Include the `src.anti_tamper` module for anti-debugger/anti-tamper protections
 - Set the application icon (`enigma.ico`)
 - Create a single-file executable
+
+### Anti-Tamper Protections
+
+The compiled executable includes aggressive anti-tamper and anti-debugger protections that are **only active when running as a frozen .exe**. When running from source (`python main.py`), all protections are disabled for development convenience.
+
+Protections include:
+- Windows API debugger detection (`IsDebuggerPresent`, `CheckRemoteDebuggerPresent`)
+- PEB debug flag verification via `NtQueryInformationProcess`
+- Debugger window and process enumeration
+- `sys.gettrace()` / `sys.getprofile()` checks
+- Timing-based anomaly detection
+- PyInstaller bundle integrity verification
+- Import hook and Frida detection
+- PE header validation
+
+**If tampering or debugging is detected, the process exits silently with no warning.**
+
+See `docs/SECURITY.md` for full details.
 
 ---
 

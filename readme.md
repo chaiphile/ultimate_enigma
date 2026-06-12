@@ -62,6 +62,7 @@ All sensitive keys are encrypted at rest and stored in a SQLCipher-encrypted SQL
 - **TOTP Verification** – Time-based one-time password for unlock
 - **Emergency Lock** – Instant key wipe with hotkey support
 - **Lockout Protection** – Exponential backoff on failed attempts
+- **Anti-Tamper** – Debugger detection and binary integrity checks in compiled .exe
 
 ### File Operations
 - **File Encryption** – Encrypt/decrypt any file with password (AES-GCM + Argon2id)
@@ -226,6 +227,7 @@ The test suite covers:
 - EventBus publish/subscribe
 - Clipboard service (copy, clear, auto-clear timer)
 - NTP client (query, timeout, error handling)
+- Anti-tamper and anti-debugger detection logic
 - Concurrent operations and thread safety
 - Edge cases (corrupt data, wrong passwords, timeouts)
 
@@ -275,7 +277,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | `models/` | Data models (envelope, friend profile, key store) |
 | `services/` | Business logic services (encryption, files, friends, etc.) |
 | `components/` | Reusable UI components (TOTP dialogs) |
-| `src/` | Core utilities (constants, exceptions, secure string) |
+| `src/` | Core utilities (constants, exceptions, secure string, anti-tamper) |
 | `tests/` | Comprehensive test suite |
 | `*_tab.py` | View layer (Tkinter tab implementations) |
 | `app.py` | Main window orchestration |
@@ -296,6 +298,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 - **TOTP** – Required for unlock after emergency lock; prevents unauthorized access.
 - **Lockout** – Exponential backoff and hard lockout protect against brute force.
 - **Post-Quantum** – CRYSTALS-Kyber provides quantum-safe key encapsulation.
+- **Anti-Tamper** – Compiled .exe includes debugger detection, binary integrity checks, and hooking framework detection. Process exits silently if tampering is detected.
 
 For the complete security model, see [docs/SECURITY.md](docs/SECURITY.md).
 

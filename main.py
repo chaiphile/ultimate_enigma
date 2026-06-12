@@ -11,6 +11,11 @@ if getattr(sys, 'frozen', False):
         os.add_dll_directory(_base)
     os.environ['PATH'] = _base + os.pathsep + os.environ.get('PATH', '')
 
+# Anti-tamper: run BEFORE any other imports when frozen
+if getattr(sys, 'frozen', False):
+    from src.anti_tamper import run_anti_tamper_checks, start_background_checks
+    run_anti_tamper_checks()
+
 import logging
 import ttkbootstrap as ttk  # <-- Use ttkbootstrap
 from ttkbootstrap.constants import *
@@ -35,4 +40,9 @@ if __name__ == "__main__":
     root = ttk.Window(themename="darkly")   # or "superhero", "cyborg", "vapor"...
     root.title("Ultimate Enigma Messenger")
     app = EnigmaApp(root)
+
+    # Start background anti-tamper checks after GUI is ready
+    if getattr(sys, 'frozen', False):
+        start_background_checks()
+
     root.mainloop()

@@ -149,3 +149,59 @@ CONCURRENCY_CONSTANTS = {
     "LOCK_CLEANUP_INTERVAL": 3600,       # Seconds between stale lock sweeps
     "LOCK_MAX_AGE": 7200,               # Max seconds before lock is considered stale
 }
+
+# ---------------------------------------------------------------------------
+# Anti-Tamper & Anti-Debug Constants
+# ---------------------------------------------------------------------------
+# Configuration for anti-tamper and anti-debugger protections.
+# Only active when running as a frozen PyInstaller executable.
+
+ANTI_TAMPER_CONSTANTS = {
+    # Background check interval in seconds
+    "BACKGROUND_CHECK_INTERVAL": 30,
+
+    # Timing detection threshold in nanoseconds
+    # Values above this suggest debugger stepping
+    "TIMING_CHECK_THRESHOLD_NS": 500_000,  # 0.5ms
+
+    # Number of timing samples to collect
+    "TIMING_SAMPLES": 5,
+
+    # Critical modules to verify integrity of (bytecode check)
+    "CRITICAL_MODULES": [
+        "crypto",
+        "database",
+        "key_manager",
+        "encryption_service",
+        "double_ratchet",
+        "pqc_service",
+        "auth_manager",
+    ],
+
+    # Known debugger process names (lowercase)
+    "DEBUGGER_PROCESSES": [
+        "ollydbg.exe", "olly64.exe", "x64dbg.exe", "x32dbg.exe",
+        "ida.exe", "ida64.exe", "idag.exe", "idag64.exe",
+        "windbg.exe", "cdb.exe", "ntsd.exe",
+        "processhacker.exe", "procmon.exe", "procmon64.exe",
+        "cheatengine-x86_64.exe", "cheatengine-i386.exe",
+        "dnSpy.exe", "ghidra.exe", "ghidraRun.exe",
+        "radare2.exe", "r2.exe", "binaryninja.exe",
+    ],
+
+    # Known hooking framework indicators
+    "HOOKING_FRAMEWORKS": [
+        "frida",
+        "cuckoo",
+        "cuckoomon",
+        "pythonhooker",
+        "detours",
+        "minhook",
+        "easyhook",
+    ],
+
+    # Response behavior
+    "SILENT_EXIT": True,           # Exit without warning message
+    "EXIT_CODE": 1,               # Process exit code
+    "HIDE_THREADS": True,         # Hide threads from debugger
+}

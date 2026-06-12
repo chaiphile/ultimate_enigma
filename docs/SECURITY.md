@@ -158,6 +158,9 @@ Message → AES-GCM encrypt → Ciphertext
 | Replay attacks | Time-based key window |
 | MITM (key exchange) | Fingerprint verification required |
 | Quantum computers | PQC hybrid encryption support |
+| Debugging / reverse engineering | Anti-debugger + anti-tamper protections |
+| Binary tampering | PE header + bytecode integrity checks |
+| Code injection / hooking | Import hook + Frida detection |
 
 ### Known Limitations
 | Limitation | Notes |
@@ -167,6 +170,7 @@ Message → AES-GCM encrypt → Ciphertext
 | Physical access | Attacker with runtime access can extract keys |
 | Side channels | No specific side-channel mitigations |
 | Metadata | Message timing/patterns may leak information |
+| Source mode | Anti-tamper protections only active in frozen .exe |
 
 ## Secure Development Practices
 
@@ -204,3 +208,79 @@ Message → AES-GCM encrypt → Ciphertext
 5. Store backups securely (they contain encrypted secrets)
 6. Be aware that self-destruct is a convenience feature, not a guarantee
 7. Use NTP sync to ensure accurate time-based key derivation
+
+## Anti-Tamper & Anti-Debugger Protections
+
+### Overview
+
+Ultimate Enigma includes aggressive anti-tamper and anti-debugger protections for the compiled Windows executable. These protections are **only active when running as a frozen PyInstaller .exe** (`sys.frozen == True`). When running from source (`python main.py`), all checks are no-ops to allow normal development.
+
+Source: `src/anti_tamper.py`
+
+### Detection Methods
+
+#### Anti-Debugger (8 methods)
+| Method | Technique | Details |
+|--------|-----------|---------|
+| `IsDebuggerPresent()` | Windows API | Detects local user-mode debugger |
+| `CheckRemoteDebuggerPresent()` | Windows API | Detects kernel/debugger connections |
+| `NtQueryInformationProcess` | NT Kernel API | Checks `DebugPort`, `DebugFlags`, `DebugObjectHandle` via PEB |
+| `sys.gettrace()` | Python runtime | Detects active trace hooks (pydevd, pdb, etc.) |
+| `sys.getprofile()` | Python runtime | Detects active profiling hooks |
+| Window enumeration | Win32 API | Scans for debugger window classes (OllyDbg, x64dbg, IDA, WinDbg, Ghidra, etc.) |
+| Process enumeration | `tasklist` | Checks running processes against 30+ known debugger names |
+| Timing analysis | `time.perf_counter_ns()` | Detects debugger stepping via RDTSC timing anomalies (threshold: 0.5ms) |
+
+#### Anti-Tamper (5 methods)
+| Method | Technique | Details |
+|--------|-----------|---------|
+| `_MEIPASS` verification | PyInstaller | Verifies bundle temp directory exists and is a valid directory |
+| Import hook detection | `sys.meta_path` | Detects injected import finders (e.g., Frida loaders) |
+| Frida detection | File + env + modules | Checks for Frida files on disk, environment variables, and loaded modules |
+| Module bytecode integrity | `.pyc` verification | Validates Python magic numbers match running interpreter |
+| PE header validation | Binary analysis | Verifies DOS/PE signatures, section count, entry point sanity |
+
+#### Countermeasures
+| Countermeasure | Technique | Details |
+|----------------|-----------|---------|
+| `ThreadHideFromDebugger` | NT Kernel API | Hides all threads from debugger via `NtSetInformationThread(0x11)` |
+| Silent exit | `os._exit(1)` | Immediate termination with memory cleanup (no warning message) |
+| Memory wipe | GC + module cleanup | Clears sensitive module references before termination |
+
+### Configuration
+
+All configuration is centralized in `src/constants.py` under `ANTI_TAMPER_CONSTANTS`:
+
+```python
+ANTI_TAMPER_CONSTANTS = {
+    "BACKGROUND_CHECK_INTERVAL": 30,     # seconds between background checks
+    "TIMING_CHECK_THRESHOLD_NS": 500_000, # 0.5ms timing anomaly threshold
+    "TIMING_SAMPLES": 5,                  # timing samples per check
+    "SILENT_EXIT": True,                  # exit without warning
+    "EXIT_CODE": 1,                       # process exit code
+    "HIDE_THREADS": True,                 # hide threads from debugger
+}
+```
+
+### Behavior
+
+1. **Startup**: `run_anti_tamper_checks()` runs immediately after PyInstaller path setup, before any other imports
+2. **Background**: A daemon thread runs checks every 30 seconds after GUI initialization
+3. **On-demand**: `check_on_demand()` can be called before critical operations
+4. **Detection**: Any single check triggering causes immediate silent exit
+5. **Errors**: Individual check failures are caught and skipped (resilient pipeline)
+
+### Testing
+
+26 unit tests in `tests/test_anti_tamper.py` cover:
+- All detection methods in isolation
+- Skipped behavior when not frozen
+- Exception resilience in the check pipeline
+- Background thread startup
+- Mocked Windows API calls for cross-platform testing
+
+### Build Integration
+
+- `UltimateEnigma.spec`: `src.anti_tamper` added to `hiddenimports`
+- `build_app.bat`: `--hidden-import=src.anti_tamper` flag added
+- No new dependencies (stdlib only: `ctypes`, `os`, `sys`, `subprocess`, `hashlib`)

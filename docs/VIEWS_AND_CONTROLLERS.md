@@ -452,4 +452,4 @@ perform_ecdh(parent, purpose="friend") -> (derived_secret, friend_x25519_b64) | 
 
 **File:** `main.py`
 
-Application entry point. Configures logging, creates themed Tkinter window (`darkly` theme), handles PyInstaller DLL path resolution for liboqs.
+Application entry point. Configures logging, creates themed Tkinter window (`darkly` theme), handles PyInstaller DLL path resolution for liboqs, and runs anti-tamper checks before any other imports when running as a frozen .exe.

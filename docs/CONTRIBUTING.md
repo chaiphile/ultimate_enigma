@@ -63,6 +63,7 @@ Follow the MVC architecture:
 - Always wipe sensitive data when no longer needed
 - Use constants from `src/constants.py` instead of magic numbers
 - Apply timeout decorators to potentially blocking operations
+- Anti-tamper protections (`src/anti_tamper.py`) only activate in frozen .exe; do not test debugger detection from source
 
 ### Example: Service Method
 
