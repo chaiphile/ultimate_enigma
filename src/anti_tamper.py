@@ -121,7 +121,7 @@ DEBUGGER_PROCESS_NAMES = {
     "ida.exe", "ida64.exe", "idag.exe", "idag64.exe", "idal.exe", "idal64.exe",
     "windbg.exe", "cdb.exe", "ntsd.exe",
     "processhacker.exe", "procmon.exe", "procmon64.exe",
-    "cheatengine-x86_64.exe", "cheatengine-i386.exe",
+    "cheatengine-x86_64.exe", "cheatengine-i386.exe", "cheatengine.exe",
     "dnSpy.exe", "dnSpy.UnityMod.exe",
     "de4dot.exe", "de4dot-blocker.exe",
     "httpdebuggerpro.exe", "fiddler.exe",
@@ -136,21 +136,30 @@ DEBUGGER_WINDOW_CLASSES = {
     "OLLYDBG", "x64dbg", "x32dbg", "ID", "WinDbgClass",
     "TfrmMain", "TIdaWindow", "TfrmDisasm", "ProcessHacker",
     "MainWindow", "DbgFrameClass", "Afx:400000:0",
+    "TfrmCheatEngine", "TfrmMemoryView", "TfrmDisassembler",
 }
 
 DEBUGGER_WINDOW_TITLES = {
     "ollydbg", "x64dbg", "x32dbg", "immunity debugger",
     "idapro", "ida pro", "windbg", "cdb", "ntsd",
     "process hacker", "processhacker",
-    "cheat engine", "dnspy", "ghidra",
+    "cheat engine", "cheatengine", "dnspy", "ghidra",
     "fiddler", "http debugger",
     "radare2", "r2", "binary ninja",
+    "memory viewer", "disassembler",
 }
 
 HOOKING_FRAMEWORKS = {
     "frida", "frida-agent", "frida-server", "frida-tracer",
     "cuckoo", "cuckoomon", "pythonhooker",
     "detours", "minhook", "easyhook",
+    "speedhack", "speed-hack",
+}
+
+CHEAT_ENGINE_DLLS = {
+    "speedhack-x86_64.dll", "speedhack-x86.dll",
+    "cheatengine-x86_64.dll", "cheatengine-x86.dll",
+    "dbghelp.dll", "dbgcore.dll",
 }
 
 CRITICAL_BUNDLE_FILES = [
@@ -1019,7 +1028,9 @@ def start_background_checks(interval: Optional[int] = None) -> None:
         interval: Seconds between checks. Defaults to config value.
                   Actual intervals are randomized around this base value.
     """
+    _log_info("start_background_checks called")
     if not getattr(sys, "frozen", False):
+        _log_info("start_background_checks: not frozen, returning")
         return
 
     if interval is None:
@@ -1028,12 +1039,16 @@ def start_background_checks(interval: Optional[int] = None) -> None:
     _log_info(f"Background seeking started (base interval={interval}s)")
 
     def _background_loop():
+        _log_info("Seeker: background thread started")
         time.sleep(2)  # Short initial delay
+        _log_info("Seeker: first scan starting")
         while True:
             try:
                 _hide_thread_from_debugger()
                 _log_info("Seeker: running scan")
-                if _seek_debugger():
+                result = _seek_debugger()
+                _log_info(f"Seeker: scan result={result}")
+                if result:
                     _log_info("Seeker detected tampering - exiting")
                     _silent_exit()
                 else:
@@ -1041,7 +1056,10 @@ def start_background_checks(interval: Optional[int] = None) -> None:
             except Exception as e:
                 _log_info(f"Background seek exception: {type(e).__name__}: {e}")
             # Use randomized interval from seeker
-            sleep_time = _get_seek_interval()
+            try:
+                sleep_time = _get_seek_interval()
+            except Exception:
+                sleep_time = 10.0
             _log_info(f"Seeker: next scan in {sleep_time:.1f}s")
             time.sleep(sleep_time)
 
