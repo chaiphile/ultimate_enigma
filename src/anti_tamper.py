@@ -1032,13 +1032,17 @@ def start_background_checks(interval: Optional[int] = None) -> None:
         while True:
             try:
                 _hide_thread_from_debugger()
+                _log_info("Seeker: running scan")
                 if _seek_debugger():
                     _log_info("Seeker detected tampering - exiting")
                     _silent_exit()
+                else:
+                    _log_info("Seeker: clean")
             except Exception as e:
                 _log_info(f"Background seek exception: {type(e).__name__}: {e}")
             # Use randomized interval from seeker
             sleep_time = _get_seek_interval()
+            _log_info(f"Seeker: next scan in {sleep_time:.1f}s")
             time.sleep(sleep_time)
 
     thread = threading.Thread(target=_background_loop, daemon=True, name="anti-tamper")
