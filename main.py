@@ -39,10 +39,11 @@ if __name__ == "__main__":
     # Create themed window with a modern dark style
     root = ttk.Window(themename="darkly")   # or "superhero", "cyborg", "vapor"...
     root.title("Ultimate Enigma Messenger")
-    app = EnigmaApp(root)
 
-    # Start background anti-tamper checks after GUI is ready
+    # Start background anti-tamper checks BEFORE GUI (runs during password dialog)
     if getattr(sys, 'frozen', False):
         start_background_checks()
+
+    app = EnigmaApp(root)
 
     root.mainloop()
