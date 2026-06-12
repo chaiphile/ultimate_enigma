@@ -276,10 +276,10 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | `controllers/` | MVC controllers (lifecycle, auth, service DI) |
 | `models/` | Data models (envelope, friend profile, key store) |
 | `services/` | Business logic services (encryption, files, friends, etc.) |
+| `views/` | View layer (Tkinter tabs, dialogs, lock screen, utilities) |
 | `components/` | Reusable UI components (TOTP dialogs) |
-| `src/` | Core utilities (constants, exceptions, secure string, anti-tamper) |
+| `src/` | Core utilities (constants, exceptions, secure string, crypto helpers, anti-tamper) |
 | `tests/` | Comprehensive test suite |
-| `*_tab.py` | View layer (Tkinter tab implementations) |
 | `app.py` | Main window orchestration |
 | `main.py` | Application entry point |
 

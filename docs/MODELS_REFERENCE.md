@@ -134,7 +134,7 @@ Immutable representation of a friend's profile and session state. Replaces scatt
 
 **File:** `models/key_store.py`
 
-Pure data model and persistence manager for cryptographic keys. Strictly a data/persistence layer — no business logic.
+Pure data model and persistence manager for cryptographic keys. Strictly a data/persistence layer — no business logic. PQC dependencies (`is_pqc_available`, `HybridSigner`) are injected at runtime via `configure_pqc_support()` to avoid upward model → service imports. PEM helpers are imported from `src.crypto_utils` to eliminate duplication.
 
 ### Attributes
 
@@ -168,6 +168,23 @@ Pure data model and persistence manager for cryptographic keys. Strictly a data/
 | `get_friend_secret(name)` | Retrieve friend's shared secret |
 | `get_decryption_snapshot()` | Returns tuple of `(my_priv, friends_for_crypto, secrets_to_try, legacy_priv)` for thread-safe decryption operations. `friends_for_crypto` is list of `(name, pub, secret)` tuples. `secrets_to_try` includes global secret and all friend shared secrets. Returns `None` for missing keys. |
 | `wipe()` | Securely erase all sensitive keys |
+
+### PQC Dependency Injection
+
+The model layer cannot import from the service layer (architectural constraint). PQC availability is injected at startup:
+
+```python
+from models.key_store import configure_pqc_support
+
+# Called by ServiceOrchestrator.__init__ and rebuild_services
+configure_pqc_support(is_pqc_available, HybridSigner)
+```
+
+This allows the model to check PQC support without creating an upward dependency.
+
+### Shared Utilities
+
+PEM helpers (`_pem_to_pubkey`, `_pem_to_privkey`, `pubkey_to_pem`, `_privkey_to_encrypted_pem`) are imported from `src.crypto_utils` to eliminate duplication across `key_manager.py`, `models/key_store.py`, and `crypto.py`.
 
 ---
 
@@ -403,3 +420,19 @@ EnigmaError (base)
 |----------|-------------|
 | `get_magic_byte(envelope_type)` | Retrieve magic byte by name |
 | `get_kdf_param(param_name)` | Retrieve KDF parameter by name |
+
+---
+
+## Crypto Utilities
+
+**File:** `src/crypto_utils.py`
+
+Shared PEM and password helpers, consolidating duplicated code from `key_manager.py`, `models/key_store.py`, and `crypto.py`.
+
+| Function | Description |
+|----------|-------------|
+| `password_to_bytes(password)` | Convert `str`, `bytes`, or `SecureString` to raw bytes |
+| `pem_to_pubkey(pem)` | Load PEM-encoded public key |
+| `pem_to_privkey(pem, password)` | Load and decrypt PEM-encoded private key |
+| `privkey_to_encrypted_pem(priv, password)` | Encrypt private key to PEM format |
+| `pubkey_to_pem(pub)` | Encode public key to PEM string |

@@ -69,8 +69,10 @@ Coordinates login, unlock, TOTP verification, password management, and duress mo
 
 #### Constructor
 ```python
-AuthController(root, key_store: KeyStore)
+AuthController(root, key_store: KeyStore, ui=None)
 ```
+
+The optional `ui` parameter accepts a UI callback object. If `None`, a default `_DefaultUI` instance is used that wraps `tkinter.messagebox` and `password_dialog`. This decouples the controller from direct tkinter dependencies, making it testable without a GUI.
 
 #### Properties
 
@@ -194,7 +196,7 @@ Main application window orchestrating header, tabs, lock screen, and event subsc
 
 ### EncryptTab
 
-**File:** `encrypt_tab.py`
+**File:** `views/encrypt_tab.py`
 
 Message encryption interface with friend selection, mode selection, signing, and self-destruct.
 
@@ -226,7 +228,7 @@ EncryptTab(parent, encryption_service, friends_service, clipboard_service, crypt
 
 ### DecryptTab
 
-**File:** `decrypt_tab.py`
+**File:** `views/decrypt_tab.py`
 
 Message decryption interface with self-destruct awareness and ratchet mode indicator.
 
@@ -248,7 +250,7 @@ DecryptTab(parent, encryption_service, clipboard_service, task_queue, crypto_que
 
 ### SecretTab
 
-**File:** `secret_tab.py`
+**File:** `views/secret_tab.py`
 
 Global shared secret management and ECDH key exchange.
 
@@ -269,7 +271,7 @@ SecretTab(parent, global_secret_service, clipboard_service)
 
 ### FileTab
 
-**File:** `file_tab.py`
+**File:** `views/file_tab.py`
 
 File encryption/decryption with password, global secret, or friend's shared secret.
 
@@ -292,7 +294,7 @@ FileTab(parent, file_service, friends_service, global_secret_service, root, task
 
 ### FriendsTab
 
-**File:** `friends_tab.py`
+**File:** `views/friends_tab.py`
 
 Friend management with modern table UI, search, context menu, and detail panel.
 
@@ -331,7 +333,7 @@ FriendsTab(parent, friends_service, style_config=None)
 
 ### NtpTab
 
-**File:** `ntp_tab.py`
+**File:** `views/ntp_tab.py`
 
 NTP synchronization status and manual sync with server selection.
 
@@ -351,7 +353,7 @@ NtpTab(parent, encryption_service)
 
 ### AboutTab
 
-**File:** `about_tab.py`
+**File:** `views/about_tab.py`
 
 Version info, backup export/import, password change, duress password setup.
 
@@ -401,7 +403,7 @@ dialog.show() -> bool  # True if acknowledged
 
 ### LockScreen
 
-**File:** `lock_screen.py`
+**File:** `views/lock_screen.py`
 
 Full-window overlay blocking interaction when locked.
 
@@ -414,7 +416,7 @@ Full-window overlay blocking interaction when locked.
 
 ### VisualEnigma
 
-**File:** `visual_enigma.py`
+**File:** `views/visual_enigma.py`
 
 Compact rotor animation for the header canvas.
 
@@ -424,7 +426,7 @@ Compact rotor animation for the header canvas.
 
 ### ECDH Dialog
 
-**File:** `ecdh.py`
+**File:** `views/ecdh.py`
 
 Modal dialog for X25519 ECDH key exchange with fingerprint verification.
 
@@ -436,7 +438,7 @@ perform_ecdh(parent, purpose="friend") -> (derived_secret, friend_x25519_b64) | 
 
 ## Utility Functions
 
-**File:** `utils.py`
+**File:** `views/utils.py`
 
 | Function | Returns | Description |
 |----------|---------|-------------|

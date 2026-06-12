@@ -575,3 +575,63 @@ Hybrid digital signatures combining Ed25519 with CRYSTALS-Dilithium3 (or ML-DSA-
 ### Signature Format
 
 `[ed_sig_len(2) | ed_sig(64) | dil_sig(variable)]`
+
+---
+
+## Controllers
+
+### ServiceOrchestrator
+
+**File:** `controllers/service_orchestrator.py`
+
+Centralized manager for all business service instances. Handles creation, rebuilding, dependency injection, and PQC model wiring.
+
+#### Constructor
+```python
+ServiceOrchestrator(root, key_store, crypto_queue=None)
+```
+
+Creates: `EncryptionService`, `FileService`, `FriendsService`, `ClipboardService`, `GlobalSecretService`
+
+Also calls `configure_pqc_support()` to inject PQC dependencies into the model layer, avoiding upward model → service imports.
+
+#### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `encryption_service` | EncryptionService | Current instance |
+| `file_service` | FileService | Current instance |
+| `friends_service` | FriendsService | Current instance |
+| `clipboard_service` | ClipboardService | Current instance |
+| `global_secret_service` | GlobalSecretService | Current instance |
+| `service_lock` | RLock | Thread-safe service access |
+
+#### Methods
+
+| Method | Description |
+|--------|-------------|
+| `rebuild_services(new_key_store, tab_references)` | Rebuild all services, update tab refs, publish event |
+| `shutdown()` | Clean up clipboard service |
+
+#### Events Published
+- `SERVICES_REBUILT`
+
+### PQC Model Wiring
+
+The `ServiceOrchestrator` is responsible for wiring PQC dependencies into the model layer at startup and after service rebuilds:
+
+```python
+from models.key_store import configure_pqc_support
+
+# In __init__ and rebuild_services:
+try:
+    from services.pqc_service import is_pqc_available
+    from services.pqc_signatures import HybridSigner
+    configure_pqc_support(is_pqc_available, HybridSigner)
+except (ImportError, RuntimeError, OSError):
+    configure_pqc_support(lambda: False)
+```
+
+This ensures `models/key_store.py` can check PQC availability without importing from `services/`.
+
+---

@@ -44,7 +44,7 @@ ultimate_enigma/
 ├── models/                 # Data Models
 │   ├── envelope.py         # Message envelope structures
 │   ├── friend_profile.py   # Friend/contact data model
-│   └── key_store.py        # Key storage abstraction
+│   └── key_store.py        # Key storage abstraction (pure data + persistence)
 ├── services/               # Business Logic Services
 │   ├── encryption_service.py      # Core encryption/decryption
 │   ├── file_service.py            # File encryption operations
@@ -62,6 +62,19 @@ ultimate_enigma/
 │   ├── hotkey_service.py          # Global hotkey registration
 │   ├── crypto_task_queue.py       # Async crypto operations
 │   └── event_bus.py               # Pub/sub event system
+├── views/                  # View Layer (Tkinter UI)
+│   ├── __init__.py
+│   ├── encrypt_tab.py      # Message encryption UI
+│   ├── decrypt_tab.py      # Message decryption UI
+│   ├── file_tab.py         # File encryption UI
+│   ├── friends_tab.py      # Friend management UI
+│   ├── about_tab.py        # Settings/about UI
+│   ├── ntp_tab.py          # NTP sync UI
+│   ├── secret_tab.py       # Shared secret UI
+│   ├── lock_screen.py      # Lock screen overlay
+│   ├── visual_enigma.py    # Rotor animation widget
+│   ├── ecdh.py             # ECDH key exchange dialog
+│   └── utils.py            # Password dialog and validation
 ├── components/             # Reusable UI Components
 │   └── totp_dialogs.py           # TOTP setup/verify dialogs
 ├── src/                    # Core Utilities
@@ -69,13 +82,18 @@ ultimate_enigma/
 │   ├── exceptions.py             # Custom exception classes
 │   ├── secure_string.py          # Memory-safe string handling
 │   ├── timeout.py                # Timeout decorators/utilities
+│   ├── crypto_utils.py           # Shared PEM/password helpers (DRY)
+│   ├── crypto_task_helper.py     # Shared crypto task submission helper
 │   └── anti_tamper.py            # Anti-debugger & anti-tamper protections (frozen .exe only)
-├── *_tab.py                # View layer (Tkinter tabs)
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
-├── key_manager.py          # KeyStore implementation
+├── key_manager.py          # KeyStore runtime implementation
 └── tests/                  # Test suite
 ```
+
+### View Layer Organization
+
+All View components (Tkinter UI tabs, dialogs, and widgets) are organized under the `views/` package. This enforces a clean separation between the UI layer and business logic. Views receive dependencies via constructor injection and communicate with controllers/services through the EventBus or direct method calls — never by reaching into internal state.
 
 ## Controllers
 
@@ -93,6 +111,7 @@ Handles all authentication flows:
 - TOTP setup enforcement and verification
 - Emergency lock and unlock coordination
 - Sensitive data wiping
+- UI decoupled via injectable `_ui` callbacks (no direct tkinter dependency)
 
 ### ServiceOrchestrator
 Central dependency injection container:
@@ -100,6 +119,7 @@ Central dependency injection container:
 - Handles service rebuilding after unlock
 - Updates tab references when services change
 - Coordinates service shutdown
+- Wires PQC dependencies into model layer via `configure_pqc_support()`
 
 ## Services
 
