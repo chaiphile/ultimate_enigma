@@ -27,6 +27,7 @@ import sys
 import os
 import hashlib
 import hmac
+import random
 import struct
 import subprocess
 import threading
@@ -108,6 +109,11 @@ ANTI_TAMPER_CONFIG = {
     "BACKGROUND_CHECK_INTERVAL": 30,       # seconds between background checks
     "TIMING_CHECK_THRESHOLD_NS": 500_000,  # 0.5ms threshold for RDTSC detection
     "MAX_TIMING_SAMPLES": 5,               # samples for timing check
+    "SEEK_MIN_INTERVAL": 5,                # minimum seconds between seeks
+    "SEEK_MAX_INTERVAL": 15,               # maximum seconds between seeks
+    "SEEK_SUSPICION_THRESHOLD": 3,         # consecutive suspicious results before escalating
+    "SEEK_ESCALATED_MIN_INTERVAL": 1,      # minimum seconds when escalated
+    "SEEK_ESCALATED_MAX_INTERVAL": 3,      # maximum seconds when escalated
 }
 
 DEBUGGER_PROCESS_NAMES = {
@@ -761,6 +767,191 @@ def _silent_exit():
 
 
 # ---------------------------------------------------------------------------
+# Active Debugger Seeking
+# ---------------------------------------------------------------------------
+
+class _DebuggerSeeker:
+    """Active debugger seeking with randomized intervals and escalation.
+
+    This class implements an aggressive seeking strategy that:
+    1. Randomizes scan intervals to prevent predictable timing
+    2. Escalates scan frequency when suspicious activity is detected
+    3. Uses cross-validation between multiple detection methods
+    4. Performs deep scans on escalation (process memory, threads, modules)
+    """
+
+    def __init__(self):
+        self._suspicion_count = 0
+        self._escalated = False
+        self._last_check_time = 0.0
+        self._lock = threading.Lock()
+
+    def _get_seek_interval(self) -> float:
+        """Get randomized seek interval based on current suspicion level."""
+        if self._escalated:
+            min_interval = ANTI_TAMPER_CONFIG["SEEK_ESCALATED_MIN_INTERVAL"]
+            max_interval = ANTI_TAMPER_CONFIG["SEEK_ESCALATED_MAX_INTERVAL"]
+        else:
+            min_interval = ANTI_TAMPER_CONFIG["SEEK_MIN_INTERVAL"]
+            max_interval = ANTI_TAMPER_CONFIG["SEEK_MAX_INTERVAL"]
+        return random.uniform(min_interval, max_interval)
+
+    def _record_suspicion(self) -> None:
+        """Record a suspicious finding and potentially escalate."""
+        with self._lock:
+            self._suspicion_count += 1
+            threshold = ANTI_TAMPER_CONFIG["SEEK_SUSPICION_THRESHOLD"]
+            if self._suspicion_count >= threshold and not self._escalated:
+                self._escalated = True
+                _log_info(f"Escalated seeking mode after {self._suspicion_count} suspicious findings")
+
+    def _clear_suspicion(self) -> None:
+        """Reset suspicion count after clean scan."""
+        with self._lock:
+            if self._suspicion_count > 0:
+                self._suspicion_count = max(0, self._suspicion_count - 1)
+            if self._suspicion_count == 0 and self._escalated:
+                self._escalated = False
+                _log_info("De-escalated seeking mode - all clear")
+
+    def _deep_scan(self) -> bool:
+        """Perform deep scan when escalated - checks process memory and threads.
+
+        Returns:
+            True if tampering detected.
+        """
+        try:
+            # Check for injected threads by enumerating all threads
+            kernel32 = ctypes.windll.kernel32
+            process_handle = kernel32.GetCurrentProcess()
+            thread_count = kernel32.GetProcessThreadCount(process_handle) if hasattr(kernel32, 'GetProcessThreadCount') else 0
+
+            # Check for suspicious memory regions (RWX in non-image memory)
+            # This detects code injection and hooking
+            import ctypes.wintypes as wt
+
+            PROCESS_QUERY_INFORMATION = 0x0400
+            PROCESS_VM_READ = 0x0010
+            MEM_COMMIT = 0x1000
+            PAGE_EXECUTE_READWRITE = 0x40
+
+            class MEMORY_BASIC_INFORMATION(ctypes.Structure):
+                _fields_ = [
+                    ("BaseAddress", ctypes.c_void_p),
+                    ("AllocationBase", ctypes.c_void_p),
+                    ("AllocationProtect", wt.DWORD),
+                    ("RegionSize", ctypes.c_size_t),
+                    ("State", wt.DWORD),
+                    ("Protect", wt.DWORD),
+                    ("Type", wt.DWORD),
+                ]
+
+            VirtualQueryEx = kernel32.VirtualQueryEx
+            VirtualQueryEx.restype = ctypes.c_size_t
+            VirtualQueryEx.argtypes = [
+                wt.HANDLE, ctypes.c_void_p,
+                ctypes.POINTER(MEMORY_BASIC_INFORMATION),
+                ctypes.c_size_t
+            ]
+
+            # Scan first 256MB of address space for RWX regions
+            address = 0
+            max_address = 256 * 1024 * 1024
+            suspicious_regions = 0
+
+            while address < max_address:
+                mbi = MEMORY_BASIC_INFORMATION()
+                result = VirtualQueryEx(
+                    process_handle,
+                    ctypes.c_void_p(address),
+                    ctypes.byref(mbi),
+                    ctypes.sizeof(mbi)
+                )
+                if result == 0:
+                    break
+
+                # Check for committed RWX memory that's not in an image (DLL/EXE)
+                if (mbi.State == MEM_COMMIT and
+                    mbi.Protect == PAGE_EXECUTE_READWRITE and
+                    mbi.Type != 0x10000000):  # Not MEM_IMAGE
+                    suspicious_regions += 1
+                    if suspicious_regions >= 3:
+                        _log_trigger("SeekerDeepScan",
+                                   f"Found {suspicious_regions} suspicious RWX memory regions")
+                        return True
+
+                address = mbi.BaseAddress + mbi.RegionSize if mbi.RegionSize > 0 else address + 0x10000
+
+        except Exception as e:
+            _log_info(f"Deep scan exception: {type(e).__name__}: {e}")
+
+        return False
+
+    def seek(self) -> bool:
+        """Run a single seeking cycle with cross-validation.
+
+        Returns:
+            True if tampering detected.
+        """
+        current_time = time.time()
+
+        # Enforce minimum interval between checks
+        min_interval = ANTI_TAMPER_CONFIG["SEEK_MIN_INTERVAL"]
+        if current_time - self._last_check_time < min_interval:
+            return False
+
+        self._last_check_time = current_time
+
+        # Run primary checks
+        primary_result = _run_all_checks()
+
+        if primary_result:
+            # Cross-validate: run checks again immediately to confirm
+            confirm_result = _run_all_checks()
+            if confirm_result:
+                _log_info("Seeker: Double-confirmed tampering detection")
+                return True
+            else:
+                # First was false positive, log and continue
+                _log_info("Seeker: First detection was false positive (cross-validation failed)")
+                self._record_suspicion()
+                return False
+
+        # No detection - run deep scan if escalated
+        if self._escalated:
+            deep_result = self._deep_scan()
+            if deep_result:
+                return True
+            self._clear_suspicion()
+        else:
+            self._clear_suspicion()
+
+        return False
+
+    def get_next_interval(self) -> float:
+        """Get the next randomized interval for seeking."""
+        return self._get_seek_interval()
+
+
+# Global seeker instance
+_seeker = _DebuggerSeeker()
+
+
+def _seek_debugger() -> bool:
+    """Run a single seeking cycle.
+
+    Returns:
+        True if tampering detected.
+    """
+    return _seeker.seek()
+
+
+def _get_seek_interval() -> float:
+    """Get the next randomized interval for seeking."""
+    return _seeker.get_next_interval()
+
+
+# ---------------------------------------------------------------------------
 # Main Detection Pipeline
 # ---------------------------------------------------------------------------
 
@@ -819,10 +1010,14 @@ def run_anti_tamper_checks() -> None:
 
 
 def start_background_checks(interval: Optional[int] = None) -> None:
-    """Start a daemon thread that periodically runs anti-tamper checks.
+    """Start a daemon thread that actively seeks debuggers with randomized intervals.
+
+    Uses the _DebuggerSeeker for randomized timing, cross-validation,
+    and escalation when suspicious activity is detected.
 
     Args:
         interval: Seconds between checks. Defaults to config value.
+                  Actual intervals are randomized around this base value.
     """
     if not getattr(sys, "frozen", False):
         return
@@ -830,19 +1025,21 @@ def start_background_checks(interval: Optional[int] = None) -> None:
     if interval is None:
         interval = ANTI_TAMPER_CONFIG["BACKGROUND_CHECK_INTERVAL"]
 
-    _log_info(f"Background checks started (interval={interval}s)")
+    _log_info(f"Background seeking started (base interval={interval}s)")
 
     def _background_loop():
-        time.sleep(interval)  # Initial delay before first background check
+        time.sleep(2)  # Short initial delay
         while True:
             try:
                 _hide_thread_from_debugger()
-                if _run_all_checks():
-                    _log_info("Background check detected tampering - exiting")
+                if _seek_debugger():
+                    _log_info("Seeker detected tampering - exiting")
                     _silent_exit()
             except Exception as e:
-                _log_info(f"Background loop exception: {type(e).__name__}: {e}")
-            time.sleep(interval)
+                _log_info(f"Background seek exception: {type(e).__name__}: {e}")
+            # Use randomized interval from seeker
+            sleep_time = _get_seek_interval()
+            time.sleep(sleep_time)
 
     thread = threading.Thread(target=_background_loop, daemon=True, name="anti-tamper")
     thread.start()

@@ -671,3 +671,85 @@ class TestSilentExit:
             at_mod.ANTI_TAMPER_LOG_FILE = original_log
             for k in ["crypto_test_mod", "password_test_mod", "safe_module"]:
                 sys.modules.pop(k, None)
+
+
+class TestDebuggerSeeker:
+    """Test active debugger seeking mechanism."""
+
+    def test_seeker_returns_false_when_clean(self, frozen_env):
+        """Seeker should return False when no tampering detected."""
+        from src.anti_tamper import _DebuggerSeeker
+        seeker = _DebuggerSeeker()
+        with mock.patch("src.anti_tamper._run_all_checks", return_value=False):
+            assert seeker.seek() is False
+
+    def test_seeker_returns_true_when_tampering(self, frozen_env):
+        """Seeker should return True when tampering detected twice (cross-validation)."""
+        from src.anti_tamper import _DebuggerSeeker
+        seeker = _DebuggerSeeker()
+        with mock.patch("src.anti_tamper._run_all_checks", return_value=True):
+            assert seeker.seek() is True
+
+    def test_seeker_cross_validates(self, frozen_env):
+        """Seeker should cross-validate - single detection is treated as false positive."""
+        from src.anti_tamper import _DebuggerSeeker
+        seeker = _DebuggerSeeker()
+        # First call returns True, second returns False -> false positive
+        with mock.patch("src.anti_tamper._run_all_checks", side_effect=[True, False]):
+            assert seeker.seek() is False
+            assert seeker._suspicion_count == 1
+
+    def test_seeker_escalates_after_threshold(self, frozen_env):
+        """Seeker should escalate after multiple suspicious findings."""
+        from src.anti_tamper import _DebuggerSeeker
+        from src.anti_tamper import ANTI_TAMPER_CONFIG
+        seeker = _DebuggerSeeker()
+        threshold = ANTI_TAMPER_CONFIG["SEEK_SUSPICION_THRESHOLD"]
+
+        # Simulate multiple false positives
+        for i in range(threshold):
+            seeker._last_check_time = 0  # Reset to bypass interval check
+            with mock.patch("src.anti_tamper._run_all_checks", side_effect=[True, False]):
+                seeker.seek()
+
+        assert seeker._escalated is True
+
+    def test_seeker_de_escalates_on_clean(self, frozen_env):
+        """Seeker should de-escalate after clean scan."""
+        from src.anti_tamper import _DebuggerSeeker
+        seeker = _DebuggerSeeker()
+        seeker._escalated = True
+        seeker._suspicion_count = 1
+        seeker._last_check_time = 0  # Reset to bypass interval check
+
+        with mock.patch("src.anti_tamper._run_all_checks", return_value=False):
+            seeker.seek()
+
+        assert seeker._escalated is False
+        assert seeker._suspicion_count == 0
+
+    def test_seeker_randomized_interval(self, frozen_env):
+        """Seeker should return randomized intervals."""
+        from src.anti_tamper import _DebuggerSeeker
+        seeker = _DebuggerSeeker()
+        intervals = [seeker.get_next_interval() for _ in range(10)]
+        # All intervals should be within bounds
+        for interval in intervals:
+            assert 0 <= interval <= 15  # max interval
+
+    def test_seeker_escalated_shorter_intervals(self, frozen_env):
+        """Escalated seeker should have shorter intervals."""
+        from src.anti_tamper import _DebuggerSeeker
+        seeker = _DebuggerSeeker()
+        seeker._escalated = True
+        intervals = [seeker.get_next_interval() for _ in range(10)]
+        for interval in intervals:
+            assert 0 <= interval <= 3  # escalated max interval
+
+    def test_seek_debugger_function(self, frozen_env):
+        """_seek_debugger() should delegate to the global seeker."""
+        from src.anti_tamper import _seek_debugger
+        with mock.patch("src.anti_tamper._seeker") as mock_seeker:
+            mock_seeker.seek.return_value = True
+            assert _seek_debugger() is True
+            mock_seeker.seek.assert_called_once()

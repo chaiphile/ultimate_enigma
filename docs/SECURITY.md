@@ -260,20 +260,27 @@ ANTI_TAMPER_CONSTANTS = {
     "SILENT_EXIT": True,                  # exit without warning
     "EXIT_CODE": 1,                       # process exit code
     "HIDE_THREADS": True,                 # hide threads from debugger
+    "SEEK_MIN_INTERVAL": 5,              # min seconds between seeking scans
+    "SEEK_MAX_INTERVAL": 15,             # max seconds between seeking scans
+    "SEEK_SUSPICION_THRESHOLD": 3,        # consecutive suspicious findings before escalation
+    "SEEK_ESCALATED_MIN_INTERVAL": 1,    # min seconds between escalated scans
+    "SEEK_ESCALATED_MAX_INTERVAL": 3,    # max seconds between escalated scans
 }
 ```
 
 ### Behavior
 
 1. **Startup**: `run_anti_tamper_checks()` runs immediately after PyInstaller path setup, before any other imports
-2. **Background**: A daemon thread runs checks every 30 seconds after GUI initialization
-3. **On-demand**: `check_on_demand()` can be called before critical operations
-4. **Detection**: Any single check triggering causes immediate silent exit
-5. **Errors**: Individual check failures are caught and skipped (resilient pipeline)
+2. **Background**: A daemon thread runs active seeking checks with randomized intervals (5-15 seconds normal, 1-3 seconds escalated)
+3. **Cross-validation**: Detections are double-checked before confirming to prevent false positives
+4. **Escalation**: When suspicious activity is detected (3+ consecutive findings), scan frequency increases and deep scans (memory region analysis) are performed
+5. **On-demand**: `check_on_demand()` can be called before critical operations
+6. **Detection**: Any confirmed check triggers immediate silent exit
+7. **Errors**: Individual check failures are caught and skipped (resilient pipeline)
 
 ### Testing
 
-50 unit tests in `tests/test_anti_tamper.py` cover:
+58 unit tests in `tests/test_anti_tamper.py` cover:
 - All detection methods in isolation
 - Skipped behavior when not frozen
 - Exception resilience in the check pipeline

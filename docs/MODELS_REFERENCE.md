@@ -391,6 +391,11 @@ EnigmaError (base)
 | `EXIT_CODE` | 1 | Process exit code |
 | `HIDE_THREADS` | True | Hide threads from debugger |
 | `HARDWARE_BREAKPOINT_CHECK` | True | Enable detection of hardware breakpoints via debug registers |
+| `SEEK_MIN_INTERVAL` | 5 | Minimum seconds between seeking scans (normal mode) |
+| `SEEK_MAX_INTERVAL` | 15 | Maximum seconds between seeking scans (normal mode) |
+| `SEEK_SUSPICION_THRESHOLD` | 3 | Consecutive suspicious findings before escalation |
+| `SEEK_ESCALATED_MIN_INTERVAL` | 1 | Minimum seconds between escalated scans |
+| `SEEK_ESCALATED_MAX_INTERVAL` | 3 | Maximum seconds between escalated scans |
 
 ### Helper Functions
 
