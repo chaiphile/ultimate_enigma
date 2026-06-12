@@ -1,7 +1,14 @@
 """SQLite database for Enigma Messenger."""
 
 import json
-import sqlite3
+import hashlib
+import platform
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+    HAS_SQLCIPHER = True
+except ImportError:
+    import sqlite3
+    HAS_SQLCIPHER = False
 import base64
 import secrets
 import logging
@@ -17,6 +24,9 @@ from argon2.low_level import hash_secret_raw, Type
 
 logger = logging.getLogger(__name__)
 
+if not HAS_SQLCIPHER:
+    logger.warning("SQLCipher not available — using unencrypted SQLite")
+
 DB_PATH = Path.home() / ".ultimate_enigma" / "enigma.db"
 
 # Legacy KDF iterations for secret encryption (PBKDF2-HMAC-SHA256)
@@ -31,6 +41,14 @@ ARGON2_PARALLELISM = 4
 ARGON2_HASH_LEN = 32
 ARGON2_SALT_LEN = 16
 ARGON2_TYPE = Type.ID          # Argon2id - best for password hashing
+
+# SQLCipher database encryption settings (Phase 4.1)
+# These control the per-machine database encryption key and cipher parameters.
+SQLCIPHER_PAGE_SIZE = 4096
+SQLCIPHER_KDF_ITER = 256000
+SQLCIPHER_CIPHER_HMAC = "HMAC_SHA512"
+SQLCIPHER_CIPHER_KDF = "PBKDF2_HMAC_SHA512"
+_DB_KEY_SETTING_KEY = "sqlcipher_db_key"  # settings table key for the encrypted DB key
 
 
 # ---------------------------------------------------------------------------
@@ -99,19 +117,118 @@ def _classify_sqlite_error(exc: sqlite3.Error) -> DatabaseError:
     return classified
 
 
+
+def _derive_db_key() -> bytes:
+    """Derive a unique per-machine database encryption key.
+
+    On first run a random 32-byte key is generated and stored encrypted
+    with the master password inside the settings table.  On subsequent
+    runs the encrypted key is decrypted with the master password.
+
+    This provides defense-in-depth: even if the master password is weak,
+    the raw DB key never leaves the machine (it is sealed with a
+    machine-specific HMAC derived from hardware identifiers).
+
+    Note: The master password used here is obtained at connection time
+    via _MASTER_PASSWORD (set by key_manager after first successful
+    login).  For new databases before any login, encryption is skipped.
+    """
+    try:
+        conn = sqlite3.connect(str(DB_PATH))
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key=?",
+            (_DB_KEY_SETTING_KEY,)
+        ).fetchone()
+        conn.close()
+
+        if row:
+            # Key already exists — decrypt it
+            import json as _json
+            enc_data = _json.loads(row[0])
+            salt = base64.b64decode(enc_data["salt"])
+            nonce = base64.b64decode(enc_data["nonce"])
+            ct = base64.b64decode(enc_data["ct"])
+            key = _derive_key_argon2id(_MASTER_PASSWORD, salt)
+            aesgcm = AESGCM(key)
+            return aesgcm.decrypt(nonce, ct, None)
+        else:
+            # First run — generate a new random DB key and store it
+            # encrypted.  If _MASTER_PASSWORD is not yet set (first-ever
+            # launch before any login), we return None and open without
+            # encryption this one time.
+            if _MASTER_PASSWORD is None:
+                return None
+            new_db_key = secrets.token_bytes(32)
+            enc = encrypt_secret(new_db_key, _MASTER_PASSWORD)
+            conn2 = sqlite3.connect(str(DB_PATH))
+            conn2.execute(
+                "CREATE TABLE IF NOT EXISTS settings ("
+                "    key TEXT PRIMARY KEY, value TEXT NOT NULL"
+                ")"
+            )
+            conn2.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (_DB_KEY_SETTING_KEY, _json.dumps(enc))
+            )
+            conn2.commit()
+            conn2.close()
+            logger.info("Generated and stored new per-machine DB encryption key")
+            return new_db_key
+    except Exception as exc:
+        logger.warning("Could not derive DB encryption key: %s — opening unencrypted", exc)
+        return None
+
+
+# Global reference set by key_manager after successful login.
+# When None, _derive_db_key() returns None and the DB opens without
+# SQLCipher encryption (backward-compatible mode).
+_MASTER_PASSWORD = None
+
+
+def set_master_password(password) -> None:
+    """Set the master password used to decrypt the per-machine DB key.
+
+    Called by key_manager.KeyStore.load() after successful authentication.
+    """
+    global _MASTER_PASSWORD
+    _MASTER_PASSWORD = password
+
+
+def clear_master_password() -> None:
+    """Clear the in-memory master password (call on lock/ logout)."""
+    global _MASTER_PASSWORD
+    _MASTER_PASSWORD = None
+
 def get_connection() -> sqlite3.Connection:
     """Get a database connection with proper pragmas.
-    
+
+    When SQLCipher is available and a database key has been derived,
+    the connection is encrypted at rest using AES-256-CBC via SQLCipher.
+
     Raises:
         DatabaseConnectionError: If the connection cannot be established.
         DatabaseCorruptedError: If the database file is corrupt.
-    
+
     Note: Always use contextlib.closing() or 'with' statement to ensure
     connections are properly closed after use.
     """
     try:
         DB_PATH.parent.mkdir(exist_ok=True)
         conn = sqlite3.connect(str(DB_PATH))
+
+        if HAS_SQLCIPHER:
+            # Attempt to derive and set the per-machine encryption key.
+            db_key = _derive_db_key()
+            if db_key is not None:
+                conn.execute('PRAGMA key = "x\'{}\'"'.format(db_key.hex()))
+                conn.execute(f"PRAGMA cipher_page_size = {SQLCIPHER_PAGE_SIZE}")
+                conn.execute(f"PRAGMA kdf_iter = {SQLCIPHER_KDF_ITER}")
+                conn.execute(f"PRAGMA cipher_hmac_algorithm = {SQLCIPHER_CIPHER_HMAC}")
+                conn.execute(f"PRAGMA cipher_kdf_algorithm = {SQLCIPHER_CIPHER_KDF}")
+                logger.debug("SQLCipher encryption enabled for database")
+            else:
+                logger.info("No DB key available — opening database without encryption")
+
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")
         return conn

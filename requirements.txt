@@ -6,3 +6,6 @@ argon2-cffi>=23.1.0
 qrcode[pil]>=7.4   # QR code generation for TOTP setup
 liboqs-python>=0.9.0  # Post-quantum cryptography (CRYSTALS-Kyber)
 pytest>=7.0.0      # optional, only needed for running tests
+
+# SQLCipher support for encrypted database (Phase 4.1)
+sqlcipher3>=1.2.0

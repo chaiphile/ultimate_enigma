@@ -394,6 +394,7 @@ The `UltimateEnigma.spec` file configures PyInstaller to:
 | Hotkeys not working | Global hotkeys are Windows-only. Use the Emergency Lock button on macOS/Linux |
 | NTP sync fails | Check firewall; app falls back to system time automatically |
 | `cryptography` build errors | Install build tools: `build-essential` (Linux), Xcode CLT (macOS), or run `setup_dev_env.ps1` to install Visual C++ Build Tools & Windows 11 SDK (Windows) |
+| `sqlcipher3` import fails | Install SQLCipher dev libraries: `libsqlcipher-dev` (Linux), `brew install sqlcipher` (macOS), or download `sqlcipher.dll` (Windows). See [SQLCipher docs](https://www.zetetic.net/sqlcipher/) |
 | App crashes on startup | Check `enigma.log` in the project directory for detailed error messages |
 
 ### Log Files

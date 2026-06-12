@@ -25,7 +25,7 @@ Ultimate Enigma Messenger is a **local cryptographic tool** that encrypts messag
 - **Time‑based symmetric keys** with NTP-synchronized sliding window
 - **Self‑destruct messages** with configurable expiration
 
-All sensitive keys are encrypted at rest and stored in a SQLite database. The app provides an intuitive dark-themed GUI built with ttkbootstrap for encryption, decryption, contact management, and key exchange.
+All sensitive keys are encrypted at rest and stored in a SQLCipher-encrypted SQLite database (via `sqlcipher3`). When `sqlcipher3` is unavailable, the app falls back to plain SQLite with a warning. The app provides an intuitive dark-themed GUI built with ttkbootstrap for encryption, decryption, contact management, and key exchange.
 
 📚 **Detailed Documentation:** See the [`docs/`](docs/) directory for comprehensive guides:
 - [Setup Guide (Windows/macOS/Linux)](docs/SETUP.md) – Multi-OS installation and configuration

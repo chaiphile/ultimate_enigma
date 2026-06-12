@@ -238,3 +238,35 @@ class TestIntegrityCheck:
             ok, detail = database.check_integrity()
             # Should not raise, just return False
             assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# Tests: sqlcipher3 Import & Fallback
+# ---------------------------------------------------------------------------
+
+class TestSQLCipherImport:
+    def test_has_sqlcipher_flag_exists(self):
+        """HAS_SQLCIPHER must be defined as a module-level boolean."""
+        assert hasattr(database, "HAS_SQLCIPHER")
+        assert isinstance(database.HAS_SQLCIPHER, bool)
+
+    def test_fallback_to_stdlib_when_sqlcipher3_missing(self):
+        """Simulate sqlcipher3 ImportError and verify stdlib fallback."""
+        import sqlite3 as stdlib_sqlite3
+        with patch.dict("sys.modules", {"sqlcipher3": None}):
+            import importlib
+            import database as db2
+            importlib.reload(db2)
+            assert db2.HAS_SQLCIPHER is False
+            conn = db2.get_connection()
+            assert isinstance(conn, stdlib_sqlite3.Connection)
+            conn.close()
+
+    def test_get_connection_works_without_sqlcipher(self):
+        """Connection should succeed even when sqlcipher3 is unavailable."""
+        with patch.object(database, "HAS_SQLCIPHER", False):
+            with patch.object(database, "_derive_db_key", return_value=None):
+                conn = database.get_connection()
+                assert conn is not None
+                conn.execute("SELECT 1")
+                conn.close()
