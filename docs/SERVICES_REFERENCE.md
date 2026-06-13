@@ -578,6 +578,79 @@ Hybrid digital signatures combining Ed25519 with CRYSTALS-Dilithium3 (or ML-DSA-
 
 ---
 
+## FriendRepository
+
+**File:** `services/friend_repository.py`
+
+Data access layer for `FriendProfile` persistence. Centralises all database queries for friend data.
+
+### Standalone Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `get_friend_profile(name)` | `Optional[FriendProfile]` | Load a single profile from DB |
+| `list_all_friend_profiles()` | `List[FriendProfile]` | Load all profiles from DB |
+
+---
+
+## TotpPersistence
+
+**File:** `services/totp_persistence.py`
+
+Handles persistence of TOTP secrets, setup status, and enabled state to/from the database. Uses multiple decryption strategies for backward compatibility.
+
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `TOTP_SECRET_KEY` | `'totp_secret_encrypted'` | DB key for encrypted TOTP secret |
+| `TOTP_SETUP_KEY` | `'totp_setup_complete'` | DB key for setup flag |
+| `TOTP_ENABLED_KEY` | `'totp_enabled'` | DB key for enabled flag |
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `load_totp_secret(totp_service, password, ks)` | Load with multiple decryption strategies |
+| `persist_totp_secret(secret_bytes, password)` | Encrypt and store TOTP secret |
+| `is_totp_setup_complete()` | Check DB flag |
+| `set_totp_setup_complete(value)` | Set DB flag |
+| `is_totp_enabled()` | Check DB flag (falls back to setup status) |
+| `set_totp_enabled(value)` | Set DB flag |
+
+---
+
+## XChaCha20Poly1305
+
+**File:** `services/xchacha20_poly1305.py`
+
+XChaCha20-Poly1305 AEAD cipher providing nonce-misuse-resistant encryption with a 192-bit nonce space. Implements HChaCha20 subkey derivation in pure Python. Used by the Double Ratchet protocol.
+
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `XCHACHA20_KEY_SIZE` | 32 | Key length in bytes |
+| `XCHACHA20_NONCE_SIZE` | 24 | Nonce length in bytes |
+| `XCHACHA20_TAG_SIZE` | 16 | Authentication tag length |
+
+### Standalone Functions
+
+| Function | Description |
+|----------|-------------|
+| `generate_nonce()` | Generate cryptographically random 24-byte nonce |
+| `run_self_test()` | Run KAT self-test against known vectors |
+
+### Class: XChaCha20Poly1305
+
+| Method | Description |
+|--------|-------------|
+| `__init__(key)` | Validate 32-byte key, store raw key |
+| `encrypt(nonce, plaintext, associated_data)` | Encrypt with HChaCha20 subkey derivation + IETF ChaCha20-Poly1305 |
+| `decrypt(nonce, ciphertext, associated_data)` | Verify and decrypt ciphertext |
+
+---
+
 ## Controllers
 
 ### ServiceOrchestrator

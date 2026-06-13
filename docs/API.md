@@ -357,21 +357,45 @@ class Envelope:
 
 ### SecureString
 
-Memory-safe string handling.
+Memory-safe string handling with 3-pass secure wipe.
 
 ```python
 class SecureString:
-    def __init__(self, value: str)
-    
-    def get(self) -> str
-        """Retrieve the string value."""
+    def __init__(self, data)  # str, bytes, or bytearray
     
     def wipe(self) -> None
-        """Zero the underlying memory."""
+        """3-pass secure wipe: zero → random → zero."""
     
+    def to_str(self) -> str
+        """Convert to Python str (immutable — use immediately)."""
+    
+    def to_bytes(self) -> bytes
+        """Convert to bytes (immutable — use immediately)."""
+    
+    def to_bytearray(self) -> bytearray
+        """Return mutable copy (caller must wipe)."""
+    
+    def append(self, data) -> None
+        """Append str, bytes, or SecureString."""
+    
+    def copy(self) -> SecureString
+        """Create deep copy."""
+    
+    @property
+    def is_wiped(self) -> bool
+    
+    # Context manager (recommended)
     def __enter__(self)
-    def __exit__(self)
-        # Context manager for automatic wiping
+    def __exit__(self, *args)
+        # Auto-wipes on exit
+
+# Factory methods
+SecureString.from_str(data) -> SecureString
+SecureString.from_bytes(data) -> SecureString
+
+# Standalone utilities
+secure_compare(a, b) -> bool  # Constant-time comparison
+wipe_bytes(data: bytearray) -> None  # Wipe mutable buffer
 ```
 
 ### Anti-Tamper (src/anti_tamper.py)
@@ -427,15 +451,52 @@ Custom exceptions are defined in `src/exceptions.py`:
 class EnigmaError(Exception):
     """Base exception for Ultimate Enigma."""
 
-class AuthenticationError(EnigmaError):
-    """Authentication failed."""
+class KeyStoreError(EnigmaError):
+    """Key loading, saving, or password verification failed."""
+
+class EncryptionError(EnigmaError):
+    """Encryption cannot proceed."""
 
 class DecryptionError(EnigmaError):
-    """Decryption failed."""
+    """Decryption fails."""
 
-class KeyNotFoundError(EnigmaError):
-    """Required key not found."""
+class RatchetStateError(EnigmaError):
+    """Double Ratchet state error."""
 
-class TimeoutError(EnigmaError):
-    """Operation timed out."""
+class RatchetNotFoundError(RatchetStateError):
+    """No active ratchet session for a friend."""
+
+class RatchetInitError(RatchetStateError):
+    """Ratchet initialization fails."""
+
+class RatchetServiceError(RatchetStateError):
+    """General ratchet service failure."""
+
+class TOTPValidationError(EnigmaError):
+    """TOTP verification or secret failure."""
+
+class CryptoTimeoutError(EnigmaError):
+    """Crypto operation exceeds time limit."""
+
+class ConcurrencyError(EnigmaError):
+    """Lock acquisition or concurrency failure."""
+```
+
+Database-specific exceptions are in `database.py`:
+
+```python
+class DatabaseError(Exception):
+    """Base database exception."""
+
+class DatabaseCorruptedError(DatabaseError):
+    """DB file corrupted — restore from backup."""
+
+class DatabaseLockedError(DatabaseError):
+    """DB locked by another process — retry."""
+
+class DatabaseIntegrityError(DatabaseError):
+    """Constraint violation (UNIQUE, FK)."""
+
+class DatabaseConnectionError(DatabaseError):
+    """Cannot establish connection."""
 ```
