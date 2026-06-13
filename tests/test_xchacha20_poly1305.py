@@ -129,7 +129,7 @@ class TestConstructor:
     def test_valid_key(self):
         key = secrets.token_bytes(XCHACHA20_KEY_SIZE)
         cipher = XChaCha20Poly1305(key)
-        assert cipher._key == key
+        assert bytes(cipher._key_buf) == key
 
     def test_wrong_key_length(self):
         with pytest.raises(ValueError, match="key must be 32 bytes"):

@@ -77,11 +77,9 @@ class RatchetState:
         buf = getattr(self, field_name)
         if isinstance(buf, GuardedBuffer):
             buf.wipe_and_free()
-            new_buf = GuardedBuffer(len(new_value))
-            new_buf.write(new_value)
-            setattr(self, field_name, new_buf)
-        else:
-            setattr(self, field_name, new_value)
+        new_buf = GuardedBuffer(len(new_value))
+        new_buf.write(new_value)
+        setattr(self, field_name, new_buf)
 
     @staticmethod
     def _hkdf_rk(rk: bytes, dh_out: bytes) -> tuple:

@@ -12,6 +12,8 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 
+from security.guarded_buffer import GuardedBuffer
+
 import database
 import key_manager
 from key_manager import (
@@ -227,11 +229,9 @@ class TestWipe:
 
     def test_wipe_zeros_bytearray(self, initialized_keystore, password):
         ks = initialized_keystore
-        # Keep a direct reference to the same bytearray object (not a copy)
         old_secret = ks.global_secret
         ks.wipe()
-        # The original bytearray should be zeroed in-place
-        assert all(b == 0 for b in old_secret)
+        assert old_secret is None or (isinstance(old_secret, GuardedBuffer) and old_secret._freed)
 
 
 # ---------------------------------------------------------------------------

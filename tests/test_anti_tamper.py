@@ -649,14 +649,20 @@ class TestSilentExit:
 
     def test_silent_exit_calls_os_exit(self, frozen_env):
         from src.anti_tamper import _silent_exit
-        with mock.patch("os._exit") as mock_exit:
-            _silent_exit()
-            mock_exit.assert_called_once_with(1)
+        saved = sys.modules.copy()
+        try:
+            with mock.patch("os._exit") as mock_exit:
+                _silent_exit()
+                mock_exit.assert_called_once_with(1)
+        finally:
+            sys.modules.clear()
+            sys.modules.update(saved)
 
     def test_silent_exit_clears_sensitive_modules(self, frozen_env):
         from src.anti_tamper import _silent_exit
         import src.anti_tamper as at_mod
         original_log = at_mod.ANTI_TAMPER_LOG_FILE
+        saved = sys.modules.copy()
         try:
             at_mod.ANTI_TAMPER_LOG_FILE = None
             sys.modules["crypto_test_mod"] = mock.MagicMock()
@@ -669,8 +675,8 @@ class TestSilentExit:
             assert "safe_module" in sys.modules
         finally:
             at_mod.ANTI_TAMPER_LOG_FILE = original_log
-            for k in ["crypto_test_mod", "password_test_mod", "safe_module"]:
-                sys.modules.pop(k, None)
+            sys.modules.clear()
+            sys.modules.update(saved)
 
 
 class TestDebuggerSeeker:

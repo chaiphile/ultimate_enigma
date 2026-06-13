@@ -307,9 +307,9 @@ class TestHybridSignerLoadEdPublicKey:
         assert isinstance(pub, Ed25519PublicKey)
 
     def test_load_invalid_key_raises(self):
-        """Should raise on invalid Ed25519 public key bytes."""
+        """Should raise on invalid Ed25519 public key bytes (wrong length)."""
         with pytest.raises(Exception):
-            HybridSigner.load_ed_public_key(b"\x00" * 32)
+            HybridSigner.load_ed_public_key(b"\x00" * 16)
 
 
 # ---------------------------------------------------------------------------

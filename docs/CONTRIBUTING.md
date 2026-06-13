@@ -64,6 +64,7 @@ Follow the MVC architecture:
 - Use constants from `src/constants.py` instead of magic numbers
 - Apply timeout decorators to potentially blocking operations
 - Anti-tamper protections (`src/anti_tamper.py`) only activate in frozen .exe; do not test debugger detection from source
+- Use `GuardedBuffer` (`security/guarded_buffer.py`) for in-memory secrets (e.g. chain keys, global secret). GuardedBuffer supports `bytes()`, `len()`, iteration, and `==` comparison for seamless interop with bytes-based code. Always wrap values via `_update_chain_key()` or `GuardedBuffer.write()` — never store raw `bytes` for sensitive data.
 
 ### Example: Service Method
 

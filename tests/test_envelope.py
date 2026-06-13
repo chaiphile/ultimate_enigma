@@ -274,8 +274,8 @@ class TestEnvelopeEdgeCases:
             ciphertext=b'\x02' * 50,
         )
         packet = env.build()
-        parsed = RatchetEnvelope.parse(packet)
-        assert parsed.sender_name == ""
+        with pytest.raises(ValueError, match="empty sender name"):
+            RatchetEnvelope.parse(packet)
 
     def test_pqc_envelope_large_kem_ciphertext(self):
         """Test with large KEM ciphertext."""

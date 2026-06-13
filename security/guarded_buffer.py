@@ -154,6 +154,24 @@ class GuardedBuffer:
         buf = (ctypes.c_char * self._size).from_address(self._data_addr)  # type: ignore[arg-type]
         return bytearray(buf)
 
+    def __bytes__(self) -> bytes:
+        return bytes(self.read())
+
+    def __len__(self) -> int:
+        if self._freed:
+            raise ValueError("buffer already freed")
+        return self._size
+
+    def __iter__(self):
+        return iter(self.read())
+
+    def __eq__(self, other: object) -> bool:
+        if isinstance(other, GuardedBuffer):
+            if self._freed or other._freed:
+                return False
+            return self.read() == other.read()
+        return NotImplemented
+
     def wipe_and_free(self) -> None:
         """Zero the data region, then release the full allocation."""
         if self._freed:
