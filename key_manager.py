@@ -20,6 +20,7 @@ import database
 from services.pqc_service import HybridKEM, is_pqc_available
 from src.exceptions import KeyStoreError
 from src.secure_string import SecureString
+from security.guarded_buffer import GuardedBuffer
 
 try:
     from services.pqc_signatures import HybridSigner
@@ -135,6 +136,7 @@ class KeyStore:
         self.my_dil_priv: Optional[bytes] = None  # Dilithium3 secret key bytes
         self.my_hybrid_sig_combined_pub: Optional[bytes] = None  # Combined public key bytes
         self.friends_hybrid_sig_pubs: Dict[str, tuple] = {}  # name -> (ed_pub_bytes, dil_pub_bytes)
+        self._rsa_key_bytes: Optional[GuardedBuffer] = None
 
     # ---------- Persistent lockout helpers ----------
 
@@ -270,9 +272,16 @@ class KeyStore:
             row = conn.execute("SELECT value FROM settings WHERE key='global_secret'").fetchone()
             if row:
                 enc_dict = json.loads(row[0])
-                # Store as bytearray for zeroing capability
+                # Store as GuardedBuffer for secure wiping
                 try:
-                    self.global_secret = bytearray(database.decrypt_secret(enc_dict, password))
+                    old = self.global_secret
+                    decrypted = database.decrypt_secret(enc_dict, password)
+                    self.global_secret = GuardedBuffer(len(decrypted))
+                    self.global_secret.write(bytes(decrypted) if isinstance(decrypted, bytearray) else decrypted)
+                    # Zero old bytearray
+                    if isinstance(old, bytearray):
+                        for i in range(len(old)):
+                            old[i] = 0
                 except (ValueError, TypeError) as e:
                     logger.error("Failed to decrypt global secret: %s", e)
                     return False
@@ -379,8 +388,10 @@ class KeyStore:
                 if has_sec and sec_json:
                     try:
                         sec_dict = json.loads(sec_json)
-                        # Store as bytearray for zeroing capability
-                        secret = bytearray(database.decrypt_secret(sec_dict, password))
+                        # Store as GuardedBuffer for secure wiping
+                        decrypted = database.decrypt_secret(sec_dict, password)
+                        secret = GuardedBuffer(len(decrypted))
+                        secret.write(bytes(decrypted) if isinstance(decrypted, bytearray) else decrypted)
                     except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning("Could not decrypt shared secret for friend '%s': %s", name, e)
                 self.friends.append((name, pub, secret))
@@ -592,10 +603,14 @@ class KeyStore:
             )
             conn.commit()
         pub = _pem_to_pubkey(pem)
-        # Remove old entry and add new one, storing secret as bytearray if present
+        # Remove old entry and add new one, storing secret as GuardedBuffer if present
         self.friends = [(n, p, s) for (n, p, s) in self.friends if n != name]
-        secret_ba = bytearray(shared_secret) if shared_secret else None
-        self.friends.append((name, pub, secret_ba))
+        if shared_secret:
+            secret_gb = GuardedBuffer(len(shared_secret))
+            secret_gb.write(bytes(shared_secret) if isinstance(shared_secret, bytearray) else shared_secret)
+        else:
+            secret_gb = None
+        self.friends.append((name, pub, secret_gb))
         if x25519_pub_b64:
             self.friends_x25519[name] = x25519_pub_b64
         else:
@@ -634,8 +649,11 @@ class KeyStore:
     def get_friend_secret(self, name: str) -> Optional[bytes]:
         for n, _, s in self.friends:
             if n == name:
-                # Return as bytes for compatibility (immutable)
-                return bytes(s) if s is not None else None
+                if s is None:
+                    return None
+                if isinstance(s, GuardedBuffer):
+                    return s.read()
+                return bytes(s)
         return None
 
     # ---------- PQC Hybrid KEM key management ----------
@@ -967,10 +985,16 @@ class KeyStore:
             # Build secrets list: global_secret (bytes-like) and each friend secret (bytes-like)
             secrets_to_try = []
             if self.global_secret is not None:
-                secrets_to_try.append(bytes(self.global_secret))
+                if isinstance(self.global_secret, GuardedBuffer):
+                    secrets_to_try.append(self.global_secret.read())
+                else:
+                    secrets_to_try.append(bytes(self.global_secret))
             for _, _, sec in self.friends:
                 if sec is not None:
-                    secrets_to_try.append(bytes(sec))
+                    if isinstance(sec, GuardedBuffer):
+                        secrets_to_try.append(sec.read())
+                    else:
+                        secrets_to_try.append(bytes(sec))
             return my_priv, friends_for_crypto, secrets_to_try, legacy_priv
 
     def change_password(self, old_password: Union[str, bytes, SecureString], new_password: Union[str, bytes, SecureString]) -> None:
@@ -1090,14 +1114,23 @@ class KeyStore:
                 conn.commit()
 
                 # --- 4. Update in-memory state ---
-                self.global_secret = bytearray(gs_plain)
+                # Wipe old global_secret if it's a GuardedBuffer
+                if isinstance(self.global_secret, GuardedBuffer):
+                    self.global_secret.wipe_and_free()
+                gs_gb = GuardedBuffer(len(gs_plain))
+                gs_gb.write(bytes(gs_plain) if isinstance(gs_plain, bytearray) else gs_plain)
+                self.global_secret = gs_gb
                 # Reload private key reference (already decrypted above)
                 self.my_priv = priv_key
                 # Update friend secrets in memory
                 updated_friends = []
                 for name, pub, sec in self.friends:
                     if name in friend_secrets:
-                        updated_friends.append((name, pub, bytearray(friend_secrets[name])))
+                        if isinstance(sec, GuardedBuffer):
+                            sec.wipe_and_free()
+                        new_sec = GuardedBuffer(len(friend_secrets[name]))
+                        new_sec.write(bytes(friend_secrets[name]) if isinstance(friend_secrets[name], bytearray) else friend_secrets[name])
+                        updated_friends.append((name, pub, new_sec))
                     else:
                         updated_friends.append((name, pub, sec))
                 self.friends = updated_friends
@@ -1121,37 +1154,48 @@ class KeyStore:
         """Securely erase all sensitive keys from memory."""
         with self._lock:
             if self.global_secret is not None:
-                # Zero out the bytearray
-                for i in range(len(self.global_secret)):
-                    self.global_secret[i] = 0
+                if isinstance(self.global_secret, GuardedBuffer):
+                    self.global_secret.wipe_and_free()
                 self.global_secret = None
 
             wiped_friends = []
             for name, pub, sec in self.friends:
-                if isinstance(sec, bytearray):
+                if isinstance(sec, GuardedBuffer):
+                    sec.wipe_and_free()
+                elif isinstance(sec, bytearray):
                     for i in range(len(sec)):
                         sec[i] = 0
-                    wiped_friends.append((name, pub, None))
-                else:
-                    wiped_friends.append((name, pub, None))
+                wiped_friends.append((name, pub, None))
             self.friends = wiped_friends
 
             self.friends_x25519.clear()
             self.friends_capabilities.clear()
             self.friends_pqc_combined_pub.clear()
             if self.my_kyber_priv is not None:
-                self.my_kyber_priv = b'\x00' * len(self.my_kyber_priv)
+                if isinstance(self.my_kyber_priv, GuardedBuffer):
+                    self.my_kyber_priv.wipe_and_free()
                 self.my_kyber_priv = None
             self.my_pqc_combined_pub = None
             # Wipe hybrid signing private keys
             if self.my_dil_priv is not None:
-                self.my_dil_priv = b'\x00' * len(self.my_dil_priv)
+                if isinstance(self.my_dil_priv, GuardedBuffer):
+                    self.my_dil_priv.wipe_and_free()
                 self.my_dil_priv = None
-            self.my_ed_priv = None
+            if self.my_ed_priv is not None:
+                if isinstance(self.my_ed_priv, GuardedBuffer):
+                    self.my_ed_priv.wipe_and_free()
+                self.my_ed_priv = None
             self.my_hybrid_sig_combined_pub = None
             self.friends_hybrid_sig_pubs.clear()
-            self.my_priv = None
+            if self.my_priv is not None:
+                if isinstance(self.my_priv, GuardedBuffer):
+                    self.my_priv.wipe_and_free()
+                self.my_priv = None
             self.my_pub = None
+            if self._cached_pqc_bundle is not None:
+                if isinstance(self._cached_pqc_bundle, GuardedBuffer):
+                    self._cached_pqc_bundle.wipe_and_free()
+                self._cached_pqc_bundle = None
             gc.collect()
 
     def load_duress_decoy(self) -> bool:

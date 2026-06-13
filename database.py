@@ -25,6 +25,7 @@ from argon2.low_level import hash_secret_raw, Type
 
 logger = logging.getLogger(__name__)
 
+from src.secure_string import SecureString
 from src.constants import KDF_PARAMS, DB_CONSTANTS, CRYPTO_CONSTANTS
 
 if not HAS_SQLCIPHER:
@@ -219,13 +220,16 @@ def _derive_db_key() -> bytes:
 _MASTER_PASSWORD = None
 
 
-def set_master_password(password) -> None:
+def set_master_password(password: str) -> None:
     """Set the master password used to decrypt the per-machine DB key.
 
     Called by key_manager.KeyStore.load() after successful authentication.
     """
     global _MASTER_PASSWORD
-    _MASTER_PASSWORD = password
+    if _MASTER_PASSWORD is not None:
+        _MASTER_PASSWORD.wipe()
+    _MASTER_PASSWORD = SecureString(password)
+    _MASTER_PASSWORD.lock()
 
 
 def get_master_password():
@@ -239,7 +243,9 @@ def get_master_password():
 def clear_master_password() -> None:
     """Clear the in-memory master password (call on lock/ logout)."""
     global _MASTER_PASSWORD
-    _MASTER_PASSWORD = None
+    if _MASTER_PASSWORD is not None:
+        _MASTER_PASSWORD.wipe()
+        _MASTER_PASSWORD = None
 
 def get_connection() -> sqlite3.Connection:
     """Get a database connection with proper pragmas.

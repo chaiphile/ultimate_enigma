@@ -1,6 +1,15 @@
 #!/usr/bin/env python3
 """Launch the application with logging configured."""
 
+# Memory security initialization
+try:
+    from security.memory_security import raise_mlock_limit
+    from security.anti_dump import apply_anti_dump_protections
+    raise_mlock_limit(target_bytes=64 * 1024 * 1024)
+    apply_anti_dump_protections()
+except Exception:
+    pass  # Never crash on security init failure
+
 import sys
 import os
 

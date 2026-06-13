@@ -22,6 +22,7 @@ import hmac as hmac_module
 import hashlib
 
 from src.secure_string import wipe_bytes
+from security.guarded_buffer import GuardedBuffer
 from services.xchacha20_poly1305 import (
     XChaCha20Poly1305,
     generate_nonce as _xchacha_nonce,
@@ -43,9 +44,25 @@ class RatchetState:
         self.dh_pub_remote: X25519PublicKey = None
         
         # Chains
-        self.root_key: bytes = None
-        self.send_chain_key: bytes = None
-        self.recv_chain_key: bytes = None
+        self.root_key = None
+        self.send_chain_key = None
+        self.recv_chain_key = None
+
+        # Wrap chain keys in guarded buffers
+        if self.root_key is not None:
+            buf = GuardedBuffer(32)
+            buf.write(self.root_key if isinstance(self.root_key, bytes) else bytes(self.root_key))
+            self.root_key = buf
+
+        if self.send_chain_key is not None:
+            buf = GuardedBuffer(32)
+            buf.write(self.send_chain_key if isinstance(self.send_chain_key, bytes) else bytes(self.send_chain_key))
+            self.send_chain_key = buf
+
+        if self.recv_chain_key is not None:
+            buf = GuardedBuffer(32)
+            buf.write(self.recv_chain_key if isinstance(self.recv_chain_key, bytes) else bytes(self.recv_chain_key))
+            self.recv_chain_key = buf
         
         # Message counters (for out-of-order messages)
         self.send_msg_num: int = 0
@@ -55,6 +72,16 @@ class RatchetState:
         # Skipped message keys (for out-of-order delivery)
         self.skipped_keys: dict = {}  # (dh_pub_bytes, msg_num) -> message_key
         self._skipped_key_order: list = []  # FIFO order for eviction
+
+    def _update_chain_key(self, field_name: str, new_value: bytes) -> None:
+        buf = getattr(self, field_name)
+        if isinstance(buf, GuardedBuffer):
+            buf.wipe_and_free()
+            new_buf = GuardedBuffer(len(new_value))
+            new_buf.write(new_value)
+            setattr(self, field_name, new_buf)
+        else:
+            setattr(self, field_name, new_value)
 
     @staticmethod
     def _hkdf_rk(rk: bytes, dh_out: bytes) -> tuple:
@@ -94,7 +121,9 @@ class RatchetState:
         
         # Perform initial DH exchange to get root key
         dh_out = self.dh_priv.exchange(bob_dh_pub)
-        self.root_key, self.send_chain_key = self._hkdf_rk(shared_secret, dh_out)
+        rk_bytes, sk_bytes = self._hkdf_rk(shared_secret, dh_out)
+        self._update_chain_key('root_key', rk_bytes)
+        self._update_chain_key('send_chain_key', sk_bytes)
         
         # Initialize receive chain with a dummy (will be set on first received message)
         self.recv_chain_key = None
@@ -122,7 +151,9 @@ class RatchetState:
         
         # Perform initial DH exchange to get root key
         dh_out = self.dh_priv.exchange(alice_dh_pub)
-        self.root_key, self.recv_chain_key = self._hkdf_rk(shared_secret, dh_out)
+        rk_bytes, ck_bytes = self._hkdf_rk(shared_secret, dh_out)
+        self._update_chain_key('root_key', rk_bytes)
+        self._update_chain_key('recv_chain_key', ck_bytes)
         
         # Initialize send chain with a dummy (will be set on first DH ratchet)
         self.send_chain_key = None
@@ -140,9 +171,11 @@ class RatchetState:
         """
         # Derive new root key and receiving chain key
         dh_out = self.dh_priv.exchange(remote_pub)
-        self.root_key, self.recv_chain_key = self._hkdf_rk(
-            self.root_key, dh_out
+        rk_bytes, ck_bytes = self._hkdf_rk(
+            bytes(self.root_key.read()), dh_out
         )
+        self._update_chain_key('root_key', rk_bytes)
+        self._update_chain_key('recv_chain_key', ck_bytes)
         
         # Generate new DH key pair for sending
         self.prev_send_chain_len = self.send_msg_num
@@ -154,9 +187,11 @@ class RatchetState:
         
         # Derive new sending chain key
         dh_out2 = self.dh_priv.exchange(remote_pub)
-        self.root_key, self.send_chain_key = self._hkdf_rk(
-            self.root_key, dh_out2
+        rk_bytes, ck_bytes = self._hkdf_rk(
+            bytes(self.root_key.read()), dh_out2
         )
+        self._update_chain_key('root_key', rk_bytes)
+        self._update_chain_key('send_chain_key', ck_bytes)
 
     def encrypt(self, plaintext: bytes) -> tuple:
         """
@@ -175,12 +210,15 @@ class RatchetState:
             # Generate new DH key pair and perform DH ratchet to get send chain
             self.dh_priv = X25519PrivateKey.generate()
             dh_out = self.dh_priv.exchange(self.dh_pub_remote)
-            self.root_key, self.send_chain_key = self._hkdf_rk(self.root_key, dh_out)
+            rk_bytes, ck_bytes = self._hkdf_rk(bytes(self.root_key.read()), dh_out)
+            self._update_chain_key('root_key', rk_bytes)
+            self._update_chain_key('send_chain_key', ck_bytes)
             self.prev_send_chain_len = self.send_msg_num
             self.send_msg_num = 0
         
         # Step the send chain to get a new message key
-        self.send_chain_key, message_key = self._hkdf_ck(self.send_chain_key)
+        new_ck, message_key = self._hkdf_ck(bytes(self.send_chain_key.read()))
+        self._update_chain_key('send_chain_key', new_ck)
         
         # Encrypt with message key using XChaCha20-Poly1305
         # 192-bit nonce makes random collisions negligible — a major upgrade
@@ -246,14 +284,16 @@ class RatchetState:
         # Skip ahead if needed (store skipped message keys for later)
         while self.recv_msg_num < msg_num:
             # Store skipped message keys with FIFO eviction cap
-            self.recv_chain_key, mk = self._hkdf_ck(self.recv_chain_key)
+            new_ck, mk = self._hkdf_ck(bytes(self.recv_chain_key.read()))
+            self._update_chain_key('recv_chain_key', new_ck)
             self._store_skipped_key(
                 (remote_dh_pub_bytes, self.recv_msg_num), mk
             )
             self.recv_msg_num += 1
         
         # Decrypt current message
-        self.recv_chain_key, message_key = self._hkdf_ck(self.recv_chain_key)
+        new_ck, message_key = self._hkdf_ck(bytes(self.recv_chain_key.read()))
+        self._update_chain_key('recv_chain_key', new_ck)
         self.recv_msg_num += 1
         plaintext = self._decrypt_with_key(message_key, ciphertext)
         
@@ -293,6 +333,18 @@ class RatchetState:
             format=serialization.PublicFormat.Raw
         )
 
+    def wipe(self) -> None:
+        """Securely wipe all ratchet state."""
+        for attr in ('root_key', 'send_chain_key', 'recv_chain_key'):
+            val = getattr(self, attr, None)
+            if isinstance(val, GuardedBuffer):
+                val.wipe_and_free()
+            setattr(self, attr, None)
+        for mk in self.skipped_keys.values():
+            if isinstance(mk, GuardedBuffer):
+                mk.wipe_and_free()
+        self.skipped_keys.clear()
+
     def serialize(self) -> dict:
         """Serialize the ratchet state for storage.
         
@@ -300,9 +352,9 @@ class RatchetState:
         to use a more robust format and handle private key serialization properly.
         """
         return {
-            'root_key': self.root_key.hex() if self.root_key else None,
-            'send_chain_key': self.send_chain_key.hex() if self.send_chain_key else None,
-            'recv_chain_key': self.recv_chain_key.hex() if self.recv_chain_key else None,
+            'root_key': bytes(self.root_key.read()).hex() if self.root_key else None,
+            'send_chain_key': bytes(self.send_chain_key.read()).hex() if self.send_chain_key else None,
+            'recv_chain_key': bytes(self.recv_chain_key.read()).hex() if self.recv_chain_key else None,
             'send_msg_num': self.send_msg_num,
             'recv_msg_num': self.recv_msg_num,
             'prev_send_chain_len': self.prev_send_chain_len,
@@ -327,11 +379,17 @@ class RatchetState:
         state = cls()
         
         if data.get('root_key'):
-            state.root_key = bytes.fromhex(data['root_key'])
+            buf = GuardedBuffer(32)
+            buf.write(bytes.fromhex(data['root_key']))
+            state.root_key = buf
         if data.get('send_chain_key'):
-            state.send_chain_key = bytes.fromhex(data['send_chain_key'])
+            buf = GuardedBuffer(32)
+            buf.write(bytes.fromhex(data['send_chain_key']))
+            state.send_chain_key = buf
         if data.get('recv_chain_key'):
-            state.recv_chain_key = bytes.fromhex(data['recv_chain_key'])
+            buf = GuardedBuffer(32)
+            buf.write(bytes.fromhex(data['recv_chain_key']))
+            state.recv_chain_key = buf
         
         state.send_msg_num = data.get('send_msg_num', 0)
         state.recv_msg_num = data.get('recv_msg_num', 0)

@@ -109,6 +109,11 @@ ultimate_enigma/
 │   ├── crypto_utils.py           # Shared PEM/password helpers (DRY)
 │   ├── crypto_task_helper.py     # Shared crypto task submission helper
 │   └── anti_tamper.py            # Anti-debugger & anti-tamper protections (frozen .exe only)
+├── security/               # Security Hardening
+│   ├── __init__.py               # Package init
+│   ├── memory_security.py        # VirtualLock/mlock page locking
+│   ├── guarded_buffer.py         # PAGE_NOACCESS guard page buffers
+│   └── anti_dump.py              # Anti-dump protections
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
 ├── key_manager.py          # KeyStore runtime implementation
@@ -251,7 +256,10 @@ The EventBus enables loose coupling between components:
 ## Security Boundaries
 
 - All secrets encrypted at rest (Argon2id + AES-GCM)
-- Keys zeroed from memory on lock/close
+- Keys zeroed from memory on lock/close via `GuardedBuffer.wipe_and_free()`
+- Sensitive pages pinned in RAM (VirtualLock/mlock) to prevent swap leakage
+- Guard pages detect buffer overread/overflow attacks
+- Anti-dump: MiniDumpWriteDump patched, core dumps disabled, SeDebugPrivilege removed
 - Clipboard auto-clear prevents leakage
 - Per-friend ratchet locks prevent race conditions
 - TOTP required for unlock after emergency lock

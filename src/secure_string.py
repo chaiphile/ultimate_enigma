@@ -30,6 +30,8 @@ import secrets
 import logging
 from typing import Optional, Union
 
+from security.memory_security import mlock_memory, munlock_memory
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,6 +53,7 @@ class SecureString:
             data: Initial data as str, bytes, or bytearray. If str, encoded as UTF-8.
         """
         self._wiped = False
+        self._mlocked = False
         if data is None:
             self._data = bytearray()
         elif isinstance(data, str):
@@ -130,6 +133,11 @@ class SecureString:
         except Exception:
             pass
 
+    def lock(self) -> None:
+        """Lock the underlying bytearray in RAM to prevent swapping."""
+        if self._data is not None and not self._mlocked and not self._wiped:
+            self._mlocked = mlock_memory(self._data)
+
     def wipe(self) -> None:
         """Securely wipe the internal data by zeroing out the bytearray.
 
@@ -138,6 +146,10 @@ class SecureString:
         """
         if self._wiped:
             return
+
+        if self._mlocked and self._data is not None:
+            munlock_memory(self._data)
+            self._mlocked = False
 
         if self._data is not None:
             # Overwrite with zeros

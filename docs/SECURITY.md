@@ -77,15 +77,54 @@ If `sqlcipher3` is not available, the database falls back to plain SQLite (unenc
 4. **Usage**: Held in memory during active session
 5. **Wiping**: Zeroed from memory on lock/close via `secure_string`
 
-### Memory Safety
-- `SecureString` class for sensitive data
-- Explicit zeroing before garbage collection
-- Keys wiped on:
-  - Emergency lock
-  - Application close
-  - Failed authentication
-  - Service rebuild
-- Thread-safe key snapshots via `KeyStore.get_decryption_snapshot()` prevent race conditions during background decryption
+### Memory Security (Section 4.3 — Military-Grade)
+
+The application implements defense-in-depth memory protection to prevent key material from leaking through swap, hibernation, or memory dumps.
+
+#### Page Locking (`security/memory_security.py`)
+- **Windows**: `VirtualLock` / `VirtualUnlock` pin sensitive pages in physical RAM, preventing paging to `pagefile.sys`
+- **Linux**: `mlock` / `munlock` achieve the same effect; `RLIMIT_MEMLOCK` raised at startup via `raise_mlock_limit(64MB)`
+- Applied to all `GuardedBuffer` instances and locked `SecureString` objects
+
+#### Guard Pages (`security/guarded_buffer.py`)
+- Sensitive buffers allocated between `PAGE_NOACCESS` guard pages (4 KB each)
+- Any buffer overread/overflow triggers an immediate access violation (SIGSEGV/SEH)
+- Layout: `[PAGE_NOACCESS][sensitive data][PAGE_NOACCESS]`
+- `GuardedBuffer.write()`, `read()`, `wipe_and_free()` with context manager support
+- On Linux: `madvise(MADV_DONTDUMP)` excludes guard-protected regions from core dumps
+
+#### Anti-Dump Protection (`security/anti_dump.py`)
+- **Windows**: Patches `MiniDumpWriteDump` entry point with `RET` instruction (0xC3) to block minidumps
+- **Windows**: Removes `SeDebugPrivilege` from process token to limit cross-process memory access
+- **Linux**: Disables core dumps via `setrlimit(RLIMIT_CORE, 0)` and `prctl(PR_SET_DUMPABLE, 0)`
+
+#### SecureString Locking (`src/secure_string.py`)
+- New `lock()` method calls `mlock_memory()` on the internal bytearray
+- `wipe()` calls `munlock_memory()` before zeroing
+- Long-lived secrets (master password, DB key) use `.lock()` after creation
+
+#### Key Storage Conversion
+All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
+- `KeyStore.global_secret` → `GuardedBuffer`
+- `KeyStore.friends[...].shared_secret` → `GuardedBuffer`
+- `KeyStore.my_kyber_priv` → `GuardedBuffer`
+- `KeyStore.my_dil_priv` → `GuardedBuffer`
+- `RatchetState.root_key`, `send_chain_key`, `recv_chain_key` → `GuardedBuffer(32)`
+- `XChaCha20Poly1305._key` → `GuardedBuffer`
+- `database._MASTER_PASSWORD` → `SecureString` with `.lock()`
+- `RatchetService._storage_key` → `GuardedBuffer(32)`
+
+#### Startup Initialization (`main.py`)
+- `raise_mlock_limit(64MB)` called before any other imports
+- `apply_anti_dump_protections()` patches minidump and removes debug privilege
+
+#### Limitations
+| Limitation | Reason |
+|-----------|--------|
+| Cold boot attack | DRAM retains data after power loss; triple wipe reduces window |
+| Kernel debugger | WinDbg/JTAG can read any memory; anti-tamper detects some |
+| Python GC copies | CPython GC may leave stale copies; GuardedBuffer is outside GC heap |
+| Hypervisor | VM introspection reads guest RAM; requires TPM/sealed enclave |
 
 ## Authentication
 
@@ -168,7 +207,7 @@ Message → AES-GCM encrypt → Ciphertext
 | Threat | Mitigation |
 |--------|------------|
 | Disk theft | All secrets encrypted at rest |
-| Memory dumping | Keys zeroed on lock/close |
+| Memory dumping | GuardedBuffer + VirtualLock + MiniDump patch |
 | Clipboard snooping | Auto-clear after 30 seconds |
 | Brute force | Argon2id + lockout protection |
 | Replay attacks | Time-based key window |
@@ -177,7 +216,8 @@ Message → AES-GCM encrypt → Ciphertext
 | Debugging / reverse engineering | Anti-debugger + anti-tamper protections |
 | Binary tampering | PE header + bytecode integrity checks |
 | Code injection / hooking | Import hook + Frida detection |
-
+| Swap file leakage | VirtualLock/mlock pins pages in RAM |
+| Core dumps | MADV_DONTDUMP + RLIMIT_CORE=0 + PR_SET_DUMPABLE=0 |
 ### Known Limitations
 | Limitation | Notes |
 |------------|-------|

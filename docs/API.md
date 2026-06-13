@@ -514,6 +514,14 @@ class SecureString:
     def to_bytearray(self) -> bytearray
         """Return mutable copy (caller must wipe)."""
     
+    def lock(self) -> None:
+        """Lock the underlying bytearray in RAM (VirtualLock/mlock).
+        
+        Prevents the sensitive data from being paged to disk.
+        Call on long-lived secrets (master password, DB encryption key).
+        Automatically unlocked by wipe().
+        """
+    
     def append(self, data) -> None
         """Append str, bytes, or SecureString."""
     
@@ -535,6 +543,38 @@ SecureString.from_bytes(data) -> SecureString
 # Standalone utilities
 secure_compare(a, b) -> bool  # Constant-time comparison
 wipe_bytes(data: bytearray) -> None  # Wipe mutable buffer
+```
+
+### GuardedBuffer (`security/guarded_buffer.py`)
+
+Memory buffers protected by PAGE_NOACCESS guard pages. Prevents buffer overread/overflow attacks on sensitive key material.
+
+```python
+class GuardedBuffer:
+    def __init__(self, size: int, lock: bool = True)
+        """Allocate a guarded buffer with guard pages before and after.
+        
+        Args:
+            size: Number of bytes for the data region.
+            lock: If True, immediately mlock the entire allocation.
+        """
+    
+    def write(self, data: bytes) -> None:
+        """Write data into the guarded region.
+        
+        Raises ValueError if len(data) > buffer size.
+        """
+    
+    def read(self) -> bytearray:
+        """Return a mutable copy of the guarded data."""
+    
+    def wipe_and_free(self) -> None:
+        """Zero the data region, then release the entire allocation."""
+    
+    # Context manager (recommended)
+    def __enter__(self) -> GuardedBuffer
+    def __exit__(self, *args) -> None
+        # Calls wipe_and_free()
 ```
 
 ### Anti-Tamper (src/anti_tamper.py)
@@ -561,6 +601,45 @@ def check_on_demand() -> bool:
     
     Returns:
         True if tampering detected, False if clean.
+    """
+```
+
+### Memory Security (`security/memory_security.py`)
+
+Platform-native memory locking and working set management.
+
+```python
+def mlock_memory(data: bytearray) -> bool:
+    """Lock memory pages containing data to prevent swapping to disk.
+    
+    Uses VirtualLock on Windows, mlock on Linux.
+    Operates on page-aligned regions spanning the bytearray.
+    Returns True on success, False on failure (app continues).
+    """
+
+def munlock_memory(data: bytearray) -> None:
+    """Unlock previously locked memory pages."""
+
+def raise_mlock_limit(target_bytes: int = 64 * 1024 * 1024) -> None:
+    """Raise the memory locking quota.
+    
+    On Linux: raises RLIMIT_MEMLOCK.
+    On Windows: adjusts process working set size.
+    Call once at startup before any mlock operations.
+    """
+```
+
+### Anti-Dump (`security/anti_dump.py`)
+
+Process memory dump prevention.
+
+```python
+def apply_anti_dump_protections() -> None:
+    """Apply all platform-specific anti-dump protections.
+    
+    Windows: Patches MiniDumpWriteDump with RET instruction,
+             removes SeDebugPrivilege from process token.
+    Linux: Disables core dumps via setrlimit and prctl.
     """
 ```
 

@@ -48,6 +48,8 @@ from typing import Optional
 
 from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
 
+from security.guarded_buffer import GuardedBuffer
+
 
 # ---------------------------------------------------------------------------
 # XChaCha20-Poly1305 constants
@@ -185,9 +187,8 @@ class XChaCha20Poly1305:
                 f"XChaCha20-Poly1305 key must be {XCHACHA20_KEY_SIZE} bytes, "
                 f"got {len(key)}"
             )
-        # We store the raw key; the subkey is derived per-encrypt/decrypt
-        # because it depends on the nonce.
-        self._key = key
+        self._key_buf = GuardedBuffer(len(key))
+        self._key_buf.write(key if isinstance(key, bytes) else bytes(key))
 
     def encrypt(
         self,
@@ -216,7 +217,8 @@ class XChaCha20Poly1305:
                 f"got {len(nonce)}"
             )
 
-        subkey = _hchacha20_block(self._key, nonce[:16])
+        key_bytes = bytes(self._key_buf.read())
+        subkey = _hchacha20_block(key_bytes, nonce[:16])
         inner_nonce = _IETF_NONCE_PREFIX + nonce[16:24]
 
         aead = ChaCha20Poly1305(subkey)
@@ -249,11 +251,23 @@ class XChaCha20Poly1305:
                 f"got {len(nonce)}"
             )
 
-        subkey = _hchacha20_block(self._key, nonce[:16])
+        key_bytes = bytes(self._key_buf.read())
+        subkey = _hchacha20_block(key_bytes, nonce[:16])
         inner_nonce = _IETF_NONCE_PREFIX + nonce[16:24]
 
         aead = ChaCha20Poly1305(subkey)
         return aead.decrypt(inner_nonce, ciphertext, associated_data)
+
+    def close(self) -> None:
+        if hasattr(self, '_key_buf') and self._key_buf is not None:
+            self._key_buf.wipe_and_free()
+            self._key_buf = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
 
 
 # ---------------------------------------------------------------------------
