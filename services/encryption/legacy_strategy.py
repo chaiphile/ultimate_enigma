@@ -93,7 +93,7 @@ class LegacyEncryptionStrategy:
 
         use_shared = mode == "shared"
         if use_shared:
-            const_key = friend_sec if friend_sec else self._ks.global_secret
+            const_key = bytes(friend_sec if friend_sec else self._ks.global_secret)
             if len(const_key) != AES_KEY_SIZE:
                 raise EncryptionError(
                     "Shared secret is missing or invalid (must be 32 bytes)."

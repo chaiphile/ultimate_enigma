@@ -33,7 +33,7 @@ class GlobalSecretService:
         """Return the global secret as Base64 string. Raises error if not set."""
         if not self._ks.global_secret:
             raise GlobalSecretServiceError("No global secret available")
-        return base64.b64encode(self._ks.global_secret).decode('ascii')
+        return base64.b64encode(bytes(self._ks.global_secret)).decode('ascii')
 
     def validate_secret_b64(self, b64_str: str) -> bytes:
         """

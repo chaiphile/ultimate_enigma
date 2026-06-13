@@ -161,9 +161,9 @@ def rsa_verify(data: bytes, signature: bytes, pub_key) -> bool:
     except (ValueError, InvalidSignature):
         return False
 
-def sha256_fingerprint(data: bytes) -> str:
+def sha256_fingerprint(data) -> str:
     """Return truncated 256-bit fingerprint as 16 hex characters."""
-    return hashlib.sha256(data).hexdigest()[:16]
+    return hashlib.sha256(bytes(data)).hexdigest()[:16]
 
 def format_fingerprint_display(hex_fingerprint: str) -> str:
     """Format a 64-char hex fingerprint for display with colon separators.
