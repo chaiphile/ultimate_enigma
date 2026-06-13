@@ -15,6 +15,7 @@ PROTOCOL_MAGIC_BYTES = {
     "PQC_ENVELOPE": 0x50,      # Post-Quantum Hybrid KEM envelope
     "FILE_SHARED_SECRET": b'ENIGMA\x01',  # Shared-secret encrypted file header
     "FILE_KDF_ARGON2ID": b'A2ID',         # Argon2id KDF version tag for password-based files
+    "TRUST_CERT_BUNDLE": 0x74,  # Trust certificate bundle envelope
 }
 
 # ---------------------------------------------------------------------------
@@ -215,4 +216,37 @@ ANTI_TAMPER_CONSTANTS = {
     "SILENT_EXIT": True,           # Exit without warning message
     "EXIT_CODE": 1,               # Process exit code
     "HIDE_THREADS": True,         # Hide threads from debugger
+}
+
+# ---------------------------------------------------------------------------
+# Trust Chain & Certificate Constants
+# ---------------------------------------------------------------------------
+# Configuration for the trust chain certificate system and Shamir secret sharing.
+
+TRUST_CHAIN_CONSTANTS = {
+    # Certificate defaults
+    "DEFAULT_CERT_VALIDITY_DAYS": 365,        # Default certificate validity (1 year)
+    "MAX_CERT_VALIDITY_DAYS": 3650,           # Maximum certificate validity (10 years)
+    "MIN_CERT_VALIDITY_DAYS": 1,              # Minimum certificate validity
+    
+    # Trust level thresholds (number of valid certificates needed)
+    "TRUST_LEVEL_BASIC": 1,                   # 1 valid cert = basic trust
+    "TRUST_LEVEL_VERIFIED": 2,                # 2 valid certs = verified
+    "TRUST_LEVEL_TRUSTED": 3,                 # 3+ valid certs = fully trusted
+    
+    # Shamir secret sharing
+    "MAX_SHARES": 10,                         # Maximum number of shares to split into
+    "MIN_SHARES": 2,                          # Minimum number of shares
+    "MIN_THRESHOLD": 2,                       # Minimum threshold for reconstruction
+    "MAX_THRESHOLD": 10,                      # Maximum threshold
+    "SHARE_SIZE": 32,                         # Size of each share in bytes (256-bit)
+    
+    # Recovery key
+    "RECOVERY_KEY_SIZE": 32,                  # Master recovery key size in bytes
+    "RECOVERY_SHARE_EXPIRY_DAYS": 365,        # Shares expire after 1 year
+    
+    # Certificate types
+    "CERT_TYPE_IDENTITY": "identity",
+    "CERT_TYPE_RECOVERY": "recovery",
+    "CERT_TYPE_DELEGATION": "delegation",
 }

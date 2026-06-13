@@ -333,6 +333,32 @@ def init_db():
                     shared_secret_encrypted TEXT,   -- JSON: {salt, nonce, ct}
                     x25519_public_key_b64 TEXT       -- NEW: raw 32-byte X25519 public key as Base64
                 );
+                CREATE TABLE IF NOT EXISTS trust_certificates (
+                    cert_id TEXT PRIMARY KEY,
+                    subject_name TEXT NOT NULL,
+                    subject_pub_b64 TEXT NOT NULL,
+                    issuer_name TEXT NOT NULL,
+                    issuer_pub_b64 TEXT NOT NULL,
+                    cert_type TEXT NOT NULL,
+                    not_before REAL NOT NULL,
+                    not_after REAL NOT NULL,
+                    signature_b64 TEXT NOT NULL,
+                    revoked INTEGER NOT NULL DEFAULT 0,
+                    revocation_reason TEXT DEFAULT '',
+                    received_from TEXT DEFAULT '',
+                    created_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS recovery_shares (
+                    share_id TEXT PRIMARY KEY,
+                    owner_name TEXT NOT NULL,
+                    share_index INTEGER NOT NULL,
+                    total_shares INTEGER NOT NULL,
+                    threshold INTEGER NOT NULL,
+                    encrypted_share_b64 TEXT NOT NULL,
+                    holder_name TEXT NOT NULL,
+                    holder_pub_b64 TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
             """)
             # Ensure columns exist even for older databases (ignore error if already present)
             for col_sql in [
@@ -504,3 +530,103 @@ def migrate_secrets_to_argon2id(password) -> int:
     if migrated > 0:
         logger.info("Argon2id migration complete: %d secrets upgraded", migrated)
     return migrated
+
+
+def save_trust_certificate(cert_dict: dict) -> None:
+    """Insert or replace a trust certificate."""
+    with closing(get_connection()) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO trust_certificates "
+            "(cert_id, subject_name, subject_pub_b64, issuer_name, issuer_pub_b64, "
+            "cert_type, not_before, not_after, signature_b64, revoked, "
+            "revocation_reason, received_from, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                cert_dict["cert_id"],
+                cert_dict["subject_name"],
+                cert_dict["subject_pub_b64"],
+                cert_dict["issuer_name"],
+                cert_dict["issuer_pub_b64"],
+                cert_dict["cert_type"],
+                cert_dict["not_before"],
+                cert_dict["not_after"],
+                cert_dict["signature_b64"],
+                cert_dict.get("revoked", 0),
+                cert_dict.get("revocation_reason", ""),
+                cert_dict.get("received_from", ""),
+                cert_dict["created_at"],
+            ),
+        )
+        conn.commit()
+
+
+def get_trust_certificates_for(
+    issuer_name: Optional[str] = None,
+    subject_name: Optional[str] = None,
+) -> list:
+    """Query trust_certificates with optional filters."""
+    with closing(get_connection()) as conn:
+        query = "SELECT * FROM trust_certificates WHERE 1=1"
+        params: list = []
+        if issuer_name:
+            query += " AND issuer_name = ?"
+            params.append(issuer_name)
+        if subject_name:
+            query += " AND subject_name = ?"
+            params.append(subject_name)
+        rows = conn.execute(query, params).fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM trust_certificates LIMIT 0").description]
+        return [dict(zip(cols, row)) for row in rows]
+
+
+def get_revoked_cert_ids() -> set:
+    """Return set of revoked certificate IDs."""
+    with closing(get_connection()) as conn:
+        rows = conn.execute(
+            "SELECT cert_id FROM trust_certificates WHERE revoked = 1"
+        ).fetchall()
+        return {row[0] for row in rows}
+
+
+def save_recovery_share(share_dict: dict) -> None:
+    """Insert a recovery share."""
+    with closing(get_connection()) as conn:
+        conn.execute(
+            "INSERT INTO recovery_shares "
+            "(share_id, owner_name, share_index, total_shares, threshold, "
+            "encrypted_share_b64, holder_name, holder_pub_b64, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                share_dict["share_id"],
+                share_dict["owner_name"],
+                share_dict["share_index"],
+                share_dict["total_shares"],
+                share_dict["threshold"],
+                share_dict["encrypted_share_b64"],
+                share_dict["holder_name"],
+                share_dict["holder_pub_b64"],
+                share_dict["created_at"],
+            ),
+        )
+        conn.commit()
+
+
+def get_recovery_shares_for(owner_name: str) -> list:
+    """Return all recovery shares for a given owner."""
+    with closing(get_connection()) as conn:
+        rows = conn.execute(
+            "SELECT * FROM recovery_shares WHERE owner_name = ?",
+            (owner_name,),
+        ).fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM recovery_shares LIMIT 0").description]
+        return [dict(zip(cols, row)) for row in rows]
+
+
+def delete_recovery_shares_for(owner_name: str) -> None:
+    """Delete all recovery shares for a given owner."""
+    with closing(get_connection()) as conn:
+        conn.execute(
+            "DELETE FROM recovery_shares WHERE owner_name = ?",
+            (owner_name,),
+        )
+        conn.commit()

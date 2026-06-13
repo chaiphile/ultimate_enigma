@@ -20,6 +20,8 @@ from views.secret_tab import SecretTab
 from views.file_tab import FileTab
 from views.about_tab import AboutTab
 from views.ntp_tab import NtpTab
+from views.trust_tab import TrustTab
+from services.trust_chain_service import TrustChainService
 from views.lock_screen import LockScreen
 from controllers.application_controller import ApplicationController
 from controllers.auth_controller import AuthController
@@ -79,6 +81,11 @@ class EnigmaApp:
         # 4a. Wire up orchestrator to app controller for agent lifecycle
         self.app_controller.set_service_orchestrator(self.service_orchestrator)
 
+        # 4b. Initialize Trust Chain Service
+        self.trust_chain_service = TrustChainService(self.ks)
+        # Wire trust chain into FriendsService
+        self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
+
         # 5. Mandatory TOTP setup enforcement
         if not self.auth_controller.enforce_mandatory_totp_setup():
             self.ks.wipe()
@@ -135,6 +142,7 @@ class EnigmaApp:
         # Unsubscribe all app-level handlers
         event_bus.unsubscribe_all(self._on_friend_list_changed)
         event_bus.unsubscribe_all(self._on_services_rebuilt)
+        event_bus.unsubscribe_all(self._on_trust_changed)
         event_bus.publish(Events.APP_SHUTDOWN, source="app")
         self.root.destroy()
 
@@ -229,6 +237,14 @@ class EnigmaApp:
         )
         notebook.add(self.friends_tab.frame, text="👥 Friends")
 
+        self.trust_tab = TrustTab(
+            notebook,
+            self.trust_chain_service,
+            self.service_orchestrator.friends_service,
+            style_config
+        )
+        notebook.add(self.trust_tab.frame, text="🔗 Trust Chain")
+
         self.ntp_tab = NtpTab(
             notebook,
             self.service_orchestrator.encryption_service
@@ -255,6 +271,8 @@ class EnigmaApp:
                     self.friends_tab.refresh_list()
                 elif "File" in tab_text:
                     self.file_tab.refresh_list()
+                elif "Trust" in tab_text:
+                    self.trust_tab.refresh_list()
                 elif "Encrypt" in tab_text:
                     self.encrypt_tab._update_friend_list()
         except Exception as e:
@@ -307,6 +325,10 @@ class EnigmaApp:
         }
         self.service_orchestrator.rebuild_services(new_ks, tab_refs)
 
+        # Rebuild trust chain service with restored keys
+        self.trust_chain_service = TrustChainService(new_ks)
+        self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
+
         self._is_locked = False
         self.lock_screen.unlock()
 
@@ -337,6 +359,18 @@ class EnigmaApp:
             thread_safe=True
         )
 
+        # Trust chain events
+        event_bus.subscribe(
+            Events.CERTIFICATE_ISSUED,
+            self._on_trust_changed,
+            thread_safe=True
+        )
+        event_bus.subscribe(
+            Events.CERTIFICATE_REVOKED,
+            self._on_trust_changed,
+            thread_safe=True
+        )
+
         logger.debug("Event subscriptions registered")
 
     def _on_friend_list_changed(self, **kwargs):
@@ -357,6 +391,14 @@ class EnigmaApp:
             logger.debug("Service rebuild propagated to tabs")
         except Exception as e:
             logger.warning("Service rebuild handler error (non-critical): %s", e)
+
+    def _on_trust_changed(self, **kwargs):
+        """React to trust chain changes."""
+        try:
+            if hasattr(self, 'trust_tab'):
+                self.trust_tab.refresh_list()
+        except Exception as e:
+            logger.warning("Trust change handler error (non-critical): %s", e)
 
     # ------------------------------------------------------------------
     # Background agents

@@ -57,6 +57,14 @@ class Events:
     RATCHET_INITIALIZED = "ratchet_initialized"
     RATCHET_RESET = "ratchet_reset"
 
+    # Trust chain events
+    CERTIFICATE_ISSUED = "certificate_issued"
+    CERTIFICATE_RECEIVED = "certificate_received"
+    CERTIFICATE_REVOKED = "certificate_revoked"
+    TRUST_LEVEL_CHANGED = "trust_level_changed"
+    RECOVERY_SHARE_CREATED = "recovery_share_created"
+    RECOVERY_KEY_RECONSTRUCTED = "recovery_key_reconstructed"
+
     # Application lifecycle
     APP_STARTING = "app_starting"
     APP_SHUTDOWN = "app_shutdown"

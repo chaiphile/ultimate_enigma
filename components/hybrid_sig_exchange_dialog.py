@@ -8,11 +8,12 @@ from views.utils import password_dialog
 
 
 class HybridSigExchangeDialog:
-    def __init__(self, parent, friends_service: FriendsService, bg: str, refresh_list):
+    def __init__(self, parent, friends_service: FriendsService, bg: str, refresh_list, trust_chain_service=None):
         self.parent = parent
         self.friends_service = friends_service
         self.bg = bg
         self.refresh_list = refresh_list
+        self.trust_chain_service = trust_chain_service
 
     def show(self):
         pqc_pw = password_dialog(
@@ -118,8 +119,39 @@ class HybridSigExchangeDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("Error", str(e), parent=dlg)
 
+        def export_certs_with_key():
+            """Copy public key AND pending certificates to clipboard."""
+            content = my_pub_text.get('1.0', tk.END).strip()
+            if not content or content.startswith("("):
+                messagebox.showwarning("No Key", "Generate signing keys first.", parent=dlg)
+                return
+            if self.trust_chain_service is None:
+                messagebox.showinfo("No Certificates", "Trust chain service not available.", parent=dlg)
+                return
+            pending = self.trust_chain_service.get_pending_certs_for_exchange()
+            if not pending:
+                # Just copy the key
+                parent.clipboard_clear()
+                parent.clipboard_append(content)
+                messagebox.showinfo("Copied", "No pending certificates. Public key copied.", parent=dlg)
+                return
+            import json
+            bundle = {
+                "public_key": content,
+                "certificates": [c for c in pending]
+            }
+            bundle_b64 = __import__('base64').b64encode(json.dumps(bundle).encode()).decode()
+            parent.clipboard_clear()
+            parent.clipboard_append(bundle_b64)
+            messagebox.showinfo("Copied",
+                f"Public key + {len(pending)} certificate(s) copied to clipboard.\n\n"
+                "Share this with friends to propagate trust.",
+                parent=dlg)
+
         ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
                    bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
+                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
                    command=generate_hybrid_sig,
                    bootstyle="success").pack(side=tk.LEFT)
@@ -165,9 +197,38 @@ class HybridSigExchangeDialog:
         ttk.Label(tab_import, textvariable=import_status_var,
                   font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
 
+        ttk.Separator(tab_import, orient='horizontal').pack(fill=tk.X, pady=8)
+
+        ttk.Label(tab_import, text="Or paste a key bundle (public key + certificates):",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
+        bundle_text = ttk.ScrolledText(tab_import, height=3, wrap=tk.WORD,
+                                        font=("Consolas", 9))
+        bundle_text.pack(fill=tk.X, pady=(0, 4))
+
+        bundle_status_var = tk.StringVar(value="")
+        ttk.Label(tab_import, textvariable=bundle_status_var,
+                  font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 4))
+
         def do_import_hybrid_sig_key():
             fname = import_friend_var.get()
             key_b64 = import_key_text.get('1.0', tk.END).strip()
+            bundle_content = bundle_text.get('1.0', tk.END).strip()
+
+            # Try bundle import first if key field is empty
+            if not key_b64 and bundle_content:
+                try:
+                    import json
+                    import base64 as b64mod
+                    bundle_data = json.loads(b64mod.b64decode(bundle_content).decode())
+                    key_b64 = bundle_data.get("public_key", "")
+                    # Import certificates if present
+                    if self.trust_chain_service and bundle_data.get("certificates"):
+                        count = self.trust_chain_service.import_received_certs(bundle_data["certificates"])
+                        bundle_status_var.set(f"✅ Imported {count} certificate(s)")
+                except Exception as e:
+                    messagebox.showerror("Invalid Bundle", f"Could not parse key bundle: {e}", parent=dlg)
+                    return
+
             if not fname:
                 messagebox.showwarning("No Selection", "Please select a friend.",
                                        parent=dlg)
@@ -177,6 +238,7 @@ class HybridSigExchangeDialog:
                                        "Please paste the hybrid signing combined public key.",
                                        parent=dlg)
                 return
+            # ... rest of existing import logic stays the same
             pw = ""
             secret = self.friends_service.get_friend_secret(fname)
             if secret:

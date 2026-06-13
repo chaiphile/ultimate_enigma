@@ -68,3 +68,43 @@ class CryptoTimeoutError(EnigmaError):
 
 class ConcurrencyError(EnigmaError):
     """Raised when a concurrency operation fails (lock acquisition, etc.)."""
+
+
+# ---------------------------------------------------------------------------
+# Trust Chain / Certificates
+# ---------------------------------------------------------------------------
+
+class TrustChainError(EnigmaError):
+    """Base exception for trust chain and certificate operations."""
+
+
+class CertificateError(TrustChainError):
+    """Raised when certificate issuance, verification, or storage fails."""
+
+
+class CertificateExpiredError(CertificateError):
+    """Raised when a certificate has passed its expiration date."""
+
+
+class CertificateRevokedError(CertificateError):
+    """Raised when a certificate has been revoked by its issuer."""
+
+
+class CertificateSignatureError(CertificateError):
+    """Raised when a certificate's hybrid signature fails verification."""
+
+
+# ---------------------------------------------------------------------------
+# Shamir Secret Sharing / Key Recovery
+# ---------------------------------------------------------------------------
+
+class ShamirError(TrustChainError):
+    """Base exception for Shamir secret sharing operations."""
+
+
+class InsufficientSharesError(ShamirError):
+    """Raised when fewer than the threshold number of shares are provided for reconstruction."""
+
+
+class InvalidShareError(ShamirError):
+    """Raised when a share is malformed, corrupted, or has mismatched parameters."""

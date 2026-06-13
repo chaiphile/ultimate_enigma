@@ -5,6 +5,7 @@ from services.friends.crud import FriendCrudService, FriendsServiceError
 from services.friends.ratchet_mgmt import FriendRatchetManager
 from services.friends.pqc_keys import FriendPqcKeyService
 from services.friends.hybrid_sig_keys import FriendHybridSigKeyService
+from services.trust_chain_service import TrustChainService
 
 class FriendsService:
     """High-level API for managing friends. Delegates to focused sub-services."""
@@ -13,6 +14,11 @@ class FriendsService:
         self._ratchet = FriendRatchetManager(key_store, self._crud)
         self._pqc = FriendPqcKeyService(key_store)
         self._hybrid_sig = FriendHybridSigKeyService(key_store, self._crud)
+        self._trust_chain = None
+
+    def set_trust_chain_service(self, trust_chain_service: 'TrustChainService') -> None:
+        """Set the trust chain service after initialization."""
+        self._trust_chain = trust_chain_service
 
     def get_all_friends(self) -> List[Dict]:
         """Return a list of friend summaries suitable for the UI."""
@@ -169,3 +175,58 @@ class FriendsService:
     def get_hybrid_sig_key_fingerprint(self, combined_pub_b64: str) -> Optional[str]:
         """Return a SHA-256 fingerprint of a hybrid signing combined public key."""
         return self._hybrid_sig.get_hybrid_sig_key_fingerprint(combined_pub_b64)
+
+    # ---- Trust Chain delegation ----
+    def get_trust_level(self, friend_name: str):
+        """Get trust level for a friend."""
+        if self._trust_chain is None:
+            return None
+        return self._trust_chain.get_trust_level(friend_name)
+
+    def issue_certificate(self, subject_name, subject_pub_b64, cert_type, validity_days, master_password):
+        """Issue a trust certificate."""
+        if self._trust_chain is None:
+            raise FriendsServiceError("Trust chain service not initialized")
+        return self._trust_chain.issue_certificate(subject_name, subject_pub_b64, cert_type, validity_days, master_password)
+
+    def verify_certificate(self, cert_id):
+        """Verify a trust certificate."""
+        if self._trust_chain is None:
+            return False
+        return self._trust_chain.verify_certificate(cert_id)
+
+    def revoke_certificate(self, cert_id, reason=""):
+        """Revoke a trust certificate."""
+        if self._trust_chain is None:
+            return
+        self._trust_chain.revoke_certificate(cert_id, reason)
+
+    def get_all_certificates(self):
+        """Get all trust certificates."""
+        if self._trust_chain is None:
+            return []
+        return self._trust_chain.get_all_certificates()
+
+    def get_certs_for_friend(self, friend_name):
+        """Get certificates for a specific friend."""
+        if self._trust_chain is None:
+            return []
+        return self._trust_chain.get_certs_for_friend(friend_name)
+
+    def import_received_certs(self, cert_dicts):
+        """Import certificates received from a peer."""
+        if self._trust_chain is None:
+            return 0
+        return self._trust_chain.import_received_certs(cert_dicts)
+
+    def get_pending_certs_for_exchange(self):
+        """Get certificates pending export during key exchange."""
+        if self._trust_chain is None:
+            return []
+        return self._trust_chain.get_pending_certs_for_exchange()
+
+    def compute_trust_chain(self, subject_name):
+        """Compute trust chain for a subject."""
+        if self._trust_chain is None:
+            return None
+        return self._trust_chain.compute_trust_chain(subject_name)
