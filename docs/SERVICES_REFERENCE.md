@@ -15,21 +15,38 @@ Comprehensive documentation for every service in the `services/` directory.
 - [CryptoTaskQueue](#cryptotaskqueue)
 - [ECDHService](#ecdhservice)
 - [TOTPService](#totpservice)
+- [TotpPersistence](#totppersistence)
 - [AuthManager](#authmanager)
 - [BackupService](#backupservice)
 - [HotkeyService](#hotkeyservice)
+- [XChaCha20Poly1305](#xchacha20poly1305)
 - [RatchetService](#ratchetservice)
 - [DoubleRatchet (RatchetState)](#doubleratchet-ratchetstate)
 - [PQCService (HybridKEM)](#pqcservice-hybridkem)
 - [PQCSignatures (HybridSigner)](#pqcsignatures-hybridsigner)
+- [FriendRepository](#friendrepository)
+- [AuthController](#authcontroller)
 
 ---
 
 ## EncryptionService
 
-**File:** `services/encryption_service.py`
+**File:** `services/encryption_service.py` → `services/encryption/` package
 
-Thin wrapper around the `crypto` module that holds a reference to the KeyStore. Supports three encryption modes: Legacy (AES-GCM + RSA), Double Ratchet, and Post-Quantum Hybrid KEM.
+Facade over three focused encryption strategies. The public API is preserved via a thin facade that delegates to the appropriate strategy based on mode and envelope type.
+
+### Package Structure
+
+```
+services/encryption/
+├── __init__.py              # Re-exports EncryptionService, EncryptionError, DecryptionError
+├── encryption_facade.py     # EncryptionService facade (strategy dispatcher)
+├── legacy_strategy.py       # LegacyEncryptionStrategy (shared-secret + RSA hybrid)
+├── ratchet_strategy.py      # RatchetEncryptionStrategy (Double Ratchet)
+└── pqc_strategy.py          # PqcEncryptionStrategy (Post-Quantum Hybrid KEM)
+```
+
+The original `services/encryption_service.py` is a backward-compatibility re-export shim.
 
 ### Constructor
 
@@ -39,9 +56,7 @@ EncryptionService(key_store)
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `key_store` | KeyStore or KeyStoreModel | Must expose `global_secret`, `my_priv`, `friends`, and `get_decryption_snapshot()` method |
-
-**Note:** The service now uses `get_decryption_snapshot()` for thread-safe decryption operations, which returns a tuple of `(my_priv, friends_for_crypto, secrets_to_try, legacy_priv)`.
+| `key_store` | KeyStore | Must expose `global_secret`, `my_priv`, `friends`, `get_decryption_snapshot()`, and optionally `friends_capabilities`, `friends_pqc_combined_pub`, `pqc_decryption_bundle`, `my_name` |
 
 ### Properties
 
@@ -56,7 +71,7 @@ EncryptionService(key_store)
 Sets the NTP-corrected timestamp used for time-based key derivation.
 
 #### `encrypt(plaintext, friend_name=None, mode='shared', sign=True, self_destruct_seconds=None) -> Tuple[bytes, int]`
-Encrypts plaintext according to the chosen mode. Automatically selects Double Ratchet if an active session exists for the friend, or PQC if mode is `'pqc'`.
+Encrypts plaintext. Automatically selects strategy based on mode and friend capabilities.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -71,39 +86,37 @@ Encrypts plaintext according to the chosen mode. Automatically selects Double Ra
 **Raises:** `EncryptionError`
 
 #### `encrypt_base64(**kwargs) -> str`
-Convenience method: encrypts and returns Base64-encoded string. Accepts same kwargs as `encrypt()`.
+Convenience: encrypts and returns Base64-encoded string.
 
 #### `decrypt(b64_text: str) -> str`
-Decrypts a Base64-encoded message. Auto-detects envelope type (Ratchet `0xD0`, PQC `0x50`, or Legacy) and routes accordingly.
+Decrypts a Base64-encoded message. Auto-detects envelope type and routes to the correct strategy.
 
 **Raises:** `DecryptionError`
 
-### Internal Methods
+### Sub-Services
 
-| Method | Description |
-|--------|-------------|
-| `_resolve_encryption_key(friend_name, mode)` | Determines symmetric key and optional RSA pub key |
-| `_get_friend_keys(name)` | Returns `(public_key, shared_secret)` for a friend |
-| `_decode_base64_packet(b64_text)` | Decodes Base64, raises `DecryptionError` on failure |
-| `_peek_flags(packet)` | Reads flags byte from packet |
-| `_get_friends_hybrid_list()` | Builds list of hybrid signing public keys for verification |
-| `_decrypt_with_rsa(packet, my_priv, friends, legacy_priv)` | Tries current then legacy RSA key |
-| `_decrypt_with_shared_secrets(packet, secrets, friends)` | Tries each shared secret |
-| `_friend_supports_ratchet(friend_name)` | Checks active session or capability flag |
-| `_get_my_name()` | Returns `KeyStore.my_name` for ratchet envelope sender identification |
-| `_encrypt_with_ratchet(plaintext, friend_name)` | Encrypts via Double Ratchet, wraps in `RatchetEnvelope` with `sender_name` set to `KeyStore.my_name` (not the recipient) |
-| `_decrypt_with_ratchet(packet)` | Parses `RatchetEnvelope`, decrypts via Double Ratchet |
-| `_encrypt_with_pqc(plaintext, friend_name)` | Encrypts via Hybrid KEM, wraps in `PQCEncvelope` |
-| `_decrypt_with_pqc(packet)` | Parses `PQCEncvelope`, decapsulates and decrypts |
-| `_build_decryption_error(flags)` | Creates user-friendly error message |
+#### LegacyEncryptionStrategy
+**File:** `services/encryption/legacy_strategy.py`
+
+Handles shared-secret and RSA hybrid encryption. Contains all legacy key resolution, RSA decryption with fallback to legacy keys, and shared-secret iteration logic.
+
+#### RatchetEncryptionStrategy
+**File:** `services/encryption/ratchet_strategy.py`
+
+Handles Double Ratchet encryption/decryption. Wraps `RatchetService` and builds `RatchetEnvelope` structures.
+
+#### PqcEncryptionStrategy
+**File:** `services/encryption/pqc_strategy.py`
+
+Handles Post-Quantum Hybrid KEM encryption/decryption. Wraps `HybridKEM` with timeout protection and builds `PQCEncvelope` structures.
 
 ---
 
 ## FileService
 
-**File:** `services/file_service.py`
+**Files:** `services/file_ops.py` (standalone functions) + `services/file_service.py` (service class)
 
-Service layer for file encryption/decryption. Handles password-based (Argon2id + AES-GCM) and shared-secret-based file operations.
+Service layer for file encryption/decryption. The standalone crypto functions are in `file_ops.py`; the `FileService` class in `file_service.py` is a thin facade over them.
 
 ### Exceptions
 
@@ -112,7 +125,7 @@ Service layer for file encryption/decryption. Handles password-based (Argon2id +
 | `FileServiceError` | Base exception for file service errors |
 | `SharedSecretDetected` | Raised when a shared-secret file is detected; contains `owner` and `fingerprint` attributes |
 
-### Standalone Functions
+### Standalone Functions (`services/file_ops.py`)
 
 #### `file_encrypt(input_path, output_path, password)`
 Encrypts a file using AES-GCM with Argon2id-derived key. Format: `A2ID(4) + salt(16) + nonce(12) + ciphertext`. KDF wrapped in timeout.
@@ -120,13 +133,13 @@ Encrypts a file using AES-GCM with Argon2id-derived key. Format: `A2ID(4) + salt
 #### `file_decrypt(input_path, output_path, password)`
 Decrypts with automatic KDF detection (Argon2id or legacy PBKDF2).
 
-#### `file_encrypt_shared(input_path, output_path, shared_secret, sign=False, my_priv=None)`
-Encrypts using shared secret with HKDF-derived key and optional RSA signature.
+#### `file_encrypt_shared(input_path, output_path, shared_secret, sign=False, my_priv=None, hybrid_ed_priv=None, hybrid_dil_priv=None)`
+Encrypts using shared secret with HKDF-derived key and optional RSA or hybrid (Ed25519 + Dilithium3) signature.
 
-#### `file_decrypt_shared(input_path, output_path, secrets_dict, friends_for_sig=None)`
-Decrypts shared-secret file. Returns signature verification message.
+#### `file_decrypt_shared(input_path, output_path, secrets_dict, friends_for_sig=None, friends_hybrid=None)`
+Decrypts shared-secret file with multi-layer signature verification. Returns signature verification message.
 
-### FileService Class
+### FileService Class (`services/file_service.py`)
 
 #### Constructor
 ```python
@@ -141,13 +154,33 @@ FileService(key_store)
 | `decrypt_file(input_path, output_path, password=None) -> str` | Auto-detects encryption method. Returns signature message. May raise `SharedSecretDetected` |
 | `decrypt_with_shared_secret(input_path, output_path, fingerprint) -> str` | Decrypts after user confirms detected fingerprint |
 
+### Constants
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `FILE_MAGIC` | `b'ENIGMA\x01'` | 7-byte magic for shared-secret encrypted files |
+
 ---
 
 ## FriendsService
 
-**File:** `services/friends_service.py`
+**File:** `services/friends_service.py` → `services/friends/` package
 
-High-level API for managing friends, shared secrets, ECDH keys, PQC keys, and Double Ratchet sessions.
+High-level API for managing friends, shared secrets, ECDH keys, PQC keys, and Double Ratchet sessions. Decomposed into four focused sub-services behind a facade.
+
+### Package Structure
+
+```
+services/friends/
+├── __init__.py              # Re-exports FriendsService, FriendsServiceError
+├── friends_facade.py        # FriendsService facade (delegates all methods)
+├── crud.py                  # FriendCrudService (CRUD, queries, auth)
+├── ratchet_mgmt.py          # FriendRatchetManager (Double Ratchet lifecycle)
+├── pqc_keys.py              # FriendPqcKeyService (PQC key exchange)
+└── hybrid_sig_keys.py       # FriendHybridSigKeyService (hybrid signing keys)
+```
+
+The original `services/friends_service.py` is a backward-compatibility re-export shim.
 
 ### Exception
 
@@ -202,6 +235,20 @@ FriendsService(key_store: KeyStore)
 | `generate_pqc_keys(master_password) -> str` | Generate hybrid PQC keys, return combined pub Base64 |
 | `pqc_encapsulate(friend_name, master_password) -> Tuple[str, bytes]` | Encapsulate: returns `(ciphertext_b64, shared_secret)` |
 | `pqc_decapsulate(ciphertext_b64, master_password) -> bytes` | Decapsulate: returns 32-byte shared secret |
+
+### Sub-Services
+
+#### FriendCrudService (`services/friends/crud.py`)
+CRUD operations, queries, and auth for friends. Contains 14 methods for friend management, all delegating to `KeyStore`.
+
+#### FriendRatchetManager (`services/friends/ratchet_mgmt.py`)
+Manages Double Ratchet sessions for friends. Orchestrates `RatchetService` and updates capability flags.
+
+#### FriendPqcKeyService (`services/friends/pqc_keys.py`)
+PQC key generation, encapsulation, and decapsulation. Wraps `HybridKEM` operations.
+
+#### FriendHybridSigKeyService (`services/friends/hybrid_sig_keys.py`)
+Hybrid signing key generation and import. Handles Ed25519 + Dilithium3 key lifecycle.
 
 ---
 
@@ -706,5 +753,36 @@ except (ImportError, RuntimeError, OSError):
 ```
 
 This ensures `models/key_store.py` can check PQC availability without importing from `services/`.
+
+### AuthController
+
+**File:** `controllers/auth_controller.py`
+
+Manages authentication UI flow: unlock screen, password verification, TOTP integration, and session lifecycle.
+
+#### Constructor
+```python
+class AuthController:
+    def __init__(self, root: tk.Tk, key_store: KeyStore, ui=None, totp_persistence=None)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `root` | `tk.Tk` | Tkinter root window |
+| `key_store` | `KeyStore` | Key store instance |
+| `ui` | `Optional` | UI reference |
+| `totp_persistence` | `Optional[TotpPersistence]` | TOTP persistence handler |
+
+#### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `load_totp_secret(totp_service, password, ks)` | `bool` | Load with multiple decryption strategies |
+| `persist_totp_secret(secret_bytes, password)` | `None` | Encrypt and store TOTP secret |
+| `init_totp(password)` | `None` | Load existing or generate new |
+| `generate_new_totp(password)` | `None` | Generate and persist new secret |
+| `regenerate_totp()` | `None` | Regenerate from setup dialog |
+| `is_totp_enabled()` | `bool` | Check DB flag |
+| `set_totp_enabled(value)` | `None` | Set DB flag |
 
 ---

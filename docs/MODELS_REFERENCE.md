@@ -166,7 +166,7 @@ Pure data model and persistence manager for cryptographic keys. Strictly a data/
 | `save_friend(name, pem, ...)` | Save friend to DB and memory |
 | `remove_friend(name)` | Remove from DB and memory |
 | `get_friend_secret(name)` | Retrieve friend's shared secret |
-| `get_decryption_snapshot()` | Returns tuple of `(my_priv, friends_for_crypto, secrets_to_try, legacy_priv)` for thread-safe decryption operations. `friends_for_crypto` is list of `(name, pub, secret)` tuples. `secrets_to_try` includes global secret and all friend shared secrets. Returns `None` for missing keys. |
+| `get_decryption_snapshot()` | Thread-safe snapshot for decryption workers |
 | `wipe()` | Securely erase all sensitive keys |
 
 ### PQC Dependency Injection
@@ -236,7 +236,7 @@ Full runtime key store with authentication, lockout, PQC key management, and pas
 
 **File:** `database.py`
 
-SQLite database at `~/.ultimate_enigma/enigma.db` with WAL mode and foreign keys enabled.
+SQLite database at `~/.ultimate_enigma/enigma.db` with WAL mode and foreign keys enabled. When SQLCipher3 is available, the database is encrypted at rest using AES-256-CBC with a per-machine key derived via Argon2id. Falls back to unencrypted SQLite if SQLCipher3 is not installed.
 
 ### Tables
 

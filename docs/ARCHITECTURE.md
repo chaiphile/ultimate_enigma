@@ -15,8 +15,9 @@ Ultimate Enigma Messenger follows a **Model-View-Controller (MVC)** architecture
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐ │
 │  │ CryptoQueue │    │  KeyStore   │    │     Services        │ │
 │  │  Hotkeys    │    │  TOTP       │    │  ├─ EncryptionSvc   │ │
-│  │  NTP Sync   │    │  LockScreen │    │  ├─ FileService     │ │
-│  └─────────────┘    └─────────────┘    │  ├─ FriendsService  │ │
+│  │  NTP Sync   │    │  TotpPersist│    │  ├─ FileService     │ │
+│  └─────────────┘    │  LockScreen │    │  ├─ FriendsService  │ │
+│                     └─────────────┘    │  ├─ BackupService   │ │
 │                                        │  ├─ ClipboardSvc    │ │
 │  ┌─────────────────────────────────┐   │  ├─ GlobalSecretSvc │ │
 │  │           Views (Tabs)          │   │  └─ ...             │ │
@@ -28,6 +29,11 @@ Ultimate Enigma Messenger follows a **Model-View-Controller (MVC)** architecture
 │                    │      EventBus     │                       │
 │                    │  (Pub/Sub System) │                       │
 │                    └───────────────────┘                       │
+│                                                                │
+│  ┌─────────────────────────────────────────────────────────┐   │
+│  │              SQLCipher3 Encryption Layer                │   │
+│  │     (AES-256 encrypted SQLite database)                 │   │
+│  └─────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -46,9 +52,23 @@ ultimate_enigma/
 │   ├── friend_profile.py   # Friend/contact data model
 │   └── key_store.py        # Key storage abstraction (pure data + persistence)
 ├── services/               # Business Logic Services
-│   ├── encryption_service.py      # Core encryption/decryption
-│   ├── file_service.py            # File encryption operations
-│   ├── friends_service.py         # Contact management
+│   ├── encryption/                 # EncryptionService package (decomposed)
+│   │   ├── __init__.py             # Re-exports
+│   │   ├── encryption_facade.py    # Strategy dispatcher facade
+│   │   ├── legacy_strategy.py      # Shared-secret + RSA hybrid
+│   │   ├── ratchet_strategy.py     # Double Ratchet
+│   │   └── pqc_strategy.py         # Post-Quantum Hybrid KEM
+│   ├── friends/                    # FriendsService package (decomposed)
+│   │   ├── __init__.py             # Re-exports
+│   │   ├── friends_facade.py       # Delegating facade
+│   │   ├── crud.py                 # Friend CRUD + queries + auth
+│   │   ├── ratchet_mgmt.py         # Double Ratchet lifecycle
+│   │   ├── pqc_keys.py             # PQC key exchange
+│   │   └── hybrid_sig_keys.py      # Hybrid signing keys
+│   ├── encryption_service.py       # Backward-compat re-export shim
+│   ├── friends_service.py          # Backward-compat re-export shim
+│   ├── file_service.py             # FileService class (thin facade)
+│   ├── file_ops.py                 # Standalone file crypto functions
 │   ├── clipboard_service.py       # Secure clipboard handling
 │   ├── global_secret_service.py   # Shared secret management
 │   ├── auth_manager.py            # Authentication logic
@@ -59,6 +79,9 @@ ultimate_enigma/
 │   ├── pqc_service.py             # Post-quantum cryptography
 │   ├── pqc_signatures.py          # PQC digital signatures
 │   ├── backup_service.py          # Encrypted backups
+│   ├── totp_persistence.py        # Encrypted TOTP secret storage
+│   ├── friend_repository.py       # Low-level friend data access
+│   ├── xchacha20_poly1305.py      # XChaCha20-Poly1305 AEAD encryption
 │   ├── hotkey_service.py          # Global hotkey registration
 │   ├── crypto_task_queue.py       # Async crypto operations
 │   └── event_bus.py               # Pub/sub event system
@@ -74,6 +97,7 @@ ultimate_enigma/
 │   ├── lock_screen.py      # Lock screen overlay
 │   ├── visual_enigma.py    # Rotor animation widget
 │   ├── ecdh.py             # ECDH key exchange dialog
+│   ├── auth_ui_callbacks.py # UI callback injection for AuthController
 │   └── utils.py            # Password dialog and validation
 ├── components/             # Reusable UI Components
 │   └── totp_dialogs.py           # TOTP setup/verify dialogs
@@ -124,26 +148,27 @@ Central dependency injection container:
 ## Services
 
 ### EncryptionService
-Core cryptographic operations:
-- AES-256-GCM symmetric encryption
-- RSA-OAEP key wrapping
-- Time-based key derivation with sliding window
-- Digital signatures (RSA-PSS)
-- Self-destruct message support
+Core cryptographic operations, decomposed into three strategy classes behind a facade:
+
+- **LegacyEncryptionStrategy**: AES-256-GCM symmetric encryption, RSA-OAEP key wrapping, time-based key derivation, digital signatures (RSA-PSS + hybrid), self-destruct support
+- **RatchetEncryptionStrategy**: Double Ratchet per-message forward-secret encryption via `RatchetService`
+- **PqcEncryptionStrategy**: Post-Quantum Hybrid KEM (X25519 + Kyber768) with timeout protection
 - Thread-safe decryption via `KeyStore.get_decryption_snapshot()`
 
 ### FileService
-File encryption operations:
+File encryption operations, with standalone crypto functions in `file_ops.py`:
+
 - Password-based file encryption (AES-GCM + Argon2id)
-- Friend-specific file encryption
-- Chunked processing for large files
+- Shared-secret file encryption with RSA/hybrid signature verification
+- Fingerprint-based auto-detection for shared-secret files
 
 ### FriendsService
-Contact management:
-- Add/remove/update friend profiles
-- Public key storage and retrieval
-- ECDH shared secret management
-- Friend list change notifications
+Contact management, decomposed into four sub-services behind a facade:
+
+- **FriendCrudService**: Friend CRUD, queries, X25519 accessors, auth
+- **FriendRatchetManager**: Double Ratchet session lifecycle
+- **FriendPqcKeyService**: PQC key generation, encapsulate/decapsulate
+- **FriendHybridSigKeyService**: Hybrid signing key generation and import
 
 ### ClipboardService
 Secure clipboard handling:
@@ -192,10 +217,14 @@ The EventBus enables loose coupling between components:
 | `EMERGENCY_LOCK` | Emergency lock triggered |
 | `UNLOCKED` | App successfully unlocked |
 | `LOCKED` | App locked |
+| `DURESS_MODE_ENTERED` | Duress mode activated (coerced unlock) |
 | `KEYS_WIPED` | Keys cleared from memory |
 | `KEYS_LOADED` | Keys loaded from database |
 | `TOTP_SETUP_COMPLETE` | TOTP configured |
 | `TOTP_VERIFIED` | TOTP code validated |
+| `TOTP_CHANGED` | TOTP secret updated |
+| `RATCHET_INITIALIZED` | New ratchet session established |
+| `RATCHET_RESET` | Ratchet session reset |
 | `SERVICES_REBUILT` | Services recreated |
 | `NTP_SYNCED` | Time synchronized |
 | `FRIEND_LIST_CHANGED` | Contacts modified |
@@ -208,6 +237,7 @@ The EventBus enables loose coupling between components:
 - **Background Tasks**: NTP sync, clipboard auto-clear timers
 - **Thread Safety**: EventBus dispatches to main thread via `root.after()`
 - **Decryption Snapshots**: `KeyStore.get_decryption_snapshot()` provides thread-safe key material snapshots for background decryption tasks
+- **Deadlock Prevention**: `acquire_friend_locks_ordered()` acquires per-friend ratchet locks in a consistent global order to prevent deadlocks when multiple threads interact with the same friends
 
 ## Data Flow
 

@@ -105,6 +105,8 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+> **Note:** `requirements.txt` includes `sqlcipher3>=1.2.0` for encrypted database support. See [Troubleshooting](#troubleshooting) if `sqlcipher3` import fails.
+
 > **Note:** On Windows, `liboqs-python` requires the `liboqs.dll` native library. See [Post-Quantum Cryptography](#post-quantum-cryptography-liboqs) below.
 
 ### Step 6: Run the Application
@@ -123,6 +125,8 @@ build_app.bat
 pip install pyinstaller
 pyinstaller UltimateEnigma.spec
 ```
+
+> **Note:** `build_app.bat` uses the `--hidden-import=src.anti_tamper` flag to ensure the anti-tamper module is included in the frozen executable.
 
 The executable will be created at `dist/UltimateEnigma.exe`.
 

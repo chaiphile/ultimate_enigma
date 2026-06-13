@@ -69,7 +69,7 @@ Coordinates login, unlock, TOTP verification, password management, and duress mo
 
 #### Constructor
 ```python
-AuthController(root, key_store: KeyStore, ui=None)
+AuthController(root, key_store: KeyStore, ui=None, totp_persistence=None)
 ```
 
 The optional `ui` parameter accepts a UI callback object. If `None`, a default `_DefaultUI` instance is used that wraps `tkinter.messagebox` and `password_dialog`. This decouples the controller from direct tkinter dependencies, making it testable without a GUI.
@@ -96,18 +96,18 @@ The optional `ui` parameter accepts a UI callback object. If `None`, a default `
 
 #### TOTP Management
 
-| Method | Description |
-|--------|-------------|
-| `load_totp_secret(totp_service, password, ks)` | Load with multiple decryption strategies |
-| `persist_totp_secret(secret_bytes, password)` | Encrypt and store TOTP secret |
-| `init_totp(password)` | Load existing or generate new |
-| `generate_new_totp(password)` | Generate and persist new secret |
-| `regenerate_totp()` | Regenerate from setup dialog |
-| `show_totp_setup()` | Show TOTP setup dialog |
-| `is_totp_setup_complete()` | Check DB flag |
-| `set_totp_setup_complete(value)` | Set DB flag |
-| `is_totp_enabled()` | Check DB flag |
-| `set_totp_enabled(value)` | Set DB flag |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `load_totp_secret(totp_service, password, ks)` | `bool` | Load with multiple decryption strategies |
+| `persist_totp_secret(secret_bytes, password)` | `None` | Encrypt and store TOTP secret |
+| `init_totp(password)` | `None` | Load existing or generate new |
+| `generate_new_totp(password)` | `None` | Generate and persist new secret |
+| `regenerate_totp()` | `None` | Regenerate from setup dialog |
+| `show_totp_setup()` | `bool` | Show TOTP setup dialog |
+| `is_totp_setup_complete()` | `bool` | Check DB flag |
+| `set_totp_setup_complete(value)` | `None` | Set DB flag |
+| `is_totp_enabled()` | `bool` | Check DB flag |
+| `set_totp_enabled(value)` | `None` | Set DB flag |
 
 #### Password & Duress
 
@@ -455,3 +455,9 @@ perform_ecdh(parent, purpose="friend") -> (derived_secret, friend_x25519_b64) | 
 **File:** `main.py`
 
 Application entry point. Configures logging, creates themed Tkinter window (`darkly` theme), handles PyInstaller DLL path resolution for liboqs, and runs anti-tamper checks before any other imports when running as a frozen .exe.
+
+### auth_ui_callbacks.py
+
+**File:** `views/auth_ui_callbacks.py`
+
+Provides UI callback implementations for `AuthController`, wrapping `tkinter.messagebox` and `password_dialog` for authentication prompts (password entry, TOTP verification, etc.).

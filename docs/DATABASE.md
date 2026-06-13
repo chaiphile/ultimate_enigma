@@ -173,6 +173,7 @@ CREATE TABLE IF NOT EXISTS settings (
 | `lockout_data` | JSON | `{"failures": int, "locked_until": float}` | `KeyStore._save_lockout_state()` |
 | `duress_verifier` | JSON | Encrypted dummy secret for duress detection | `set_duress_password()` |
 | `last_backup_ts` | text | Unix timestamp of last versioned backup | `BackupService._record_backup_timestamp()` |
+| `sqlcipher_db_key` | JSON | Per-machine DB encryption key (encrypted) | `init_db()` |
 | `my_name` | text | User's display name for ratchet envelope sender identity | `set_my_name()` |
 
 #### Key Lifecycle
@@ -440,3 +441,27 @@ database.init_db()
 
 # Verify integrity
 ok, detail = database.check_integrity()
+```
+
+### Backup Export/Import
+
+```python
+from services.backup_service import BackupService
+
+backup = BackupService()
+
+# Export (creates HMAC-signed JSON payload)
+export_data = backup.export_backup(password=master_password)
+
+# Import (verifies HMAC, re-encrypts secrets with current password)
+backup.import_backup(export_data, password=master_password)
+```
+
+### Password Change (Re-encrypt All Secrets)
+
+```python
+from key_manager import KeyStore
+
+key_store = KeyStore()
+# Re-encrypts all secrets with new password (arg: old_password, new_password)
+key_store.change_password(old_password, new_password)

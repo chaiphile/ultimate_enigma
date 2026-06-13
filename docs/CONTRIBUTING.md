@@ -112,11 +112,20 @@ pytest tests/ --cov=. --cov-report=html
 - Use fixtures from `conftest.py` for common setup
 - Test both success and failure cases
 
+The test directory structure includes subdirectories for feature areas:
+```
+tests/
+├── encryption/          # Encryption service tests
+├── friends/             # Friends service tests
+├── test_*.py            # Individual module tests
+└── conftest.py          # Shared fixtures
+```
+
 ### Example Test
 
 ```python
 import pytest
-from services.encryption_service import EncryptionService
+from services.encryption import EncryptionService
 
 class TestEncryptionService:
     def test_encrypt_decrypt_roundtrip(self, key_store):
@@ -142,7 +151,7 @@ class TestEncryptionService:
 
 ### Adding a New Service
 
-1. Create `services/new_service.py`
+1. Create `services/new_service.py` (or use the sub-package pattern: `services/new_service/__init__.py` with separate modules)
 2. Define the service class with `__init__(self, key_store: KeyStore)`
 3. Add to `ServiceOrchestrator.__init__()` and `rebuild_services()`
 4. Update tab references if needed

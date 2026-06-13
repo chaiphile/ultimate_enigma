@@ -37,7 +37,7 @@ Authentication and key management.
 
 ```python
 class AuthController:
-    def __init__(self, root: tk.Tk, key_store: KeyStore)
+    def __init__(self, root: tk.Tk, key_store: KeyStore, ui=None, totp_persistence=None)
     
     def load_keys(self, first_run: bool) -> bool
         """Load or generate keys. Returns False if user cancels."""
@@ -56,6 +56,27 @@ class AuthController:
     
     def show_totp_setup(self) -> None
         """Display TOTP setup dialog."""
+    
+    def load_totp_secret(self, totp_service, password, ks) -> bool
+        """Load and decrypt the persisted TOTP secret."""
+    
+    def persist_totp_secret(self, secret_bytes: bytes, password: str) -> None
+        """Encrypt and persist the TOTP secret."""
+    
+    def init_totp(self, password: str) -> None
+        """Initialize TOTP for first-time setup or re-init."""
+    
+    def generate_new_totp(self, password: str) -> None
+        """Generate a fresh TOTP secret and persist it."""
+    
+    def regenerate_totp(self) -> None
+        """Regenerate TOTP secret and show new QR code."""
+    
+    def is_totp_enabled(self) -> bool
+        """Check if TOTP is currently enabled."""
+    
+    def set_totp_enabled(self, value: bool) -> None
+        """Enable or disable TOTP verification."""
 ```
 
 ### ServiceOrchestrator
@@ -92,24 +113,33 @@ class ServiceOrchestrator:
 
 ### EncryptionService
 
-Core cryptographic operations.
+Core cryptographic operations. Decomposed into three strategy classes behind a facade.
 
 ```python
 class EncryptionService:
     def __init__(self, key_store: KeyStore)
     
-    def encrypt_message(self, plaintext: str, friend_name: str = None,
-                       sign: bool = True, self_destruct: int = None) -> str
-        """Encrypt a message. Returns Base64-encoded ciphertext."""
+    def encrypt(self, plaintext: str, friend_name: str = None,
+                mode: str = 'shared', sign: bool = True,
+                self_destruct_seconds: int = None) -> tuple[bytes, int]
+        """Encrypt a message. Returns (raw_packet_bytes, timestamp)."""
     
-    def decrypt_message(self, ciphertext_b64: str) -> dict
-        """Decrypt a message. Returns {'plaintext', 'verified', 'expired'}."""
+    def encrypt_base64(self, **kwargs) -> str
+        """Convenience: encrypt and return Base64-encoded string."""
     
-    def get_time_offset(self) -> float
-        """Get current NTP time offset in seconds."""
+    def decrypt(self, b64_text: str) -> str
+        """Decrypt a Base64-encoded message. Auto-detects envelope type."""
     
-    def set_time_offset(self, offset: float) -> None
-        """Update NTP time offset."""
+    def update_ntp_time(self, timestamp: float) -> None
+        """Set NTP-corrected timestamp for time-based key derivation."""
+    
+    @property
+    def last_encrypt_mode(self) -> str | None
+        """Mode used by most recent encrypt(): 'ratchet', 'pqc', 'legacy', or None."""
+    
+    @property
+    def last_decrypt_mode(self) -> str | None
+        """Mode used by most recent decrypt(): 'ratchet', 'pqc', 'legacy', or None."""
 ```
 
 ### FileService
@@ -214,6 +244,109 @@ class TOTPService:
         """Get current TOTP code (for testing)."""
 ```
 
+### BackupService
+
+Encrypted backup and restore operations.
+
+```python
+class BackupService:
+    def __init__(self, key_store: KeyStore, backup_dir=None, max_backups=10, reminder_days=7)
+    
+    def export_backup(self, password: str) -> dict
+        """Export all key material as an encrypted backup dict."""
+    
+    def import_backup(self, data: dict, password: str) -> None
+        """Import and decrypt a backup dict, restoring keys."""
+    
+    def export_backup_to_file(self, password: str, backup_dir=None) -> Path
+        """Export backup to an encrypted JSON file. Returns file path."""
+    
+    def import_backup_from_file(self, filepath: Path, password: str) -> None
+        """Import backup from an encrypted JSON file."""
+    
+    def list_backups(self, backup_dir=None) -> List[Path]
+        """List all backup files in the backup directory."""
+    
+    def get_last_backup_timestamp(self) -> Optional[float]
+        """Get timestamp of most recent backup, or None if no backups."""
+    
+    def should_remind_backup(self) -> tuple[bool, Optional[int]]
+        """Check if user should be reminded to back up.
+        Returns (should_remind, days_since_last_backup)."""
+```
+
+### TotpPersistence
+
+Encrypted TOTP secret storage.
+
+```python
+class TotpPersistence:
+    def __init__(self, key_store: KeyStore)
+    
+    def load_totp_secret(self, totp_service, password, ks) -> bool
+        """Load and decrypt the persisted TOTP secret into totp_service."""
+    
+    def persist_totp_secret(self, secret_bytes: bytes, password: str) -> None
+        """Encrypt and persist the TOTP secret."""
+    
+    def is_totp_setup_complete(self) -> bool
+        """Check if TOTP has been set up at least once."""
+    
+    def set_totp_setup_complete(self, value: bool) -> None
+        """Mark TOTP setup as complete or incomplete."""
+    
+    def is_totp_enabled(self) -> bool
+        """Check if TOTP verification is currently enabled."""
+    
+    def set_totp_enabled(self, value: bool) -> None
+        """Enable or disable TOTP verification."""
+```
+
+### FriendRepository
+
+Low-level friend data access.
+
+```python
+def get_friend_profile(name: str) -> Optional[FriendProfile]
+    """Retrieve a single friend profile by name."""
+
+def list_all_friend_profiles() -> List[FriendProfile]
+    """List all stored friend profiles."""
+```
+
+### XChaCha20Poly1305
+
+XChaCha20-Poly1305 AEAD encryption.
+
+```python
+class XChaCha20Poly1305:
+    def __init__(self, key: bytes)
+    
+    def encrypt(self, nonce: bytes, plaintext: bytes, associated_data: bytes = None) -> bytes
+        """Encrypt plaintext with associated data. Returns ciphertext + tag."""
+    
+    def decrypt(self, nonce: bytes, ciphertext: bytes, associated_data: bytes = None) -> bytes
+        """Decrypt ciphertext with associated data. Returns plaintext."""
+```
+
+### HotkeyService
+
+Global hotkey registration for emergency lock/unlock.
+
+```python
+class HotkeyService:
+    def __init__(self)
+    
+    def register(self, hotkey_id: int, modifiers: int, vk: int, callback: Callable) -> None
+        """Register a global hotkey with Windows virtual key code and modifiers."""
+    
+    def start(self) -> None
+        """Start listening for registered hotkeys."""
+    
+    def stop(self) -> None
+        """Stop listening and unregister all hotkeys."""
+```
+
 ### EventBus
 
 Publish/subscribe event system.
@@ -251,6 +384,7 @@ class Events:
     EMERGENCY_LOCK = "emergency_lock"
     UNLOCKED = "unlocked"
     LOCKED = "locked"
+    DURESS_MODE_ENTERED = "duress_mode_entered"
     
     # Keys
     KEYS_WIPED = "keys_wiped"
@@ -260,6 +394,11 @@ class Events:
     # TOTP
     TOTP_SETUP_COMPLETE = "totp_setup_complete"
     TOTP_VERIFIED = "totp_verified"
+    TOTP_CHANGED = "totp_changed"
+    
+    # Ratchet
+    RATCHET_INITIALIZED = "ratchet_initialized"
+    RATCHET_RESET = "ratchet_reset"
     
     # Services
     SERVICES_REBUILT = "services_rebuilt"

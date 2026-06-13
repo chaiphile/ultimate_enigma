@@ -54,6 +54,22 @@ Ultimate Enigma Messenger implements defense-in-depth security with multiple lay
 - Encryption: AES-256-GCM with Argon2id-derived key
 - Write-Ahead Logging enabled for crash safety
 
+### Database Encryption at Rest (SQLCipher3)
+
+When `sqlcipher3` is installed and a per-machine DB encryption key has been derived, the entire database file is transparently encrypted using **AES-256-CBC** via SQLCipher:
+
+| Parameter | Value |
+|-----------|-------|
+| Cipher | AES-256-CBC |
+| Page size | 4096 |
+| KDF iterations | 256,000 |
+| HMAC algorithm | HMAC_SHA512 |
+| KDF algorithm | PBKDF2_HMAC_SHA512 |
+
+On first run, a random 32-byte DB key is generated, encrypted with the user's master password via Argon2id + AES-GCM, and stored in the `settings` table under the key `sqlcipher_db_key`. On subsequent opens, the encrypted key is decrypted and used to unlock the database.
+
+If `sqlcipher3` is not available, the database falls back to plain SQLite (unencrypted) with a warning log.
+
 ### Key Lifecycle
 1. **Generation**: Keys generated locally on first run
 2. **Storage**: Encrypted with master password-derived key
