@@ -88,6 +88,8 @@ class AuthController:
         
         Returns True if keys are loaded successfully, False otherwise.
         """
+        import database
+        database.init_db()
         if first_run:
             return self._first_run_setup()
         else:

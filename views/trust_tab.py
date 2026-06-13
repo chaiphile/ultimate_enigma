@@ -9,6 +9,7 @@ Publishes Events:
     CERTIFICATE_REVOKED - when a certificate is revoked.
 """
 
+import json
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
@@ -292,8 +293,8 @@ class TrustTab:
         parent = self.frame.winfo_toplevel()
         try:
             from components.certificate_dialog import CertificateDialog
-            CertificateDialog(parent, self.trust_service, self._bg, self.refresh_list,
-                              mode="issue", friend_name=name).show()
+            CertificateDialog(parent, self.trust_service, self.friends_service,
+                              self._bg, mode="issue", friend_name=name).show()
         except ImportError:
             messagebox.showinfo(
                 "Issue Certificate",
@@ -338,10 +339,17 @@ class TrustTab:
                 return
             note = note_var.get().strip()
             try:
-                self.trust_service.import_certificate(cert_data, note=note)
+                parsed = json.loads(cert_data)
+                if isinstance(parsed, dict) and "certificates" in parsed:
+                    cert_dicts = parsed["certificates"]
+                elif isinstance(parsed, list):
+                    cert_dicts = parsed
+                else:
+                    cert_dicts = [parsed]
+                count = self.trust_service.import_received_certs(cert_dicts)
                 self.refresh_list()
                 dlg.destroy()
-                messagebox.showinfo("Imported", "Certificate imported successfully.", parent=parent)
+                messagebox.showinfo("Imported", f"Imported {count} certificate(s).", parent=parent)
                 event_bus.publish(Events.CERTIFICATE_RECEIVED, source="trust_tab")
             except Exception as e:
                 messagebox.showerror("Import Failed", str(e), parent=dlg)
@@ -355,8 +363,8 @@ class TrustTab:
         parent = self.frame.winfo_toplevel()
         try:
             from components.key_recovery_dialog import KeyRecoveryDialog
-            KeyRecoveryDialog(parent, self.trust_service, self._bg, self.refresh_list,
-                              mode="split").show()
+            KeyRecoveryDialog(parent, self.trust_service, self.friends_service,
+                              self._bg, mode="split").show()
         except ImportError:
             messagebox.showinfo(
                 "Split Recovery Key",
@@ -369,8 +377,8 @@ class TrustTab:
         parent = self.frame.winfo_toplevel()
         try:
             from components.key_recovery_dialog import KeyRecoveryDialog
-            KeyRecoveryDialog(parent, self.trust_service, self._bg, self.refresh_list,
-                              mode="recover").show()
+            KeyRecoveryDialog(parent, self.trust_service, self.friends_service,
+                              self._bg, mode="recover").show()
         except ImportError:
             messagebox.showinfo(
                 "Recover Key",
@@ -383,9 +391,10 @@ class TrustTab:
         name = self._get_selected_name()
         if not name:
             return
-        trust_info = self.trust_service.get_trust_info(name)
-        if not trust_info or trust_info.get("certificate_count", 0) == 0:
-            messagebox.showinfo("No Certificates", f"No certificates found for '{name}'.")
+        certs = self.trust_service.get_certs_for_friend(name)
+        valid_certs = [c for c in certs if not c.revoked and not c.is_expired()]
+        if not valid_certs:
+            messagebox.showinfo("No Certificates", f"No valid certificates found for '{name}'.")
             return
         if not messagebox.askyesno(
             "Revoke Certificate",
@@ -393,11 +402,8 @@ class TrustTab:
             "This action cannot be undone."
         ):
             return
-        pw = password_dialog(self.frame.winfo_toplevel(), "Enter Master Password", confirm=False)
-        if not pw:
-            return
         try:
-            self.trust_service.revoke_certificate(name, master_password=pw)
+            self.trust_service.revoke_certificate(valid_certs[0].cert_id, reason="Revoked by user")
             self.refresh_list()
             messagebox.showinfo("Revoked", f"Certificate for '{name}' revoked.")
             event_bus.publish(Events.CERTIFICATE_REVOKED, source="trust_tab", friend_name=name)

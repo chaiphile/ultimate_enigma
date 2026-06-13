@@ -626,10 +626,9 @@ class FriendsTab:
     def set_my_name_dialog(self) -> None:
         """Allow the user to set their display name for ratchet envelopes."""
         parent = self.frame.winfo_toplevel()
-        current_name = getattr(self.service, '_ks', None)
-        if current_name is not None:
-            current_name = current_name.my_name
-        else:
+        try:
+            current_name = self.service.get_my_name()
+        except Exception:
             current_name = ""
 
         new_name = simpledialog.askstring(
@@ -645,12 +644,8 @@ class FriendsTab:
             if not new_name:
                 messagebox.showwarning("Empty Name", "Name cannot be empty.", parent=parent)
                 return
-            ks = getattr(self.service, '_ks', None)
-            if ks is not None:
-                ks.set_my_name(new_name)
-                messagebox.showinfo("Success", f"Display name set to '{new_name}'.", parent=parent)
-            else:
-                messagebox.showerror("Error", "KeyStore not available.", parent=parent)
+            self.service.set_my_name(new_name)
+            messagebox.showinfo("Success", f"Display name set to '{new_name}'.", parent=parent)
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self) -> None:

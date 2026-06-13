@@ -110,6 +110,10 @@ class EnigmaApp:
         self.rotor_positions = [0, 0, 0]
         self._is_locked = False
 
+        # 8a. Shared BackupService (created early so AboutTab can use it)
+        from services.backup_service import BackupService
+        self._backup_service = BackupService(self.ks)
+
         # 9. UI
         self._setup_header()
         self._setup_tabs()
@@ -209,7 +213,8 @@ class EnigmaApp:
             notebook,
             self.service_orchestrator.encryption_service,
             self.service_orchestrator.clipboard_service,
-            self.app_controller.task_queue
+            self.app_controller.task_queue,
+            self.app_controller.crypto_queue
         )
         notebook.add(self.decrypt_tab.frame, text="📥 Decrypt & Receive")
 
@@ -226,7 +231,8 @@ class EnigmaApp:
             self.service_orchestrator.friends_service,
             self.service_orchestrator.global_secret_service,
             self.root,
-            self.app_controller.task_queue
+            self.app_controller.task_queue,
+            self.app_controller.crypto_queue
         )
         notebook.add(self.file_tab.frame, text="🔐 File Encryption")
 
@@ -254,7 +260,8 @@ class EnigmaApp:
         self.about_tab = AboutTab(
             notebook,
             self.ks,
-            self.auth_controller
+            self.auth_controller,
+            backup_service=self._backup_service
         )
         notebook.add(self.about_tab.frame, text="ℹ️ About")
 
@@ -406,13 +413,12 @@ class EnigmaApp:
     def _start_background_agents(self):
         """Initialize and start background agents.
 
-        The BackupService is created here (lazy init) and wired to the
-        orchestrator's backup reminder agent.
+        The BackupService was created earlier (in __init__) and stored as
+        self._backup_service. Here it is wired to the orchestrator's
+        backup reminder agent.
         """
         try:
-            from services.backup_service import BackupService
-            backup_svc = BackupService(self.ks)
-            self.service_orchestrator.set_backup_agent(backup_svc)
+            self.service_orchestrator.set_backup_agent(self._backup_service)
         except Exception as e:
             logger.warning("Could not initialize BackupService for agent: %s", e)
 

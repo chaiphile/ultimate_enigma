@@ -5,16 +5,19 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
+import database
 from services.shamir_service import ShamirService, generate_recovery_key
 from views.utils import password_dialog
 
 
 class KeyRecoveryDialog:
-    def __init__(self, parent, trust_chain_service, friends_service, bg: str):
+    def __init__(self, parent, trust_chain_service, friends_service, bg: str,
+                 mode: str = None):
         self.parent = parent
         self.trust_chain_service = trust_chain_service
         self.friends_service = friends_service
         self.bg = bg
+        self.mode = mode
         self.shamir_service = ShamirService()
 
     def show(self):
@@ -188,7 +191,7 @@ class KeyRecoveryDialog:
                         "holder_pub_b64": "",
                         "created_at": time.time(),
                     }
-                    self.trust_chain_service.save_recovery_share(share_dict)
+                    database.save_recovery_share(share_dict)
 
                 shares_display.config(state="disabled")
                 status_var.set(f"✅ {n} shares created (threshold: {k}), distributed to {len(selected_names)} friends")
@@ -369,7 +372,7 @@ class KeyRecoveryDialog:
             friend_names = self.friends_service.get_friend_names()
             for name in friend_names:
                 try:
-                    shares = self.trust_chain_service.get_recovery_shares_for(name)
+                    shares = database.get_recovery_shares_for(name)
                     for share in shares:
                         created_str = time.strftime(
                             "%Y-%m-%d %H:%M",

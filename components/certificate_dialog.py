@@ -9,11 +9,14 @@ from models.trust_chain import CertificateType, TrustLevel, RevocationStatus
 
 
 class CertificateDialog:
-    def __init__(self, parent, trust_chain_service, friends_service, bg: str):
+    def __init__(self, parent, trust_chain_service, friends_service, bg: str,
+                 mode: str = None, friend_name: str = None):
         self.parent = parent
         self.trust_chain_service = trust_chain_service
         self.friends_service = friends_service
         self.bg = bg
+        self.mode = mode
+        self.friend_name = friend_name
 
     def show(self):
         pw = password_dialog(
@@ -122,11 +125,21 @@ class CertificateDialog:
                                      "Master password incorrect.", parent=dlg)
                 return
             try:
+                subject_pub_b64 = self.friends_service.get_friend_hybrid_sig_pub_b64(fname)
+                if not subject_pub_b64:
+                    messagebox.showerror(
+                        "Missing Key",
+                        f"No hybrid signing public key stored for '{fname}'.\n"
+                        "Import their hybrid signing key first.",
+                        parent=dlg,
+                    )
+                    return
                 cert = self.trust_chain_service.issue_certificate(
-                    master_password=pw2,
                     subject_name=fname,
+                    subject_pub_b64=subject_pub_b64,
                     cert_type=cert_type,
                     validity_days=days,
+                    master_password=pw2,
                 )
                 issue_status_var.set(
                     f"✅ Certificate issued for '{fname}' ({cert_type_label}, {days} days)"
@@ -259,7 +272,7 @@ class CertificateDialog:
                                      "Master password incorrect.", parent=dlg)
                 return
             try:
-                self.trust_chain_service.revoke_certificate(cert_id, pw2)
+                self.trust_chain_service.revoke_certificate(cert_id)
                 load_certificates()
                 messagebox.showinfo("Revoked",
                                     "Certificate has been revoked successfully.",
@@ -324,7 +337,7 @@ class CertificateDialog:
                 except Exception:
                     level = TrustLevel.NONE
                 try:
-                    certs = self.trust_chain_service.get_certificates_for_friend(fname)
+                    certs = self.trust_chain_service.get_certs_for_friend(fname)
                     cert_count = len(certs)
                 except Exception:
                     cert_count = 0

@@ -12,16 +12,19 @@ from key_manager import KeyStore
 
 
 class AboutTab:
-    def __init__(self, parent: tk.Widget, key_store: KeyStore, auth_controller: AuthController) -> None:
+    def __init__(self, parent: tk.Widget, key_store: KeyStore, auth_controller: AuthController,
+                 backup_service: BackupService = None) -> None:
         """
         Args:
             parent: Notebook widget
             key_store: KeyStore instance for backup operations
             auth_controller: Handles password change and duress password operations
+            backup_service: Optional shared BackupService instance. If not provided,
+                           a new one is created (legacy behaviour).
         """
         self.auth_controller = auth_controller
         self.frame = ttkb.Frame(parent)
-        self._backup_service = BackupService(key_store)
+        self._backup_service = backup_service or BackupService(key_store)
         self._build_ui()
 
     def _build_ui(self) -> None:

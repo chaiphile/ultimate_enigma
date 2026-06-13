@@ -312,6 +312,64 @@ class TrustChainService:
             certs = self.get_certs_for_friend(friend_name)
             return compute_trust_level(certs)
 
+    def get_trust_info(self, friend_name: str) -> Dict[str, Any]:
+        """Return a summary dict for a friend suitable for view display.
+
+        Combines trust level, certificate count, dates, signers, and a
+        badge emoji into a single dict.
+
+        Args:
+            friend_name: Identity of the friend.
+
+        Returns:
+            Dict with keys: trust_level, certificate_count,
+            last_certificate_date, nearest_expiry, signers, badge.
+        """
+        with self._lock:
+            certs = self.get_certs_for_friend(friend_name)
+            trust_level = compute_trust_level(certs)
+
+            level_map = {
+                TrustLevel.TRUSTED: "trusted",
+                TrustLevel.VERIFIED: "partially_trusted",
+                TrustLevel.BASIC: "partially_trusted",
+                TrustLevel.NONE: "untrusted",
+            }
+            level_str = level_map.get(trust_level, "untrusted")
+
+            badge_map = {
+                "trusted": "🟢",
+                "partially_trusted": "🟡",
+                "untrusted": "⚪",
+            }
+            badge = badge_map.get(level_str, "⚪")
+
+            valid_certs = [c for c in certs if not c.revoked and not c.is_expired()]
+            cert_count = len(valid_certs)
+
+            last_date = "—"
+            nearest_expiry = "—"
+            if valid_certs:
+                latest = max(c.created_at for c in valid_certs)
+                last_date = time.strftime(
+                    "%Y-%m-%d %H:%M", time.localtime(latest)
+                )
+                earliest_expiry = min(c.not_after for c in valid_certs)
+                nearest_expiry = time.strftime(
+                    "%Y-%m-%d", time.localtime(earliest_expiry)
+                )
+
+            signers = sorted({c.issuer_name for c in valid_certs}) or "—"
+
+            return {
+                "trust_level": level_str,
+                "certificate_count": cert_count,
+                "last_certificate_date": last_date,
+                "nearest_expiry": nearest_expiry,
+                "signers": signers,
+                "badge": badge,
+            }
+
     # ------------------------------------------------------------------
     # Certificate Queries
     # ------------------------------------------------------------------

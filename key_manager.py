@@ -997,7 +997,7 @@ class KeyStore:
                         secrets_to_try.append(bytes(sec))
             return my_priv, friends_for_crypto, secrets_to_try, legacy_priv
 
-    def change_password(self, old_password: Union[str, bytes, SecureString], new_password: Union[str, bytes, SecureString]) -> None:
+    def change_password(self, old_password: Union[str, bytes, SecureString], new_password: Union[str, bytes, SecureString]) -> bool:
         """Re-encrypt all stored secrets with a new master password.
 
         Steps:
