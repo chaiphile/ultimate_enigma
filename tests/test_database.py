@@ -13,14 +13,6 @@ import database
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(autouse=True)
-def isolated_db(tmp_path):
-    """Redirect DB_PATH to a temporary directory for every test."""
-    fake_db = tmp_path / "test_enigma.db"
-    with patch.object(database, "DB_PATH", fake_db):
-        yield fake_db
-
-
 @pytest.fixture
 def initialized_db():
     """Initialize the schema and return the connection."""

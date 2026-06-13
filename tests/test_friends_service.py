@@ -16,13 +16,6 @@ from services.friends_service import FriendsService, FriendsServiceError
 # Fixtures
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(autouse=True)
-def isolated_db(tmp_path):
-    fake_db = tmp_path / "test_enigma.db"
-    with patch.object(database, "DB_PATH", fake_db):
-        yield fake_db
-
-
 @pytest.fixture
 def password():
     return "FriendsTest123!"

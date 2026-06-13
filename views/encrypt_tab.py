@@ -6,7 +6,6 @@ Uses CryptoTaskQueue for non-blocking encryption with timeout enforcement.
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 import datetime
 import logging
 from services.encryption_service import EncryptionService, EncryptionError
@@ -23,9 +22,9 @@ MAX_MESSAGE_SIZE = 1024 * 1024
 
 
 class EncryptTab:
-    def __init__(self, parent, encryption_service: EncryptionService,
+    def __init__(self, parent: tk.Widget, encryption_service: EncryptionService,
                  friends_service: FriendsService, clipboard_service: ClipboardService,
-                 crypto_queue=None):
+                 crypto_queue=None) -> None:
         """
         Args:
             parent: Notebook widget
@@ -47,7 +46,7 @@ class EncryptTab:
         self.frame = ttk.Frame(parent)
         self._build_ui()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         # Options bar – use grid to guarantee buttons stay visible
         opts = ttk.Frame(self.frame, padding=(10, 5))
         opts.pack(fill=tk.X, padx=10, pady=(10, 0))
@@ -129,13 +128,13 @@ class EncryptTab:
                    command=lambda: self.sent_log.delete("1.0", tk.END),
                    bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
 
-    def _update_friend_list(self):
+    def _update_friend_list(self) -> None:
         """Fetch friend names from service instead of direct model access."""
         names = ["(none)"] + self.friends_service.get_friend_names()
         self.friend_combo['values'] = names
         self.friend_combo.current(0)
 
-    def _on_friend_changed(self, event=None):
+    def _on_friend_changed(self, event=None) -> None:
         choice = self.friend_combo.get()
         if not choice or choice == "(none)":
             self.mode_combo.config(state="disabled")
@@ -162,10 +161,10 @@ class EncryptTab:
             self.mode_combo.config(state="disabled")
             self.mode_combo.set("Public Key (RSA)")
 
-    def clear_input(self):
+    def clear_input(self) -> None:
         self.msg_input.delete("1.0", tk.END)
 
-    def send_message(self):
+    def send_message(self) -> None:
         plaintext = self.msg_input.get("1.0", tk.END).strip()
         if not plaintext:
             messagebox.showwarning("Empty", "Please type a message.")
@@ -257,7 +256,7 @@ class EncryptTab:
             error_map=error_map,
         )
 
-    def _log_sent(self, b64_text):
+    def _log_sent(self, b64_text: str) -> None:
         timestamp = datetime.datetime.now().strftime("%H:%M:%S")
         mode = getattr(self.service, 'last_encrypt_mode', None)
         if mode == "pqc":
@@ -275,7 +274,7 @@ class EncryptTab:
         self.sent_log.see(tk.END)
         self.msg_input.delete("1.0", tk.END)
 
-    def copy_last_sent(self):
+    def copy_last_sent(self) -> None:
         if self.last_sent_b64:
             ok = self.clipboard_service.copy(self.last_sent_b64)
             if ok:
@@ -290,6 +289,6 @@ class EncryptTab:
             messagebox.showwarning("Nothing", "No message sent yet.")
 
     # ---- External notification hook ----
-    def notify_friend_list_changed(self):
+    def notify_friend_list_changed(self) -> None:
         """Called by app when friend list changes externally."""
         self._update_friend_list()

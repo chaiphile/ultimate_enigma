@@ -18,7 +18,6 @@ if getattr(sys, 'frozen', False):
 
 import logging
 import ttkbootstrap as ttk  # <-- Use ttkbootstrap
-from ttkbootstrap.constants import *
 from app import EnigmaApp
 
 if __name__ == "__main__":

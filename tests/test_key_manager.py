@@ -18,6 +18,8 @@ from key_manager import (
     KeyStore,
     init_db,
     pubkey_to_pem,
+)
+from services.file_service import (
     file_encrypt,
     file_decrypt,
     file_encrypt_shared,
@@ -29,14 +31,6 @@ from key_manager import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture(autouse=True)
-def isolated_db(tmp_path):
-    """Redirect DB_PATH to a temporary directory for every test."""
-    fake_db = tmp_path / "test_enigma.db"
-    with patch.object(database, "DB_PATH", fake_db):
-        yield fake_db
-
 
 @pytest.fixture
 def password():
@@ -246,11 +240,11 @@ class TestWipe:
 
 class TestDecryptionSnapshot:
     def test_snapshot_contains_priv(self, initialized_keystore):
-        priv, friends, secrets_list = initialized_keystore.get_decryption_snapshot()
+        priv, friends, secrets_list, legacy_priv = initialized_keystore.get_decryption_snapshot()
         assert priv is not None
 
     def test_snapshot_contains_global_secret(self, initialized_keystore):
-        _, _, secrets_list = initialized_keystore.get_decryption_snapshot()
+        _, _, secrets_list, _ = initialized_keystore.get_decryption_snapshot()
         assert len(secrets_list) >= 1  # at least global_secret
 
 

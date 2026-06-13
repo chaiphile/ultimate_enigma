@@ -3,7 +3,6 @@
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 
 from services.ecdh_service import ECDHService      # pure crypto service
 

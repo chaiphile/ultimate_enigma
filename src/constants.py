@@ -46,6 +46,10 @@ CRYPTO_CONSTANTS = {
     "XCHACHA20_KEY_SIZE": 32,       # 256-bit key
     "XCHACHA20_NONCE_SIZE": 24,     # 192-bit nonce — birthday-bound collision risk negligible
     "XCHACHA20_TAG_SIZE": 16,       # Poly1305 128-bit authentication tag
+    "TIME_STEP": 30,                # Time-based key rotation interval (seconds)
+    "WINDOW_SIZE": 2,               # Sliding window size: ±2 steps (±60 seconds tolerance)
+    "SELF_DESTRUCT_FLAG": 4,        # Bit flag for self-destruct messages
+    "HYBRID_SIG_FLAG": 8,           # Bit flag for hybrid signatures (Ed25519 + Dilithium3)
 }
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,8 @@ DB_CONSTANTS = {
     "DB_DIR_NAME": ".ultimate_enigma",
     "WAL_MODE": True,               # Enable Write-Ahead Logging
     "FOREIGN_KEYS": True,           # Enable foreign key constraints
+    "SQLCIPHER_PAGE_SIZE": 4096,
+    "SQLCIPHER_KDF_ITER": 256000,
 }
 
 

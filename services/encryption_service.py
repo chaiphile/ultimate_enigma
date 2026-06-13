@@ -26,7 +26,7 @@ from models.envelope import (
     identify_envelope_type,
 )
 from src.timeout import run_with_timeout
-from src.constants import CONCURRENCY_CONSTANTS
+from src.constants import CONCURRENCY_CONSTANTS, CRYPTO_CONSTANTS
 
 logger = logging.getLogger(__name__)
 
@@ -253,8 +253,8 @@ class EncryptionService:
                 from services.pqc_signatures import HybridSigner
                 my_ed_pub, my_dil_pub = HybridSigner.parse_combined_pub(my_combined_pub)
                 result.append(("myself", my_ed_pub, my_dil_pub))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Could not parse own hybrid sig public key: %s", e)
         return result
 
     def _decrypt_with_rsa(self, packet, my_priv, friends_for_crypto, legacy_priv=None):
@@ -274,9 +274,8 @@ class EncryptionService:
                     now=now,
                     friends_hybrid=friends_hybrid,
                 )
-            except Exception:
-                pass
-        # Fall back to legacy key (for messages encrypted before key rotation)
+            except Exception as e:
+                logger.warning("RSA decryption failed with current key: %s", e)
         if legacy_priv:
             try:
                 return decrypt_message(
@@ -468,7 +467,7 @@ class EncryptionService:
         kem_ciphertext = kem_result['ciphertext']
 
         # AES-256-GCM encrypt the plaintext
-        nonce = secrets.token_bytes(12)
+        nonce = secrets.token_bytes(CRYPTO_CONSTANTS["AES_GCM_NONCE_SIZE"])
         aesgcm = AESGCM(shared_secret)
         aes_ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
 

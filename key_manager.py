@@ -7,18 +7,15 @@ import threading
 import time
 import logging
 import gc
-import struct
 import hashlib
+import sqlite3
 from typing import List, Tuple, Optional, Dict, Union
 from contextlib import closing
 
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.hazmat.primitives import serialization, hashes
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
+from cryptography.exceptions import InvalidTag
 
-from crypto import rsa_sign, rsa_verify, sha256_fingerprint
 import database
 from services.pqc_service import HybridKEM, is_pqc_available
 from src.exceptions import KeyStoreError
@@ -32,8 +29,6 @@ except (ImportError, RuntimeError, OSError):
     _HYBRID_SIG_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
-
-FILE_MAGIC = b'ENIGMA\x01'   # 7‑byte magic for shared‑secret encrypted files
 
 # RSA key rotation constants
 _MIN_RSA_KEY_SIZE = 4096       # CNSA 2.0 minimum
@@ -105,7 +100,7 @@ def init_db(password: Union[str, bytes, SecureString]) -> bool:
                     )
                     conn.commit()
                     logger.info("Hybrid signing keys (Ed25519 + Dilithium3) generated and stored")
-                except Exception as e:
+                except (ValueError, TypeError, sqlite3.Error) as e:
                     logger.warning("Failed to generate hybrid signing keys: %s", e)
 
     return new_keys
@@ -158,7 +153,7 @@ class KeyStore:
             else:
                 self.failed_attempts = 0
                 self.locked_until = 0.0
-        except Exception:
+        except (sqlite3.Error, json.JSONDecodeError, ValueError):
             self.failed_attempts = 0
             self.locked_until = 0.0
 
@@ -176,7 +171,7 @@ class KeyStore:
             )
             conn.commit()
             conn.close()
-        except Exception as e:
+        except (sqlite3.Error, TypeError) as e:
             logger.warning("Failed to persist lockout state: %s", e)
 
     def _get_lockout_delay(self) -> float:
@@ -242,7 +237,7 @@ class KeyStore:
                 raise KeyStoreError("Encrypted private key not found in database")
             try:
                 self.my_priv = _pem_to_privkey(row[0].encode(), password.encode())
-            except Exception as e:
+            except (ValueError, TypeError) as e:
                 logger.error("Failed to decrypt private key: %s", e)
                 return False
 
@@ -269,7 +264,7 @@ class KeyStore:
                         conn.execute("DELETE FROM settings WHERE key='legacy_key_expiry'")
                         conn.commit()
                         logger.info("Expired legacy RSA key removed from database")
-                except Exception as e:
+                except (ValueError, TypeError, sqlite3.Error) as e:
                     logger.warning("Could not load legacy private key: %s", e)
 
             row = conn.execute("SELECT value FROM settings WHERE key='global_secret'").fetchone()
@@ -278,7 +273,7 @@ class KeyStore:
                 # Store as bytearray for zeroing capability
                 try:
                     self.global_secret = bytearray(database.decrypt_secret(enc_dict, password))
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     logger.error("Failed to decrypt global secret: %s", e)
                     return False
             else:
@@ -295,7 +290,7 @@ class KeyStore:
                     kyber_enc_dict = json.loads(row_kyber[0])
                     self.my_kyber_priv = database.decrypt_secret(kyber_enc_dict, password)
                     logger.debug("Local Kyber private key loaded (%d bytes)", len(self.my_kyber_priv))
-                except Exception as e:
+                except (ValueError, TypeError, json.JSONDecodeError) as e:
                     logger.warning("Could not decrypt local Kyber private key: %s", e)
 
             # Load local PQC combined public key if present
@@ -305,7 +300,7 @@ class KeyStore:
             if row_pqc_pub and self.my_kyber_priv:
                 try:
                     self.my_pqc_combined_pub = base64.b64decode(row_pqc_pub[0])
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     logger.warning("Could not decode local PQC combined pub: %s", e)
 
             # Cache full PQC bundle for decryption if all components are available
@@ -329,7 +324,7 @@ class KeyStore:
                             'combined_pub': self.my_pqc_combined_pub,
                         }
                         logger.debug("PQC decryption bundle cached successfully")
-                    except Exception as e:
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning("Could not load PQC X25519 priv during load: %s", e)
 
             # Load hybrid signing keys from settings
@@ -359,12 +354,12 @@ class KeyStore:
                             json.loads(row_dil[0]), password
                         )
                         logger.debug("Hybrid signing private keys loaded")
-                    except Exception as e:
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning("Could not load hybrid signing private keys: %s", e)
                 if row_hybrid_pub:
                     try:
                         self.my_hybrid_sig_combined_pub = base64.b64decode(row_hybrid_pub[0])
-                    except Exception as e:
+                    except (ValueError, TypeError) as e:
                         logger.warning("Could not decode hybrid sig combined pub: %s", e)
 
             rows = conn.execute(
@@ -386,7 +381,7 @@ class KeyStore:
                         sec_dict = json.loads(sec_json)
                         # Store as bytearray for zeroing capability
                         secret = bytearray(database.decrypt_secret(sec_dict, password))
-                    except Exception as e:
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning("Could not decrypt shared secret for friend '%s': %s", name, e)
                 self.friends.append((name, pub, secret))
                 if x_b64:
@@ -401,15 +396,15 @@ class KeyStore:
                 if pqc_pub_b64:
                     try:
                         self.friends_pqc_combined_pub[name] = base64.b64decode(pqc_pub_b64)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.warning("Could not decode friend PQC combined pub for %s: %s", name, e)
                 if hybrid_sig_b64 and _HYBRID_SIG_AVAILABLE:
                     try:
                         combined = base64.b64decode(hybrid_sig_b64)
                         ed_pub_bytes, dil_pub_bytes = HybridSigner.parse_combined_pub(combined)
                         self.friends_hybrid_sig_pubs[name] = (ed_pub_bytes, dil_pub_bytes)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        logger.warning("Could not decode hybrid sig pub for %s: %s", name, e)
         except KeyStoreError:
             raise
         except Exception as e:
@@ -474,7 +469,7 @@ class KeyStore:
                     self._duress_mode = False
                     self._save_lockout_state()
                     return True
-            except Exception as e:
+            except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
                 logger.debug("Master password verification failed: %s", e)
 
             # --- Check duress password ---
@@ -494,7 +489,7 @@ class KeyStore:
                     self._save_lockout_state()
                     logger.warning("DURESS PASSWORD USED - entering decoy mode")
                     return True
-            except Exception as e:
+            except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
                 logger.debug("Duress password verification failed: %s", e)
 
             # --- Failed attempt: escalate lockout ---
@@ -612,7 +607,7 @@ class KeyStore:
         if pqc_combined_pub_b64:
             try:
                 self.friends_pqc_combined_pub[name] = base64.b64decode(pqc_combined_pub_b64)
-            except Exception:
+            except (ValueError, TypeError):
                 self.friends_pqc_combined_pub.pop(name, None)
         else:
             self.friends_pqc_combined_pub.pop(name, None)
@@ -621,7 +616,7 @@ class KeyStore:
                 combined = base64.b64decode(hybrid_sig_pub_b64)
                 ed_pub_bytes, dil_pub_bytes = HybridSigner.parse_combined_pub(combined)
                 self.friends_hybrid_sig_pubs[name] = (ed_pub_bytes, dil_pub_bytes)
-            except Exception:
+            except (ValueError, TypeError):
                 self.friends_hybrid_sig_pubs.pop(name, None)
         else:
             self.friends_hybrid_sig_pubs.pop(name, None)
@@ -688,7 +683,7 @@ class KeyStore:
             logger.info("PQC hybrid keys generated and stored successfully")
         except KeyStoreError:
             raise
-        except Exception as e:
+        except (ValueError, TypeError, sqlite3.Error) as e:
             logger.error("Failed to generate PQC keys: %s", e)
             raise KeyStoreError(f"Failed to generate PQC keys: {e}") from e
 
@@ -725,7 +720,7 @@ class KeyStore:
                         'kyber_priv': self.my_kyber_priv,
                         'combined_pub': self.my_pqc_combined_pub,
                     }
-            except Exception as e:
+            except (ValueError, TypeError, sqlite3.Error, json.JSONDecodeError) as e:
                 logger.warning("Could not load X25519 priv for PQC bundle: %s", e)
 
         # Generate fresh keys
@@ -757,7 +752,7 @@ class KeyStore:
             self.my_pqc_combined_pub = keys['combined_pub']
             logger.info("Full PQC hybrid key bundle generated and stored")
             return keys
-        except Exception as e:
+        except (ValueError, TypeError, sqlite3.Error) as e:
             logger.error("Failed to generate full PQC key bundle: %s", e)
             return None
 
@@ -800,7 +795,7 @@ class KeyStore:
                 'kyber_priv': kyber_priv,
                 'combined_pub': combined_pub,
             }
-        except Exception as e:
+        except (ValueError, TypeError, sqlite3.Error, json.JSONDecodeError) as e:
             logger.warning("Could not load PQC bundle: %s", e)
             return None
 
@@ -825,7 +820,7 @@ class KeyStore:
             conn.close()
             if row and row[0]:
                 return row[0]
-        except Exception:
+        except sqlite3.Error:
             pass
 
         # Fallback: derive a short identifier from the public key
@@ -834,7 +829,7 @@ class KeyStore:
                 pem = pubkey_to_pem(self.my_pub)
                 fp = hashlib.sha256(pem.encode()).hexdigest()[:8]
                 return f"user-{fp}"
-            except Exception:
+            except (ValueError, TypeError, AttributeError):
                 pass
         return "anonymous"
 
@@ -882,7 +877,7 @@ class KeyStore:
                 enc_dict = json.loads(row[0])
                 try:
                     database.decrypt_secret(enc_dict, password)
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     raise KeyStoreError(
                         "rotate_rsa_key: password verification failed"
                     ) from e
@@ -942,7 +937,7 @@ class KeyStore:
             except KeyStoreError:
                 conn.rollback()
                 raise
-            except Exception as e:
+            except (ValueError, TypeError, sqlite3.Error) as e:
                 conn.rollback()
                 logger.error("rotate_rsa_key failed (rolled back): %s", e)
                 raise KeyStoreError(f"rotate_rsa_key failed: {e}") from e
@@ -1007,7 +1002,7 @@ class KeyStore:
                 enc_dict = json.loads(row[0])
                 try:
                     database.decrypt_secret(enc_dict, old_password)
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     raise KeyStoreError(
                         "change_password: old password verification failed"
                     ) from e
@@ -1026,7 +1021,7 @@ class KeyStore:
                     )
                 try:
                     priv_key = _pem_to_privkey(row_pk[0].encode(), old_password.encode())
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     raise KeyStoreError(
                         f"change_password: cannot decrypt private key: {e}"
                     ) from e
@@ -1043,7 +1038,7 @@ class KeyStore:
                     try:
                         sec_dict = json.loads(sec_json)
                         friend_secrets[fname] = database.decrypt_secret(sec_dict, old_password)
-                    except Exception as e:
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning(
                             "change_password: could not decrypt secret for '%s': %s",
                             fname, e
@@ -1058,7 +1053,7 @@ class KeyStore:
                     try:
                         totp_dict = json.loads(row_totp[0])
                         totp_plain = database.decrypt_secret(totp_dict, old_password)
-                    except Exception as e:
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning("change_password: could not decrypt TOTP secret: %s", e)
 
                 # --- 3. Re-encrypt everything with new password ---
@@ -1113,7 +1108,7 @@ class KeyStore:
             except KeyStoreError:
                 conn.rollback()
                 raise
-            except Exception as e:
+            except (ValueError, TypeError, sqlite3.Error) as e:
                 conn.rollback()
                 logger.error("change_password failed (rolled back): %s", e)
                 raise KeyStoreError(f"change_password failed: {e}") from e
@@ -1185,257 +1180,3 @@ class KeyStore:
             logger.warning("Duress decoy state loaded - no real data accessible")
             return True
 
-
-# KDF version tag for password-based file encryption
-_FILE_KDF_VERSION_ARGON2ID = b'A2ID'  # 4-byte magic for Argon2id files
-_FILE_KDF_LEGACY_PBKDF2_ITERATIONS = 300_000
-
-
-# ---------- Password‑based file encryption ----------
-def file_encrypt(input_path: str, output_path: str, password: Union[str, bytes, SecureString]) -> None:
-    """Encrypt a file using AES-GCM with Argon2id-derived key.
-
-    File format: A2ID(4) + salt(16) + nonce(12) + ciphertext
-    
-    Args:
-        input_path: Path to plaintext input file.
-        output_path: Path to write encrypted output file.
-        password: Password as str, bytes, or SecureString.
-    """
-    salt = secrets.token_bytes(database.ARGON2_SALT_LEN)
-    key = database._derive_key_argon2id(password, salt)
-    aesgcm = AESGCM(key)
-    nonce = secrets.token_bytes(12)
-    with open(input_path, 'rb') as f:
-        plaintext = f.read()
-    ct = aesgcm.encrypt(nonce, plaintext, None)
-    with open(output_path, 'wb') as f:
-        f.write(_FILE_KDF_VERSION_ARGON2ID)
-        f.write(salt)
-        f.write(nonce)
-        f.write(ct)
-
-
-def file_decrypt(input_path: str, output_path: str, password: Union[str, bytes, SecureString]) -> None:
-    """Decrypt a file with automatic KDF detection.
-
-    Supports Argon2id (new, tagged with A2ID header) and
-    PBKDF2-HMAC-SHA256 (legacy, no header).
-    
-    Args:
-        input_path: Path to encrypted input file.
-        output_path: Path to write decrypted output file.
-        password: Password as str, bytes, or SecureString.
-    """
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    from cryptography.hazmat.primitives import hashes
-
-    with open(input_path, 'rb') as f:
-        header = f.read(4)
-        if header == _FILE_KDF_VERSION_ARGON2ID:
-            # New Argon2id format
-            salt = f.read(16)
-            nonce = f.read(12)
-            ct = f.read()
-            key = database._derive_key_argon2id(password, salt)
-        else:
-            # Legacy PBKDF2 format: header is actually first 4 bytes of salt
-            salt = header + f.read(12)  # remaining 12 bytes of 16-byte salt
-            nonce = f.read(12)
-            ct = f.read()
-            kdf = PBKDF2HMAC(
-                algorithm=hashes.SHA256(),
-                length=32,
-                salt=salt,
-                iterations=_FILE_KDF_LEGACY_PBKDF2_ITERATIONS,
-                backend=default_backend()
-            )
-            key = kdf.derive(password.encode())
-
-    aesgcm = AESGCM(key)
-    try:
-        plaintext = aesgcm.decrypt(nonce, ct, None)
-    except Exception:
-        raise ValueError("Wrong password or corrupted file")
-    with open(output_path, 'wb') as f:
-        f.write(plaintext)
-
-
-# ---------- Shared‑secret file encryption ----------
-def file_encrypt_shared(
-    input_path: str,
-    output_path: str,
-    shared_secret: bytes,
-    sign: bool = False,
-    my_priv=None,
-    hybrid_ed_priv=None,
-    hybrid_dil_priv: Optional[bytes] = None,
-) -> None:
-    """Encrypt a file using a shared secret with optional signature.
-
-    Supports both RSA-PSS signatures and hybrid (Ed25519 + Dilithium3) signatures.
-    Hybrid signatures take priority when both signing key types are available.
-
-    Args:
-        input_path: Path to plaintext input file.
-        output_path: Path to write encrypted output file.
-        shared_secret: Shared secret bytes for key derivation.
-        sign: Whether to attach a signature.
-        my_priv: RSA private key for RSA-PSS signing (fallback).
-        hybrid_ed_priv: Ed25519 private key for hybrid signing (preferred).
-        hybrid_dil_priv: Dilithium3 secret key bytes for hybrid signing (preferred).
-    """
-    salt = secrets.token_bytes(16)
-    hkdf = HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        info=b"enigma-file-v1",
-        backend=default_backend()
-    )
-    key = hkdf.derive(shared_secret)
-
-    with open(input_path, 'rb') as f:
-        plaintext = f.read()
-
-    flags = 0
-    signature = b""
-
-    # Determine signing mode: hybrid takes priority over RSA when available
-    use_hybrid_sig = (
-        sign
-        and hybrid_ed_priv is not None
-        and hybrid_dil_priv is not None
-        and _HYBRID_SIG_AVAILABLE
-    )
-
-    if use_hybrid_sig:
-        flags |= 2  # _FILE_FLAG_HYBRID_SIGN
-        signature = HybridSigner.sign(plaintext, hybrid_ed_priv, hybrid_dil_priv)
-    elif sign and my_priv:
-        flags |= 1  # _FILE_FLAG_RSA_SIGN
-        signature = rsa_sign(plaintext, my_priv)
-
-    aesgcm = AESGCM(key)
-    nonce = secrets.token_bytes(12)
-    ct = aesgcm.encrypt(nonce, plaintext, None)
-
-    fp = hashlib.sha256(shared_secret).digest()[:16]
-
-    with open(output_path, 'wb') as f:
-        f.write(FILE_MAGIC)
-        f.write(bytes([flags]))
-        f.write(fp)
-        f.write(salt)
-        f.write(nonce)
-        if signature:
-            f.write(struct.pack(">H", len(signature)))
-            f.write(signature)
-        f.write(ct)
-
-
-def file_decrypt_shared(
-    input_path: str,
-    output_path: str,
-    secrets_dict: Dict[bytes, Tuple[bytes, Optional[str]]],
-    friends_for_sig: Optional[List[Tuple[str, object]]] = None,
-    friends_hybrid: Optional[List[Tuple[str, bytes, bytes]]] = None,
-) -> str:
-    """Decrypt a shared-secret encrypted file.
-
-    Supports both RSA-PSS and hybrid (Ed25519 + Dilithium3) signature verification.
-    Hybrid signatures are verified first when the flag is set.
-
-    Returns a signature verification message (may be empty).
-
-    Args:
-        input_path: Path to encrypted file (with FILE_MAGIC header).
-        output_path: Path to write decrypted plaintext.
-        secrets_dict: Mapping of fingerprint -> (secret, owner_name).
-        friends_for_sig: List of (name, RSA_public_key) for RSA sig verification.
-        friends_hybrid: List of (name, ed_pub_bytes, dil_pub_bytes) for hybrid sig verification.
-    """
-    with open(input_path, 'rb') as f:
-        magic = f.read(len(FILE_MAGIC))
-        if magic != FILE_MAGIC:
-            raise ValueError("Not a shared‑secret encrypted file (invalid magic)")
-
-        flags_byte = f.read(1)
-        if len(flags_byte) < 1:
-            raise ValueError("File too short")
-        flags = flags_byte[0]
-        has_rsa_sign = bool(flags & 1)
-        has_hybrid_sign = bool(flags & 2)
-
-        fp = f.read(16)
-        salt = f.read(16)
-        nonce = f.read(12)
-
-        signature = b""
-        if has_rsa_sign or has_hybrid_sign:
-            siglen_bytes = f.read(2)
-            if len(siglen_bytes) < 2:
-                raise ValueError("File too short")
-            siglen = struct.unpack(">H", siglen_bytes)[0]
-            signature = f.read(siglen)
-            if len(signature) != siglen:
-                raise ValueError("File too short")
-        ct = f.read()
-
-    if fp not in secrets_dict:
-        raise ValueError("No matching shared secret found – fingerprint unknown")
-
-    secret, owner = secrets_dict[fp]
-
-    hkdf = HKDF(
-        algorithm=hashes.SHA256(),
-        length=32,
-        salt=salt,
-        info=b"enigma-file-v1",
-        backend=default_backend()
-    )
-    key = hkdf.derive(secret)
-    aesgcm = AESGCM(key)
-    try:
-        plaintext = aesgcm.decrypt(nonce, ct, None)
-    except Exception:
-        raise ValueError("Decryption failed – wrong shared secret or corrupted file")
-
-    sig_msg = ""
-
-    # Verify hybrid signature (Ed25519 + Dilithium3)
-    if has_hybrid_sign and signature and friends_hybrid:
-        verified = False
-        signer_name = None
-        for name, ed_pub_bytes, dil_pub_bytes in friends_hybrid:
-            try:
-                from crypto import hybrid_verify
-                if hybrid_verify(plaintext, signature, ed_pub_bytes, dil_pub_bytes):
-                    verified = True
-                    signer_name = name
-                    break
-            except Exception:
-                continue
-        if verified:
-            sig_msg = f"✅ Hybrid Signature Verified (Ed25519 + Dilithium3) from {signer_name}"
-        else:
-            sig_msg = "⚠️ Hybrid Signature INVALID or sender unknown"
-
-    # Verify RSA signature (fallback)
-    elif has_rsa_sign and signature and friends_for_sig:
-        verified = False
-        for name, pub in friends_for_sig:
-            if rsa_verify(plaintext, signature, pub):
-                verified = True
-                sig_msg = f"✅ Signature verified from {name}"
-                pem = pubkey_to_pem(pub)
-                fp_key = sha256_fingerprint(pem.encode())
-                sig_msg += f" (key fingerprint: {fp_key})"
-                break
-        if not verified:
-            sig_msg = "⚠️ Signature INVALID or sender unknown"
-
-    with open(output_path, 'wb') as f:
-        f.write(plaintext)
-
-    return sig_msg

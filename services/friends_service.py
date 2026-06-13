@@ -47,7 +47,7 @@ class FriendsService:
                 try:
                     raw = ECDHService.decode_public_key(x_b64)
                     ecdh_fp = ECDHService.fingerprint(raw)
-                except Exception:
+                except (ValueError, TypeError):
                     pass
             has_ratchet = RatchetService.has_active_ratchet(name)
             caps = self._ks.friends_capabilities.get(name, {})
@@ -119,7 +119,7 @@ class FriendsService:
                 raw = base64.b64decode(pqc_combined_pub_b64)
                 if len(raw) < 36:  # minimum: 2+32+2 = 36 bytes for smallest keys
                     raise ValueError("Too short to be a valid combined public key")
-            except Exception as e:
+            except (ValueError, TypeError) as e:
                 raise FriendsServiceError(f"Invalid PQC combined public key: {e}")
         # Validate hybrid sig combined pub if provided
         if hybrid_sig_pub_b64:
@@ -127,7 +127,7 @@ class FriendsService:
                 raw = base64.b64decode(hybrid_sig_pub_b64)
                 if len(raw) < 36:
                     raise ValueError("Too short to be a valid hybrid signing combined public key")
-            except Exception as e:
+            except (ValueError, TypeError) as e:
                 raise FriendsServiceError(f"Invalid hybrid signing combined public key: {e}")
 
         self._ks.save_friend(
@@ -546,7 +546,7 @@ class FriendsService:
         try:
             raw = base64.b64decode(combined_pub_b64)
             return sha256_fingerprint(raw)
-        except Exception:
+        except (ValueError, TypeError):
             return None
 
     def reset_ratchet(self, name: str, master_password: str = "") -> bool:

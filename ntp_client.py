@@ -30,6 +30,15 @@ NTP_SERVERS = [
     "time.google.com",       # Often blocked/slow, placed last
 ]
 
+PRESET_NTP_SERVERS = [
+    "ntp.day.ir",
+    "pool.ntp.org",
+    "time.nist.gov",
+    "time.google.com",
+    "time.cloudflare.com",
+    "ntp.ubuntu.com",
+]
+
 NTP_PORT = 123
 NTP_DELTA = 2208988800
 PER_SERVER_TIMEOUT = 2      # Socket timeout per server (seconds)

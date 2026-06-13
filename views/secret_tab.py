@@ -3,7 +3,6 @@
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 
 from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
 from services.clipboard_service import ClipboardService
@@ -11,8 +10,8 @@ from views.utils import password_dialog
 
 
 class SecretTab:
-    def __init__(self, parent, global_secret_service: GlobalSecretService,
-                 clipboard_service: ClipboardService):
+    def __init__(self, parent: tk.Widget, global_secret_service: GlobalSecretService,
+                 clipboard_service: ClipboardService) -> None:
         """
         Args:
             parent: Notebook widget
@@ -24,7 +23,7 @@ class SecretTab:
         self.frame = ttk.Frame(parent)
         self._build_ui()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         f = ttk.Frame(self.frame, padding=(20, 20))
         f.pack(expand=True, fill=tk.BOTH)
 
@@ -54,7 +53,7 @@ class SecretTab:
 
         self._update_display()
 
-    def _update_display(self):
+    def _update_display(self) -> None:
         fp = self.service.get_fingerprint()
         if fp:
             self.secret_fp_var.set(fp)
@@ -72,7 +71,7 @@ class SecretTab:
             return None
         return pw
 
-    def export_global(self):
+    def export_global(self) -> None:
         if not self.service.has_secret():
             messagebox.showwarning("No Secret", "No global secret available.")
             return
@@ -92,7 +91,7 @@ class SecretTab:
         except GlobalSecretServiceError as e:
             messagebox.showerror("Error", str(e))
 
-    def import_global(self):
+    def import_global(self) -> None:
         b64 = simpledialog.askstring("Import Global Secret", "Paste Base64 shared secret:")
         if not b64:
             return
@@ -128,7 +127,7 @@ class SecretTab:
         except GlobalSecretServiceError as e:
             messagebox.showerror("Error", str(e))
 
-    def start_ecdh(self):
+    def start_ecdh(self) -> None:
         from views.ecdh import perform_ecdh
         parent = self.frame.winfo_toplevel()
         result = perform_ecdh(parent, purpose="global")

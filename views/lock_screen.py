@@ -9,7 +9,6 @@ Publishes Events:
 
 import tkinter as tk
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 import logging
 
 from services.event_bus import event_bus, Events
@@ -104,7 +103,7 @@ class LockScreen:
 
         logger.info("Lock screen activated")
 
-    def _handle_unlock_request(self):
+    def _handle_unlock_request(self) -> None:
         """Publish unlock event and invoke the registered callback."""
         event_bus.publish(Events.UNLOCK_REQUESTED, source="lock_screen")
         self._on_unlock_request()

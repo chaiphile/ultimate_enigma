@@ -6,19 +6,12 @@ from unittest.mock import patch, MagicMock
 
 import database
 from models.friend_profile import FriendProfile
+from services.friend_repository import get_friend_profile, list_all_friend_profiles
 
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
-
-@pytest.fixture(autouse=True)
-def isolated_db(tmp_path):
-    """Redirect DB_PATH to a temporary directory for every test."""
-    fake_db = tmp_path / "test_enigma.db"
-    with patch.object(database, "DB_PATH", fake_db):
-        yield fake_db
-
 
 @pytest.fixture
 def initialized_db():
@@ -118,14 +111,14 @@ class TestProperties:
 class TestFromDatabase:
     def test_load_existing_friend(self, initialized_db):
         _insert_friend(initialized_db, "Alice", caps='{"double_ratchet": true}')
-        profile = FriendProfile.from_database("Alice")
+        profile = get_friend_profile("Alice")
         assert profile is not None
         assert profile.name == "Alice"
         assert profile.capabilities == {"double_ratchet": True}
         assert profile.supports_double_ratchet is True
 
     def test_load_nonexistent_friend(self, initialized_db):
-        profile = FriendProfile.from_database("Nobody")
+        profile = get_friend_profile("Nobody")
         assert profile is None
 
     def test_load_with_ratchet_state(self, initialized_db):
@@ -133,13 +126,13 @@ class TestFromDatabase:
             initialized_db, "Bob",
             ratchet='{"root_key": "abc"}'
         )
-        profile = FriendProfile.from_database("Bob")
+        profile = get_friend_profile("Bob")
         assert profile is not None
         assert profile.has_active_ratchet is True
 
     def test_load_without_ratchet_state(self, initialized_db):
         _insert_friend(initialized_db, "Charlie", ratchet=None)
-        profile = FriendProfile.from_database("Charlie")
+        profile = get_friend_profile("Charlie")
         assert profile is not None
         assert profile.has_active_ratchet is False
 
@@ -148,7 +141,7 @@ class TestFromDatabase:
             initialized_db, "Dave",
             pqc_pub="base64_encoded_pqc_pub"
         )
-        profile = FriendProfile.from_database("Dave")
+        profile = get_friend_profile("Dave")
         assert profile is not None
         assert profile.pqc_combined_pub is not None
 
@@ -157,14 +150,14 @@ class TestFromDatabase:
             initialized_db, "Eve",
             caps="NOT VALID JSON"
         )
-        profile = FriendProfile.from_database("Eve")
+        profile = get_friend_profile("Eve")
         assert profile is not None
         assert profile.capabilities == {}
 
     def test_load_with_public_key(self, initialized_db):
         pem = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBg...\n-----END PUBLIC KEY-----"
         _insert_friend(initialized_db, "Frank", pem=pem)
-        profile = FriendProfile.from_database("Frank")
+        profile = get_friend_profile("Frank")
         assert profile is not None
         assert profile.public_key == pem.encode()
 
@@ -172,7 +165,7 @@ class TestFromDatabase:
         """If DB error occurs, from_database should return None."""
         # Corrupt the database connection to trigger an error
         initialized_db.close()
-        profile = FriendProfile.from_database("Alice")
+        profile = get_friend_profile("Alice")
         # Should return None gracefully
         assert profile is None
 
@@ -183,7 +176,7 @@ class TestFromDatabase:
 
 class TestListAll:
     def test_empty_database(self, initialized_db):
-        profiles = FriendProfile.list_all()
+        profiles = list_all_friend_profiles()
         assert profiles == []
 
     def test_list_multiple_friends(self, initialized_db):
@@ -191,7 +184,7 @@ class TestListAll:
         _insert_friend(initialized_db, "Bob")
         _insert_friend(initialized_db, "Charlie")
 
-        profiles = FriendProfile.list_all()
+        profiles = list_all_friend_profiles()
         assert len(profiles) == 3
         names = {p.name for p in profiles}
         assert names == {"Alice", "Bob", "Charlie"}
@@ -201,7 +194,7 @@ class TestListAll:
             initialized_db, "Alice",
             caps='{"double_ratchet": true, "pqc": false}'
         )
-        profiles = FriendProfile.list_all()
+        profiles = list_all_friend_profiles()
         assert len(profiles) == 1
         assert profiles[0].capabilities == {"double_ratchet": True, "pqc": False}
 
@@ -209,14 +202,14 @@ class TestListAll:
         _insert_friend(initialized_db, "Alice", caps="BAD JSON")
         _insert_friend(initialized_db, "Bob", caps='{"double_ratchet": true}')
 
-        profiles = FriendProfile.list_all()
+        profiles = list_all_friend_profiles()
         assert len(profiles) == 2
 
     def test_list_with_mixed_ratchet_states(self, initialized_db):
         _insert_friend(initialized_db, "Alice", ratchet='{"root_key": "abc"}')
         _insert_friend(initialized_db, "Bob", ratchet=None)
 
-        profiles = FriendProfile.list_all()
+        profiles = list_all_friend_profiles()
         alice = [p for p in profiles if p.name == "Alice"][0]
         bob = [p for p in profiles if p.name == "Bob"][0]
 
@@ -226,7 +219,7 @@ class TestListAll:
     def test_list_database_error_returns_empty(self, initialized_db):
         """If DB error occurs, list_all should return empty list."""
         initialized_db.close()
-        profiles = FriendProfile.list_all()
+        profiles = list_all_friend_profiles()
         assert profiles == []
 
 
@@ -242,7 +235,7 @@ class TestEdgeCases:
             ratchet='{"root_key": "abc"}',
             pqc_pub="base64_pqc_pub",
         )
-        profile = FriendProfile.from_database("FullProfile")
+        profile = get_friend_profile("FullProfile")
         assert profile is not None
         assert profile.supports_double_ratchet is True
         assert profile.supports_pqc is True

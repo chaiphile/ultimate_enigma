@@ -6,8 +6,7 @@ import secrets
 import pytest
 from unittest.mock import MagicMock, patch
 
-from key_manager import FILE_MAGIC, file_encrypt_shared
-from services.file_service import FileService, FileServiceError, SharedSecretDetected
+from services.file_service import FILE_MAGIC, file_encrypt_shared, FileService, FileServiceError, SharedSecretDetected
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +134,7 @@ class TestFileServiceDecrypt:
         assert dec.read_bytes() == b"shared magic file"
 
     def test_decrypt_password_file(self, tmp_path):
-        from key_manager import file_encrypt
+        from services.file_service import file_encrypt
         ks = _make_mock_keystore()
         svc = FileService(ks)
 

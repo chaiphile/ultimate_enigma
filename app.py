@@ -10,7 +10,6 @@ from pathlib import Path
 import logging
 import gc
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 
 from views.visual_enigma import VisualEnigma
 from key_manager import KeyStore
@@ -26,6 +25,7 @@ from controllers.application_controller import ApplicationController
 from controllers.auth_controller import AuthController
 from controllers.service_orchestrator import ServiceOrchestrator
 from services.event_bus import event_bus, Events
+from services.totp_persistence import TotpPersistence
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,8 @@ class EnigmaApp:
 
         # 2. Initialize Controllers
         self.app_controller = ApplicationController(root)
-        self.auth_controller = AuthController(root, self.ks)
+        self.totp_persistence = TotpPersistence(self.ks)
+        self.auth_controller = AuthController(root, self.ks, totp_persistence=self.totp_persistence)
         
         # Start task queue processing
         self.app_controller.start_queue_processing()
@@ -251,7 +252,7 @@ class EnigmaApp:
                 elif "Encrypt" in tab_text:
                     self.encrypt_tab._update_friend_list()
         except Exception as e:
-            logger.debug("Tab change handler error (non-critical): %s", e)
+            logger.warning("Tab change handler error (non-critical): %s", e)
 
     # ------------------------------------------------------------------
     # Emergency Lock
@@ -287,6 +288,7 @@ class EnigmaApp:
         self.ks = new_ks
         self.auth_controller.ks = new_ks
         self.auth_controller.totp_service = new_totp
+        self.totp_persistence.ks = new_ks
 
         # Rebuild services with restored keys
         tab_refs = {
@@ -338,7 +340,7 @@ class EnigmaApp:
             self.file_tab.refresh_list()
             logger.debug("Friend list change propagated to tabs")
         except Exception as e:
-            logger.debug("Friend list change handler error (non-critical): %s", e)
+            logger.warning("Friend list change handler error (non-critical): %s", e)
 
     def _on_services_rebuilt(self, **kwargs):
         """React to service rebuild by refreshing tab data."""
@@ -348,7 +350,7 @@ class EnigmaApp:
             self.file_tab.refresh_list()
             logger.debug("Service rebuild propagated to tabs")
         except Exception as e:
-            logger.debug("Service rebuild handler error (non-critical): %s", e)
+            logger.warning("Service rebuild handler error (non-critical): %s", e)
 
     # ------------------------------------------------------------------
     # Header rotor animation

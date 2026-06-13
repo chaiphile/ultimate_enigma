@@ -8,7 +8,6 @@ import time
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 import logging
 
 try:

@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 from models.friend_profile import FriendProfile
+from services.friend_repository import get_friend_profile, list_all_friend_profiles
 from models.envelope import RatchetEnvelope
 
 from src.exceptions import (
@@ -404,7 +405,7 @@ class RatchetService:
         Returns:
             A FriendProfile instance, or None if the friend does not exist.
         """
-        return FriendProfile.from_database(friend_name)
+        return get_friend_profile(friend_name)
 
     @staticmethod
     def has_active_ratchet(friend_name: str) -> bool:
@@ -418,7 +419,7 @@ class RatchetService:
         Returns:
             True if a ratchet state exists for this friend, False otherwise.
         """
-        profile = FriendProfile.from_database(friend_name)
+        profile = get_friend_profile(friend_name)
         if profile is None:
             return False
         return profile.has_active_ratchet

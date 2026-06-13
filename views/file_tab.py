@@ -6,7 +6,6 @@ Now delegates all cryptographic logic to `FileService`.
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 import threading
 from queue import Queue
 
@@ -19,9 +18,9 @@ from src.exceptions import CryptoTimeoutError
 
 
 class FileTab:
-    def __init__(self, parent, file_service, friends_service: FriendsService,
-                 global_secret_service: GlobalSecretService, root, task_queue: Queue,
-                 crypto_queue=None):
+    def __init__(self, parent: tk.Widget, file_service, friends_service: FriendsService,
+                 global_secret_service: GlobalSecretService, root: tk.Tk, task_queue: Queue,
+                 crypto_queue=None) -> None:
         """
         Args:
             parent: Notebook widget
@@ -47,7 +46,7 @@ class FileTab:
 
         self._build_ui()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         # Encryption method selection
         opt_frame = ttk.Labelframe(self.frame, text="Encryption Method",
                                    bootstyle="info", padding=(10, 5))
@@ -91,7 +90,7 @@ class FileTab:
         ttk.Button(btn_frame, text="🔓 Decrypt a File", command=self.decrypt_file,
                    bootstyle="primary", width=20).pack(pady=10, ipadx=20, ipady=10)
 
-    def _update_friend_list(self):
+    def _update_friend_list(self) -> None:
         """Refresh the friend dropdown from the FriendsService."""
         names = self.friends_service.get_friend_names()
         self.friend_combo['values'] = names
@@ -100,18 +99,18 @@ class FileTab:
         else:
             self.friend_combo.set("")
 
-    def refresh_list(self):
+    def refresh_list(self) -> None:
         """Called when the tab is selected to refresh the friend dropdown."""
         self._update_friend_list()
 
-    def _on_method_change(self, *args):
+    def _on_method_change(self, *args) -> None:
         if self.method_var.get() == "friend":
             self.friend_combo.config(state="readonly")
         else:
             self.friend_combo.config(state="disabled")
 
     # ===================== ENCRYPT =====================
-    def encrypt_file(self):
+    def encrypt_file(self) -> None:
         infile = filedialog.askopenfilename(title="Select file to encrypt")
         if not infile:
             return
@@ -203,7 +202,7 @@ class FileTab:
             threading.Thread(target=task, daemon=True).start()
 
     # ===================== DECRYPT =====================
-    def decrypt_file(self):
+    def decrypt_file(self) -> None:
         infile = filedialog.askopenfilename(title="Select encrypted file")
         if not infile:
             return
@@ -263,7 +262,7 @@ class FileTab:
 
             threading.Thread(target=task, daemon=True).start()
 
-    def _handle_shared_detected(self, infile, outfile, detection: SharedSecretDetected):
+    def _handle_shared_detected(self, infile: str, outfile: str, detection: SharedSecretDetected) -> None:
         """Ask user if they want to decrypt using the detected shared secret."""
         ok = messagebox.askyesno(
             "Shared Secret Detected",
@@ -306,7 +305,7 @@ class FileTab:
 
             threading.Thread(target=task, daemon=True).start()
 
-    def _prompt_password_and_decrypt(self, infile, outfile):
+    def _prompt_password_and_decrypt(self, infile: str, outfile: str) -> None:
         """Prompt for a password and attempt decryption."""
         pw = password_dialog(self.root, "File Decryption Password", confirm=False)
         if not pw:
@@ -347,7 +346,7 @@ class FileTab:
 
             threading.Thread(target=task, daemon=True).start()
 
-    def _show_result(self, outfile, sig_msg):
+    def _show_result(self, outfile: str, sig_msg: str) -> None:
         msg = f"File decrypted:\n{outfile}"
         if sig_msg:
             msg += f"\n\n{sig_msg}"

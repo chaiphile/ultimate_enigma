@@ -27,7 +27,7 @@ from cryptography.hazmat.backends import default_backend
 import database
 from crypto import rsa_sign, rsa_verify, sha256_fingerprint
 from src.timeout import run_with_timeout
-from src.constants import CONCURRENCY_CONSTANTS
+from src.constants import CONCURRENCY_CONSTANTS, CRYPTO_CONSTANTS, KDF_PARAMS
 from src.exceptions import CryptoTimeoutError
 
 logger = logging.getLogger(__name__)
@@ -81,7 +81,7 @@ def file_encrypt(input_path: str, output_path: str, password: str) -> None:
         )
 
     aesgcm = AESGCM(key)
-    nonce = secrets.token_bytes(12)
+    nonce = secrets.token_bytes(CRYPTO_CONSTANTS["AES_GCM_NONCE_SIZE"])
 
     # Read file with timeout for very large files
     file_timeout = CONCURRENCY_CONSTANTS.get("FILE_OPERATION_TIMEOUT", 300.0)
@@ -203,7 +203,7 @@ def file_encrypt_shared(
         hybrid_ed_priv: Ed25519 private key for hybrid signing (preferred).
         hybrid_dil_priv: Dilithium3 secret key bytes for hybrid signing (preferred).
     """
-    salt = secrets.token_bytes(16)
+    salt = secrets.token_bytes(KDF_PARAMS["ARGON2_SALT_LEN"])
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
         length=32,
@@ -235,7 +235,7 @@ def file_encrypt_shared(
         signature = rsa_sign(plaintext, my_priv)
 
     aesgcm = AESGCM(key)
-    nonce = secrets.token_bytes(12)
+    nonce = secrets.token_bytes(CRYPTO_CONSTANTS["AES_GCM_NONCE_SIZE"])
     ct = aesgcm.encrypt(nonce, plaintext, None)
 
     fp = hashlib.sha256(shared_secret).digest()[:16]

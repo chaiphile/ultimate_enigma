@@ -4,7 +4,6 @@ import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
 
 from services.backup_service import BackupService, BackupServiceError
 from views.utils import password_dialog
@@ -13,7 +12,7 @@ from key_manager import KeyStore
 
 
 class AboutTab:
-    def __init__(self, parent, key_store: KeyStore, auth_controller: AuthController):
+    def __init__(self, parent: tk.Widget, key_store: KeyStore, auth_controller: AuthController) -> None:
         """
         Args:
             parent: Notebook widget
@@ -25,7 +24,7 @@ class AboutTab:
         self._backup_service = BackupService(key_store)
         self._build_ui()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         # Main container with generous padding
         f = ttkb.Frame(self.frame, padding=30)
         f.pack(expand=True)
@@ -95,21 +94,21 @@ class AboutTab:
     # ------------------------------------------------------------------
     # Change Password
     # ------------------------------------------------------------------
-    def _change_password(self):
+    def _change_password(self) -> None:
         """Delegate to the auth controller's password change handler."""
         self.auth_controller.change_password()
 
     # ------------------------------------------------------------------
     # Duress Password
     # ------------------------------------------------------------------
-    def _set_duress_password(self):
+    def _set_duress_password(self) -> None:
         """Delegate to the auth controller's duress password setup handler."""
         self.auth_controller.set_duress_password()
 
     # ------------------------------------------------------------------
     # Export
     # ------------------------------------------------------------------
-    def _export_backup(self):
+    def _export_backup(self) -> None:
         pw = password_dialog(self.frame.winfo_toplevel(),
                              "Enter Master Password (Export)", confirm=False)
         if not pw:
@@ -140,7 +139,7 @@ class AboutTab:
     # ------------------------------------------------------------------
     # Import
     # ------------------------------------------------------------------
-    def _import_backup(self):
+    def _import_backup(self) -> None:
         path = filedialog.askopenfilename(
             title="Open Backup",
             filetypes=[("Enigma Backup", "*.enigma-backup"), ("All Files", "*.*")],

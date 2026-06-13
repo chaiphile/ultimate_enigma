@@ -2,6 +2,7 @@
 
 import json
 import hashlib
+import os
 import platform
 try:
     from sqlcipher3 import dbapi2 as sqlite3
@@ -24,28 +25,41 @@ from argon2.low_level import hash_secret_raw, Type
 
 logger = logging.getLogger(__name__)
 
+from src.constants import KDF_PARAMS, DB_CONSTANTS, CRYPTO_CONSTANTS
+
 if not HAS_SQLCIPHER:
     logger.warning("SQLCipher not available — using unencrypted SQLite")
 
-DB_PATH = Path.home() / ".ultimate_enigma" / "enigma.db"
+_db_dir = Path(os.environ.get("ENIGMA_DB_DIR", Path.home() / ".ultimate_enigma"))
+DB_PATH = _db_dir / "enigma.db"
 
-# Legacy KDF iterations for secret encryption (PBKDF2-HMAC-SHA256)
-# Retained for backward-compatible decryption of existing databases
-SECRET_KDF_ITERATIONS = 300_000
 
-# Argon2id parameters (military-grade, memory-hard KDF)
-# time_cost=3, memory_cost=65536 (64 MB), parallelism=4
-ARGON2_TIME_COST = 3
-ARGON2_MEMORY_COST = 65536    # 64 MB
-ARGON2_PARALLELISM = 4
-ARGON2_HASH_LEN = 32
-ARGON2_SALT_LEN = 16
-ARGON2_TYPE = Type.ID          # Argon2id - best for password hashing
+def set_db_path(path: Path) -> None:
+    """Override the database path (useful for testing or custom installs)."""
+    global DB_PATH, _db_dir
+    p = Path(path)
+    if p.suffix == ".db":
+        _db_dir = p.parent
+        DB_PATH = p
+    else:
+        _db_dir = p
+        DB_PATH = p / "enigma.db"
 
-# SQLCipher database encryption settings (Phase 4.1)
-# These control the per-machine database encryption key and cipher parameters.
-SQLCIPHER_PAGE_SIZE = 4096
-SQLCIPHER_KDF_ITER = 256000
+
+def get_db_path() -> Path:
+    """Return the current database path."""
+    return DB_PATH
+
+SECRET_KDF_ITERATIONS = KDF_PARAMS["PBKDF2_LEGACY_ITERATIONS"]
+ARGON2_TIME_COST = KDF_PARAMS["ARGON2_TIME_COST"]
+ARGON2_MEMORY_COST = KDF_PARAMS["ARGON2_MEMORY_COST"]
+ARGON2_PARALLELISM = KDF_PARAMS["ARGON2_PARALLELISM"]
+ARGON2_HASH_LEN = KDF_PARAMS["ARGON2_HASH_LEN"]
+ARGON2_SALT_LEN = KDF_PARAMS["ARGON2_SALT_LEN"]
+ARGON2_TYPE = Type.ID
+
+SQLCIPHER_PAGE_SIZE = DB_CONSTANTS["SQLCIPHER_PAGE_SIZE"]
+SQLCIPHER_KDF_ITER = DB_CONSTANTS["SQLCIPHER_KDF_ITER"]
 SQLCIPHER_CIPHER_HMAC = "HMAC_SHA512"
 SQLCIPHER_CIPHER_KDF = "PBKDF2_HMAC_SHA512"
 _DB_KEY_SETTING_KEY = "sqlcipher_db_key"  # settings table key for the encrypted DB key
@@ -84,16 +98,34 @@ class DatabaseConnectionError(DatabaseError):
 def _classify_sqlite_error(exc: sqlite3.Error) -> DatabaseError:
     """Map a raw sqlite3 exception to a granular DatabaseError subclass.
     
+    Handles both stdlib sqlite3 and sqlcipher3.dbapi2 exception classes
+    by checking class names as a fallback when isinstance fails (e.g.,
+    when sqlcipher3 is installed and its exception types differ).
+    
     Note: 'raise ... from' cannot be used here because this is not inside
     an except block. We set __cause__ manually to preserve the chain.
     """
     msg = str(exc).lower()
+    exc_name = type(exc).__name__
     classified: DatabaseError
-    if isinstance(exc, sqlite3.IntegrityError):
+    # Check by isinstance first, then by class name for sqlcipher3 compatibility
+    is_integrity = (
+        isinstance(exc, sqlite3.IntegrityError)
+        or exc_name == "IntegrityError"
+    )
+    is_operational = (
+        isinstance(exc, sqlite3.OperationalError)
+        or exc_name == "OperationalError"
+    )
+    is_database = (
+        isinstance(exc, sqlite3.DatabaseError)
+        or exc_name == "DatabaseError"
+    )
+    if is_integrity:
         classified = DatabaseIntegrityError(
             f"Database constraint violation: {exc}"
         )
-    elif isinstance(exc, sqlite3.OperationalError):
+    elif is_operational:
         if "locked" in msg or "busy" in msg:
             classified = DatabaseLockedError(
                 f"Database is locked by another operation. Please try again: {exc}"
@@ -104,7 +136,7 @@ def _classify_sqlite_error(exc: sqlite3.Error) -> DatabaseError:
             )
         else:
             classified = DatabaseError(f"Database operational error: {exc}")
-    elif isinstance(exc, sqlite3.DatabaseError):
+    elif is_database:
         if "corrupt" in msg or "malformed" in msg:
             classified = DatabaseCorruptedError(
                 f"Database file is corrupted. Restore from backup: {exc}"
@@ -174,14 +206,16 @@ def _derive_db_key() -> bytes:
             conn2.close()
             logger.info("Generated and stored new per-machine DB encryption key")
             return new_db_key
-    except Exception as exc:
+    except (ValueError, TypeError, sqlite3.Error) as exc:
         logger.warning("Could not derive DB encryption key: %s — opening unencrypted", exc)
         return None
 
 
-# Global reference set by key_manager after successful login.
+# Global master password reference set by key_manager after successful login.
 # When None, _derive_db_key() returns None and the DB opens without
 # SQLCipher encryption (backward-compatible mode).
+# NOTE: Module-level mutable state is used here because SQLCipher key setup
+# must happen at connection time and multiple modules need access to it.
 _MASTER_PASSWORD = None
 
 
@@ -192,6 +226,14 @@ def set_master_password(password) -> None:
     """
     global _MASTER_PASSWORD
     _MASTER_PASSWORD = password
+
+
+def get_master_password():
+    """Return the current master password (or None).
+
+    Useful for testing or inspecting state; avoids direct global access.
+    """
+    return _MASTER_PASSWORD
 
 
 def clear_master_password() -> None:
@@ -343,7 +385,7 @@ def encrypt_secret(plain_bytes: bytes, password) -> dict:
         password: Password as str, bytes, or SecureString.
     """
     salt = secrets.token_bytes(ARGON2_SALT_LEN)
-    nonce = secrets.token_bytes(12)
+    nonce = secrets.token_bytes(CRYPTO_CONSTANTS["AES_GCM_NONCE_SIZE"])
     key = _derive_key_argon2id(password, salt)
     aesgcm = AESGCM(key)
     ct = aesgcm.encrypt(nonce, plain_bytes, None)
@@ -444,13 +486,13 @@ def migrate_secrets_to_argon2id(password) -> int:
                         )
                         migrated += 1
                         logger.info("Migrated shared secret for '%s' to Argon2id", name)
-                    except Exception as e:
+                    except (ValueError, TypeError) as e:
                         logger.warning(
                             "Could not migrate secret for '%s': %s", name, e
                         )
 
             conn.commit()
-    except Exception as e:
+    except (ValueError, TypeError, sqlite3.Error) as e:
         logger.error("Secret migration failed: %s", e)
 
     if migrated > 0:

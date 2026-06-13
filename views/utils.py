@@ -4,7 +4,6 @@ import re
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 
 from src.secure_string import SecureString
 

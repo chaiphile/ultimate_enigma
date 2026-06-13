@@ -3,7 +3,6 @@
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
 import logging
 from queue import Queue
 from services.encryption_service import DecryptionError
@@ -13,8 +12,8 @@ from src.crypto_task_helper import submit_crypto_task
 logger = logging.getLogger(__name__)
 
 class DecryptTab:
-    def __init__(self, parent, encryption_service, clipboard_service, task_queue: Queue,
-                 crypto_queue=None):
+    def __init__(self, parent: tk.Widget, encryption_service, clipboard_service, task_queue: Queue,
+                 crypto_queue=None) -> None:
         """
         Args:
             parent: Notebook widget
@@ -32,7 +31,7 @@ class DecryptTab:
         self.frame = ttk.Frame(parent)
         self._build_ui()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         # Input area
         in_frame = ttk.Labelframe(self.frame, text="Paste received Base64 message",
                                   bootstyle="info")
@@ -84,7 +83,7 @@ class DecryptTab:
         )
         self.mode_label.pack(pady=(0, 5))
 
-    def paste_from_clipboard(self):
+    def paste_from_clipboard(self) -> None:
         text = self.clipboard_service.get()
         if text is None:
             messagebox.showwarning("Clipboard",
@@ -93,12 +92,12 @@ class DecryptTab:
         self.recv_input.delete("1.0", tk.END)
         self.recv_input.insert("1.0", text)
 
-    def clear(self):
+    def clear(self) -> None:
         self.recv_input.delete("1.0", tk.END)
         self.decrypted_display.delete("1.0", tk.END)
         self.mode_label.config(text="")
 
-    def receive_message(self):
+    def receive_message(self) -> None:
         b64_text = self.recv_input.get("1.0", tk.END).strip()
         if not b64_text:
             messagebox.showwarning("Empty", "Paste a Base64 message to decrypt.")
@@ -158,10 +157,6 @@ class DecryptTab:
         )
 
         # Use CryptoTaskQueue if available, otherwise fall back to raw threading
-        def _on_error(exc):
-            """Handle decryption error (runs on main thread)."""
-            self.warning_label.config(text="")
-            self.mode_label.config(text="")
 
         def _error_dialog(exc):
             """Show appropriate error dialog for decryption failures."""
@@ -207,7 +202,7 @@ class DecryptTab:
             error_dialog=_error_dialog,
         )
 
-    def _show_decrypted(self, text, decrypt_mode=None):
+    def _show_decrypted(self, text: str, decrypt_mode=None) -> None:
         # Detect hybrid signature verification in the decrypted text
         has_hybrid_sig = "Hybrid Signature Verified (Ed25519 + Dilithium3)" in text
 

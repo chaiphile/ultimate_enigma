@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.backends import default_backend
+from cryptography.exceptions import InvalidSignature, InvalidTag
 import hashlib
 import hmac as hmac_module
 
@@ -26,14 +27,14 @@ except (ImportError, RuntimeError, OSError):
 logger = logging.getLogger(__name__)
 
 from src.crypto_utils import pubkey_to_pem
+from src.constants import CRYPTO_CONSTANTS
 
-# Cryptographic constants
-AES_KEY_SIZE = 32       # 256-bit AES key
-NONCE_SIZE = 12         # 96-bit nonce for AES-GCM
-TIME_STEP = 30          # Time-based key rotation interval (seconds)
-WINDOW_SIZE = 2         # Sliding window size: ±2 steps (±60 seconds tolerance)
-SELF_DESTRUCT_FLAG = 4  # Bit flag for self-destruct messages
-HYBRID_SIG_FLAG = 8     # Bit flag for hybrid signatures (Ed25519 + Dilithium3)
+AES_KEY_SIZE = CRYPTO_CONSTANTS["AES_KEY_SIZE"]
+NONCE_SIZE = CRYPTO_CONSTANTS["AES_GCM_NONCE_SIZE"]
+TIME_STEP = CRYPTO_CONSTANTS["TIME_STEP"]
+WINDOW_SIZE = CRYPTO_CONSTANTS["WINDOW_SIZE"]
+SELF_DESTRUCT_FLAG = CRYPTO_CONSTANTS["SELF_DESTRUCT_FLAG"]
+HYBRID_SIG_FLAG = CRYPTO_CONSTANTS["HYBRID_SIG_FLAG"]
 
 def _pack_bytes(data: bytes) -> bytes:
     return struct.pack(">H", len(data)) + data
@@ -157,7 +158,7 @@ def rsa_verify(data: bytes, signature: bytes, pub_key) -> bool:
             hashes.SHA256()
         )
         return True
-    except Exception:
+    except (ValueError, InvalidSignature):
         return False
 
 def sha256_fingerprint(data: bytes) -> str:
@@ -208,7 +209,7 @@ def _constant_time_decrypt_with_window(
             if result_inner is None:
                 result_inner = candidate_inner
                 result_key = candidate_key
-        except Exception:
+        except (ValueError, InvalidTag):
             # Dummy constant-time operation to mask decryption failure
             _ = hmac_module.compare_digest(
                 b'\x00' * 32, b'\x00' * 32
@@ -266,7 +267,7 @@ def hybrid_verify(
     try:
         ed_pub = HybridSigner.load_ed_public_key(ed_pub_bytes)
         return HybridSigner.verify(message, signature, ed_pub, dil_pub_bytes)
-    except Exception as e:
+    except (ValueError, InvalidSignature) as e:
         logger.debug("Hybrid signature verification error: %s", e)
         return False
 

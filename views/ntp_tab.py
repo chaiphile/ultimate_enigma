@@ -5,19 +5,9 @@ import threading
 import time
 from datetime import datetime, timezone
 import ttkbootstrap as ttkb
-from ttkbootstrap.constants import *
 
-from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS
+from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS, PRESET_NTP_SERVERS
 from services.encryption_service import EncryptionService
-
-PRESET_NTP_SERVERS = [
-    "ntp.day.ir",
-    "pool.ntp.org",
-    "time.nist.gov",
-    "time.google.com",
-    "time.cloudflare.com",
-    "ntp.ubuntu.com",
-]
 
 # Build ordered fallback list: presets first, then consensus servers not already in presets
 _FALLBACK_SERVERS = list(PRESET_NTP_SERVERS)
@@ -27,7 +17,7 @@ for _srv in CONSENSUS_SERVERS:
 
 
 class NtpTab:
-    def __init__(self, parent, encryption_service: EncryptionService):
+    def __init__(self, parent: tk.Widget, encryption_service: EncryptionService) -> None:
         """
         Args:
             parent: Notebook widget
@@ -39,7 +29,7 @@ class NtpTab:
         self._build_ui()
         self._start_auto_refresh()
 
-    def _build_ui(self):
+    def _build_ui(self) -> None:
         # --- Bottom action bar (packed FIRST so it's always visible) ---
         bottom_bar = ttkb.Frame(self.frame, padding=(15, 10))
         bottom_bar.pack(side=tk.BOTTOM, fill=tk.X)
@@ -166,16 +156,16 @@ class NtpTab:
 
 
 
-    def _start_auto_refresh(self):
+    def _start_auto_refresh(self) -> None:
         """Refresh local time display every second."""
         self._update_local_time()
         self.frame.after(1000, self._start_auto_refresh)
 
-    def _update_local_time(self):
+    def _update_local_time(self) -> None:
         now = datetime.now()
         self.local_time_label.config(text=now.strftime("%Y-%m-%d %H:%M:%S"))
 
-    def _manual_sync(self):
+    def _manual_sync(self) -> None:
         if self._syncing:
             return
         self._syncing = True
@@ -183,27 +173,27 @@ class NtpTab:
         self.status_indicator.config(text="⏳ Synchronizing...", bootstyle="inverse-warning")
         threading.Thread(target=self._do_sync, daemon=True).start()
 
-    def _get_active_server(self):
+    def _get_active_server(self) -> str:
         """Return the currently selected NTP server hostname."""
         custom = self.custom_server_var.get().strip()
         if custom:
             return custom
         return self._selected_server.get()
 
-    def _on_server_changed(self, event=None):
+    def _on_server_changed(self, event=None) -> None:
         """Clear custom entry when a preset is selected and update label."""
         self.custom_server_var.set("")
         self._update_active_server_label()
 
-    def _on_custom_server_changed(self, event=None):
+    def _on_custom_server_changed(self, event=None) -> None:
         """Update label when custom server text changes."""
         self._update_active_server_label()
 
-    def _update_active_server_label(self):
+    def _update_active_server_label(self) -> None:
         server = self._get_active_server()
         self.server_label.config(text=f"{server}:123")
 
-    def _do_sync(self):
+    def _do_sync(self) -> None:
         """Try the selected server first, then fall back to all others."""
         primary = self._get_active_server()
         
@@ -231,7 +221,7 @@ class NtpTab:
         # All servers failed
         self.frame.after(0, lambda: self._on_sync_complete(None, primary))
 
-    def _on_sync_complete(self, ntp_timestamp, server_used=None, fallback=False):
+    def _on_sync_complete(self, ntp_timestamp, server_used=None, fallback=False) -> None:
         self._syncing = False
         self.sync_btn.config(state=tk.NORMAL)
 
