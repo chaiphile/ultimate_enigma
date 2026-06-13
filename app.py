@@ -76,6 +76,9 @@ class EnigmaApp:
             root, self.ks, crypto_queue=self.app_controller.crypto_queue
         )
 
+        # 4a. Wire up orchestrator to app controller for agent lifecycle
+        self.app_controller.set_service_orchestrator(self.service_orchestrator)
+
         # 5. Mandatory TOTP setup enforcement
         if not self.auth_controller.enforce_mandatory_totp_setup():
             self.ks.wipe()
@@ -116,6 +119,9 @@ class EnigmaApp:
             lock_callback=self._emergency_lock,
             unlock_callback=self._request_unlock
         )
+
+        # 13. Start background agents (after UI is fully initialized)
+        self._start_background_agents()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -351,6 +357,26 @@ class EnigmaApp:
             logger.debug("Service rebuild propagated to tabs")
         except Exception as e:
             logger.warning("Service rebuild handler error (non-critical): %s", e)
+
+    # ------------------------------------------------------------------
+    # Background agents
+    # ------------------------------------------------------------------
+    def _start_background_agents(self):
+        """Initialize and start background agents.
+
+        The BackupService is created here (lazy init) and wired to the
+        orchestrator's backup reminder agent.
+        """
+        try:
+            from services.backup_service import BackupService
+            backup_svc = BackupService(self.ks)
+            self.service_orchestrator.set_backup_agent(backup_svc)
+        except Exception as e:
+            logger.warning("Could not initialize BackupService for agent: %s", e)
+
+        # Start all agents via the app controller
+        self.app_controller.start_agents()
+        logger.debug("Background agents started")
 
     # ------------------------------------------------------------------
     # Header rotor animation

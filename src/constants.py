@@ -154,6 +154,11 @@ CONCURRENCY_CONSTANTS = {
     # Cleanup
     "LOCK_CLEANUP_INTERVAL": 3600,       # Seconds between stale lock sweeps
     "LOCK_MAX_AGE": 7200,               # Max seconds before lock is considered stale
+
+    # Background agents
+    "BACKUP_REMINDER_INTERVAL": 3600,    # Seconds between backup reminder checks
+    "RATCHET_MAINTENANCE_INTERVAL": 3600, # Seconds between ratchet maintenance cycles
+    "SYSTEM_MONITOR_INTERVAL": 300,      # Seconds between system health checks
 }
 
 # ---------------------------------------------------------------------------

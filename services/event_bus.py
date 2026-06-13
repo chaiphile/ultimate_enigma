@@ -61,6 +61,18 @@ class Events:
     APP_STARTING = "app_starting"
     APP_SHUTDOWN = "app_shutdown"
 
+    # Background agent events
+    BACKUP_REMINDER = "backup_reminder"
+    BACKUP_COMPLETED = "backup_completed"
+    RATCHET_LOCKS_CLEANED = "ratchet_locks_cleaned"
+    RATCHET_DEADLOCK_DETECTED = "ratchet_deadlock_detected"
+    RATCHET_LOCK_STATS = "ratchet_lock_stats"
+    SYSTEM_STATUS = "system_status"
+    SYSTEM_HEALTH_OK = "system_health_ok"
+    SYSTEM_HEALTH_DEGRADED = "system_health_degraded"
+    KEY_INFO = "key_info"
+    KEY_FINGERPRINT = "key_fingerprint"
+
 
 class EventBus:
     """Thread-safe publish/subscribe event bus.

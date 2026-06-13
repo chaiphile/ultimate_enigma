@@ -33,6 +33,7 @@ class ApplicationController:
         self._ntp_thread = None
         self._hotkey_service = None
         self._is_running = False
+        self._service_orchestrator = None
 
         # Background crypto task queue for non-blocking encryption/decryption.
         # Replaces ad-hoc threading.Thread usage in View classes.
@@ -43,6 +44,14 @@ class ApplicationController:
                 "CRYPTO_QUEUE_DEFAULT_TIMEOUT", 120.0
             ),
         )
+
+    def set_service_orchestrator(self, orchestrator):
+        """Store reference to ServiceOrchestrator for agent lifecycle management.
+
+        Args:
+            orchestrator: The ServiceOrchestrator instance.
+        """
+        self._service_orchestrator = orchestrator
 
     # ------------------------------------------------------------------
     # Task Queue
@@ -146,11 +155,33 @@ class ApplicationController:
             logger.error("Failed to register hotkeys: %s", e)
 
     # ------------------------------------------------------------------
+    # Background Agents
+    # ------------------------------------------------------------------
+    def start_agents(self):
+        """Start all background agents managed by ServiceOrchestrator."""
+        if self._service_orchestrator is not None:
+            try:
+                self._service_orchestrator.start_agents()
+            except Exception as e:
+                logger.error("Failed to start background agents: %s", e)
+
+    def stop_agents(self):
+        """Stop all background agents."""
+        if self._service_orchestrator is not None:
+            try:
+                self._service_orchestrator.stop_agents()
+            except Exception as e:
+                logger.warning("Error stopping background agents: %s", e)
+
+    # ------------------------------------------------------------------
     # Shutdown
     # ------------------------------------------------------------------
     def shutdown(self):
         """Clean up all managed resources."""
         self._is_running = False
+
+        # Stop background agents first
+        self.stop_agents()
 
         # Shut down the crypto task queue
         if self.crypto_queue:
