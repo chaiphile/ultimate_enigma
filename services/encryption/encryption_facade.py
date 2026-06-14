@@ -1,6 +1,7 @@
 """EncryptionService facade - delegates to focused encryption strategies."""
 
 import base64
+import binascii
 import logging
 from typing import Optional, Protocol, Tuple, runtime_checkable
 
@@ -121,5 +122,5 @@ class EncryptionService:
     def _decode_base64_packet(b64_text: str) -> bytes:
         try:
             return base64.b64decode(b64_text)
-        except Exception:
+        except (binascii.Error, ValueError, TypeError):
             raise DecryptionError("Invalid Base64 input.")

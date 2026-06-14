@@ -55,6 +55,14 @@ from src.crypto_utils import (
     privkey_to_encrypted_pem as _privkey_to_encrypted_pem,
 )
 
+def _to_bytes(pw):
+    if isinstance(pw, SecureString):
+        return pw.to_bytes()
+    if isinstance(pw, bytes):
+        return pw
+    return pw.encode()
+
+
 class KeyStore:
     def __init__(self):
         self._lock = threading.RLock()
@@ -113,17 +121,16 @@ class KeyStore:
         """
         # Ensure migration-safe columns exist
         try:
-            conn = database.get_connection()
-            for col_sql in [
-                "ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT",
-                "ALTER TABLE friends ADD COLUMN hybrid_sig_pub_b64 TEXT",
-            ]:
-                try:
-                    conn.execute(col_sql)
-                except Exception as e:
-                    if "duplicate column" not in str(e).lower():
-                        logger.debug("ALTER TABLE for schema migration: %s", e)
-            conn.close()
+            with closing(database.get_connection()) as conn:
+                for col_sql in [
+                    "ALTER TABLE friends ADD COLUMN x25519_public_key_b64 TEXT",
+                    "ALTER TABLE friends ADD COLUMN hybrid_sig_pub_b64 TEXT",
+                ]:
+                    try:
+                        conn.execute(col_sql)
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            logger.debug("ALTER TABLE for schema migration: %s", e)
         except Exception as e:
             logger.debug("Schema migration failed (likely already applied): %s", e)
 
@@ -150,7 +157,7 @@ class KeyStore:
             if not row:
                 raise KeyStoreError("Encrypted private key not found in database")
             try:
-                self.my_priv = _pem_to_privkey(row[0].encode(), password.encode())
+                self.my_priv = _pem_to_privkey(row[0].encode(), _to_bytes(password))
             except (ValueError, TypeError) as e:
                 logger.error("Failed to decrypt private key: %s", e)
                 return False
@@ -845,7 +852,7 @@ class KeyStore:
                 # Generate new 4096-bit RSA key pair
                 new_priv = rsa.generate_private_key(65537, MIN_RSA_KEY_SIZE, default_backend())
                 new_pub = new_priv.public_key()
-                new_encrypted_priv = _privkey_to_encrypted_pem(new_priv, password.encode())
+                new_encrypted_priv = _privkey_to_encrypted_pem(new_priv, _to_bytes(password))
 
                 # Update primary key pair in database
                 conn.execute(
@@ -863,7 +870,7 @@ class KeyStore:
                 self.my_priv = new_priv
                 self.my_pub = new_pub
                 self.legacy_priv = _pem_to_privkey(
-                    row_current_pk[0].encode(), password.encode()
+                    row_current_pk[0].encode(), _to_bytes(password)
                 )
                 self._needs_rotation = False
 
@@ -964,7 +971,7 @@ class KeyStore:
                         "change_password: private_key_encrypted not found"
                     )
                 try:
-                    priv_key = _pem_to_privkey(row_pk[0].encode(), old_password.encode())
+                    priv_key = _pem_to_privkey(row_pk[0].encode(), _to_bytes(old_password))
                 except (ValueError, TypeError) as e:
                     raise KeyStoreError(
                         f"change_password: cannot decrypt private key: {e}"
@@ -1009,7 +1016,7 @@ class KeyStore:
                 )
 
                 # Private key
-                new_pk_pem = _privkey_to_encrypted_pem(priv_key, new_password.encode())
+                new_pk_pem = _privkey_to_encrypted_pem(priv_key, _to_bytes(new_password))
                 conn.execute(
                     "UPDATE settings SET value=? WHERE key='private_key_encrypted'",
                     (new_pk_pem,)

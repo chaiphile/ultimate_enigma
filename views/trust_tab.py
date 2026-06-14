@@ -14,7 +14,6 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
 from ttkbootstrap.dialogs import Messagebox
-import base64
 
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog

@@ -145,8 +145,6 @@ class PqcExchangeDialog:
                 encap_result_text.delete('1.0', tk.END)
                 encap_result_text.insert('1.0',
                     f"=== CIPHERTEXT TO SEND TO {fname} ===\n{ct_b64}\n\n"
-                    f"=== DERIVED SHARED SECRET (Base64) ===\n"
-                    f"{base64.b64encode(shared_secret).decode()}\n\n"
                     f"Secret fingerprint: {base64.b64encode(shared_secret[:8]).decode()}")
                 encap_result_text.config(state='disabled')
                 encap_status_var.set(

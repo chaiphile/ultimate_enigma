@@ -96,7 +96,7 @@ class UIConfig:
     window_default_height: int = 850
     window_min_width: int = 1200
     window_min_height: int = 750
-    password_min_length: int = 12
+    password_min_length: int = 16
     friend_name_max_length: int = 64
     message_preview_length: int = 100
     clipboard_clear_delay: int = 30

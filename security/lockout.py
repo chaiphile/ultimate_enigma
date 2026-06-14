@@ -20,9 +20,11 @@ logger = logging.getLogger(__name__)
 
 # Exponential backoff table (seconds) indexed by consecutive failure count.
 # Indices 0-4: no delay; 5+: escalating delays up to 30 minutes.
-BACKOFF_TABLE = [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600]
-HARD_LOCKOUT_THRESHOLD = 15   # failures before hard lockout
-HARD_LOCKOUT_DURATION = 3600  # 1 hour in seconds
+from src.constants import SECURITY
+
+BACKOFF_TABLE = list(SECURITY.backoff_table)
+HARD_LOCKOUT_THRESHOLD = SECURITY.hard_lockout_threshold
+HARD_LOCKOUT_DURATION = SECURITY.hard_lockout_duration
 
 
 class LockoutManager:

@@ -62,6 +62,8 @@ def controller(mock_root, mock_ks, mock_ui):
          patch("controllers.auth_controller.TOTPService") as MockTotp:
         MockTotp.return_value = MagicMock()
         ctrl = AuthController(mock_root, mock_ks, ui=mock_ui)
+        ctrl.auth_manager = MagicMock()
+        ctrl.auth_manager.verify_password.return_value = (True, False)
         ctrl.totp_service = MagicMock()
         ctrl.totp_service.has_secret.return_value = False
         ctrl.totp_service.verify.return_value = True
@@ -138,7 +140,7 @@ class TestLoadKeys:
             return pw_correct
 
         controller._ui.password_dialog.side_effect = dialog_side_effect
-        mock_ks.verify_password.side_effect = lambda p: p.to_str() == "correct_pw"
+        controller.auth_manager.verify_password.side_effect = lambda p: (p.to_str() == "correct_pw", False)
 
         with patch.object(controller, "init_totp"):
             result = controller.load_keys(first_run=False)
@@ -148,7 +150,7 @@ class TestLoadKeys:
 
     def test_existing_user_too_many_attempts(self, controller, mock_ks):
         """first_run=False: 3 wrong attempts shows 'Access Denied'."""
-        mock_ks.verify_password.return_value = False
+        controller.auth_manager.verify_password.return_value = (False, False)
         controller._ui.password_dialog.side_effect = lambda *a, **kw: SecureString("wrong")
 
         with patch.object(controller, "init_totp"):
@@ -170,7 +172,7 @@ class TestLoadKeys:
         """first_run=False: duress mode triggers enter_duress_mode."""
         pw = SecureString("duress_pw")
         controller._ui.password_dialog.return_value = pw
-        mock_ks.verify_password.return_value = True
+        controller.auth_manager.verify_password.return_value = (True, True)
         mock_ks.is_duress_mode = True
 
         with patch.object(controller, "enter_duress_mode") as mock_enter:

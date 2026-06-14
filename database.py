@@ -377,8 +377,9 @@ def init_db():
             ]:
                 try:
                     conn.execute(col_sql)
-                except sqlite3.OperationalError:
-                    pass  # column already exists
+                except sqlite3.OperationalError as e:
+                    if 'duplicate column' not in str(e).lower():
+                        logger.debug('ALTER TABLE (schema migration): %s', e)
             conn.commit()
     except DatabaseError:
         raise

@@ -57,7 +57,10 @@ class GlobalSecretService:
         """
         if not master_password:
             raise GlobalSecretServiceError("Master password required")
-        if not self.verify_password(master_password):
+        is_valid = self._ks.verify_password(master_password)
+        if self._ks.is_duress_mode:
+            raise GlobalSecretServiceError("Duress password detected — cannot update secret")
+        if not is_valid:
             raise GlobalSecretServiceError("Incorrect master password")
         if len(new_secret) != 32:
             raise GlobalSecretServiceError("Secret must be 32 bytes")

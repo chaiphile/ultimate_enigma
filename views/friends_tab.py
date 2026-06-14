@@ -12,7 +12,6 @@ import tkinter as tk
 from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
 from ttkbootstrap.tooltip import ToolTip
-import base64
 import logging
 
 from services.friends import FriendsService, FriendsServiceError
@@ -26,14 +25,16 @@ logger = logging.getLogger(__name__)
 
 
 class FriendsTab:
-    def __init__(self, parent: tk.Widget, friends_service: FriendsService, style_config=None) -> None:
+    def __init__(self, parent: tk.Widget, friends_service: FriendsService, style_config=None, trust_chain_service=None) -> None:
         """
         Args:
             parent: Notebook or parent widget
             friends_service: Injected FriendsService instance
             style_config: Dict with 'bg', 'fg' keys (optional, falls back to ttk.Style)
+            trust_chain_service: Injected TrustChainService instance (optional)
         """
         self.service = friends_service
+        self.trust_chain_service = trust_chain_service
         self.frame = ttk.Frame(parent)
 
         # Store style config for dialogs
@@ -623,7 +624,7 @@ class FriendsTab:
 
     def hybrid_sig_exchange_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
-        HybridSigExchangeDialog(parent, self.service, self._bg, self.refresh_list).show()
+        HybridSigExchangeDialog(parent, self.service, self._bg, self.refresh_list, trust_chain_service=self.trust_chain_service).show()
 
     # ---- Set My Name dialog ----
     def set_my_name_dialog(self) -> None:

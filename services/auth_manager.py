@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.backends import default_backend
 
 import database
+from src.constants import SECURITY
 from src.exceptions import KeyStoreError
 from src.secure_string import SecureString
 
@@ -76,9 +77,9 @@ class AuthManager:
     """
 
     # Exponential backoff table (seconds) indexed by consecutive failure count.
-    _BACKOFF_TABLE = [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600]
-    _HARD_LOCKOUT_THRESHOLD = 15
-    _HARD_LOCKOUT_DURATION = 3600  # 1 hour
+    _BACKOFF_TABLE = list(SECURITY.backoff_table)
+    _HARD_LOCKOUT_THRESHOLD = SECURITY.hard_lockout_threshold
+    _HARD_LOCKOUT_DURATION = SECURITY.hard_lockout_duration
 
     def __init__(self, key_store):
         """
@@ -176,8 +177,8 @@ class AuthManager:
                 self._ks._duress_mode = False
                 self.save_lockout_state()
                 return True, False
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Password verification exception: %s", e)
 
         # Check duress password
         try:
@@ -195,8 +196,8 @@ class AuthManager:
                 self.save_lockout_state()
                 logger.warning("DURESS PASSWORD USED - entering decoy mode")
                 return True, True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Duress verification exception: %s", e)
 
         # Failed attempt: escalate lockout
         self._ks.failed_attempts += 1

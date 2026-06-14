@@ -22,6 +22,7 @@ def mock_keystore():
     ks = MagicMock()
     ks.global_secret = secrets.token_bytes(32)
     ks.verify_password.return_value = True
+    ks.is_duress_mode = False
     return ks
 
 

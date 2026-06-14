@@ -8,10 +8,12 @@ import os
 import struct
 import hashlib
 import secrets
+import tempfile
 import logging
 from typing import Optional, Tuple, List, Dict
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
@@ -99,11 +101,20 @@ def file_encrypt(input_path: str, output_path: str, password: str) -> None:
         )
 
     ct = aesgcm.encrypt(nonce, plaintext, None)
-    with open(output_path, 'wb') as f:
-        f.write(_FILE_KDF_VERSION_ARGON2ID)
-        f.write(salt)
-        f.write(nonce)
-        f.write(ct)
+    data = _FILE_KDF_VERSION_ARGON2ID + salt + nonce + ct
+
+    dir_name = os.path.dirname(output_path) or '.'
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=dir_name)
+    try:
+        with os.fdopen(tmp_fd, 'wb') as f:
+            f.write(data)
+        os.replace(tmp_path, output_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def file_decrypt(input_path: str, output_path: str, password: str) -> None:
@@ -154,8 +165,8 @@ def file_decrypt(input_path: str, output_path: str, password: str) -> None:
     aesgcm = AESGCM(key)
     try:
         plaintext = aesgcm.decrypt(nonce, ct, None)
-    except Exception:
-        raise ValueError("Wrong password or corrupted file")
+    except (InvalidTag, ValueError, OSError) as e:
+        raise ValueError("Wrong password or corrupted file") from e
 
     with open(output_path, 'wb') as f:
         f.write(plaintext)

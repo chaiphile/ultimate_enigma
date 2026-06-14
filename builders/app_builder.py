@@ -5,7 +5,6 @@ The build() method orchestrates all steps in order.
 """
 
 import tkinter as tk
-from tkinter import messagebox
 from pathlib import Path
 import logging
 import ttkbootstrap as ttk

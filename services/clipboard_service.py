@@ -4,9 +4,11 @@ import threading
 import logging
 import time
 
+from src.constants import UI_CONSTANTS
+
 logger = logging.getLogger(__name__)
 
-DEFAULT_CLEAR_DELAY = 30  # seconds
+DEFAULT_CLEAR_DELAY = UI_CONSTANTS["CLIPBOARD_CLEAR_DELAY"]
 
 
 class ClipboardService:

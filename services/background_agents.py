@@ -44,7 +44,7 @@ class BackupReminderAgent:
         agent.stop()
     """
 
-    CHECK_INTERVAL = 3600  # Check every hour
+    CHECK_INTERVAL = CONCURRENCY_CONSTANTS.get("BACKUP_REMINDER_INTERVAL", 3600)
 
     def __init__(self, backup_service):
         """
@@ -292,7 +292,7 @@ class SystemMonitorAgent:
         agent.stop()
     """
 
-    MONITOR_INTERVAL = 300  # Check every 5 minutes
+    MONITOR_INTERVAL = CONCURRENCY_CONSTANTS.get("SYSTEM_MONITOR_INTERVAL", 300)
 
     def __init__(self, crypto_queue=None):
         """
@@ -474,16 +474,16 @@ class KeyInspectorAgent:
     def _get_local_key_info(self) -> Dict[str, Any]:
         """Get local user key information."""
         info: Dict[str, Any] = {
-            "has_public_key": self._key_store.public_key is not None,
-            "has_private_key": self._key_store.private_key_encrypted is not None,
+            "has_public_key": self._key_store.my_pub is not None,
+            "has_private_key": self._key_store.my_priv is not None,
             "has_global_secret": self._key_store.global_secret is not None,
         }
 
-        if self._key_store.public_key is not None:
+        if self._key_store.my_pub is not None:
             try:
                 from services.ecdh_service import ECDHService
                 info["public_key_fingerprint"] = ECDHService.fingerprint(
-                    self._key_store.public_key
+                    self._key_store.my_pub
                 )
             except Exception:
                 pass
@@ -540,8 +540,8 @@ class KeyInspectorAgent:
         try:
             from services.ecdh_service import ECDHService
             if friend_name is None:
-                if self._key_store.public_key is not None:
-                    return ECDHService.fingerprint(self._key_store.public_key)
+                if self._key_store.my_pub is not None:
+                    return ECDHService.fingerprint(self._key_store.my_pub)
                 return None
 
             if self._friends_service is None:

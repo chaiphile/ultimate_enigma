@@ -8,7 +8,6 @@ import tkinter as tk
 from tkinter import messagebox
 from pathlib import Path
 import logging
-import gc
 import ttkbootstrap as ttk
 
 from views.visual_enigma import VisualEnigma
@@ -185,7 +184,8 @@ class EnigmaApp:
         self.friends_tab = FriendsTab(
             notebook, 
             self.service_orchestrator.friends_service,
-            style_config
+            style_config,
+            trust_chain_service=self.trust_chain_service
         )
         notebook.add(self.friends_tab.frame, text="👥 Friends")
 
@@ -274,6 +274,7 @@ class EnigmaApp:
             "file": self.file_tab,
             "secret": self.secret_tab,
             "friends": self.friends_tab,
+            "trust": self.trust_tab,
             "ntp": self.ntp_tab
         }
         self.service_orchestrator.rebuild_services(new_ks, tab_refs)
@@ -281,6 +282,10 @@ class EnigmaApp:
         # Rebuild trust chain service with restored keys
         self.trust_chain_service = TrustChainService(new_ks)
         self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
+
+        # Update trust tab with fresh services
+        self.trust_tab.trust_service = self.trust_chain_service
+        self.trust_tab.friends_service = self.service_orchestrator.friends_service
 
         self._is_locked = False
         self.lock_screen.unlock()

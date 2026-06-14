@@ -37,6 +37,7 @@ class RatchetState:
     # Prevents memory exhaustion attacks where a malicious sender sends
     # messages with large gaps, forcing the receiver to store many keys.
     MAX_SKIPPED_KEYS = 1000
+    MAX_SKIP_DISTANCE = 1000
 
     def __init__(self):
         # DH ratchet
@@ -47,22 +48,6 @@ class RatchetState:
         self.root_key = None
         self.send_chain_key = None
         self.recv_chain_key = None
-
-        # Wrap chain keys in guarded buffers
-        if self.root_key is not None:
-            buf = GuardedBuffer(32)
-            buf.write(self.root_key if isinstance(self.root_key, bytes) else bytes(self.root_key))
-            self.root_key = buf
-
-        if self.send_chain_key is not None:
-            buf = GuardedBuffer(32)
-            buf.write(self.send_chain_key if isinstance(self.send_chain_key, bytes) else bytes(self.send_chain_key))
-            self.send_chain_key = buf
-
-        if self.recv_chain_key is not None:
-            buf = GuardedBuffer(32)
-            buf.write(self.recv_chain_key if isinstance(self.recv_chain_key, bytes) else bytes(self.recv_chain_key))
-            self.recv_chain_key = buf
         
         # Message counters (for out-of-order messages)
         self.send_msg_num: int = 0
@@ -280,6 +265,10 @@ class RatchetState:
             return self._decrypt_with_key(skip_key, ciphertext)
         
         # Skip ahead if needed (store skipped message keys for later)
+        if msg_num - self.recv_msg_num > self.MAX_SKIP_DISTANCE:
+            raise ValueError(
+                f"Skip distance {msg_num - self.recv_msg_num} exceeds maximum {self.MAX_SKIP_DISTANCE}"
+            )
         while self.recv_msg_num < msg_num:
             # Store skipped message keys with FIFO eviction cap
             new_ck, mk = self._hkdf_ck(bytes(self.recv_chain_key.read()))
@@ -401,9 +390,11 @@ class RatchetState:
             state.dh_pub_remote = X25519PublicKey.from_public_bytes(pub_bytes)
         
         if data.get('skipped_keys'):
-            state.skipped_keys = {
-                (bytes.fromhex(k.split(':')[0]), int(k.split(':')[1])): bytes.fromhex(v)
-                for k, v in data['skipped_keys'].items()
-            }
+            for k_str, v_hex in data['skipped_keys'].items():
+                key = (bytes.fromhex(k_str.split(':')[0]), int(k_str.split(':')[1]))
+                mk = bytes.fromhex(v_hex)
+                gb = GuardedBuffer(len(mk))
+                gb.write(mk)
+                state.skipped_keys[key] = gb
         
         return state

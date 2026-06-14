@@ -149,6 +149,7 @@ class RatchetService:
             cls._flush_timer = None
 
         count = 0
+        remaining_dirty = {}
         for friend_name, state in to_flush.items():
             try:
                 cls.save_ratchet_state(friend_name, state)
@@ -158,6 +159,8 @@ class RatchetService:
                     "Failed to flush deferred ratchet state for '%s': %s",
                     friend_name, e,
                 )
+                remaining_dirty[friend_name] = state
+        cls._dirty_states.update(remaining_dirty)
         if count > 0:
             logger.debug("Flushed %d deferred ratchet states to DB", count)
         return count

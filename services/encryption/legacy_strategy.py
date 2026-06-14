@@ -178,8 +178,8 @@ class LegacyEncryptionStrategy:
                     now=now,
                     friends_hybrid=friends_hybrid,
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Legacy RSA decryption failed: %s", e)
         return None
 
     def _decrypt_with_shared_secrets(self, packet, secrets_to_try, friends_for_crypto):

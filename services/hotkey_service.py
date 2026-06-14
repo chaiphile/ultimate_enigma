@@ -110,7 +110,10 @@ class HotkeyService:
             # GetMessageW blocks until a message arrives
             # Use MsgWaitForMultipleObjects with timeout to allow periodic checking
             ret = user32.GetMessageW(ctypes.byref(msg), None, 0, 0)
-            if ret == 0 or ret == -1:
+            if ret == -1:
+                logger.error("GetMessageW returned error: %s", ctypes.get_last_error())
+                break
+            if ret == 0:
                 break
             if msg.message == WM_HOTKEY:
                 hid = msg.wParam

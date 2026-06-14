@@ -1,5 +1,4 @@
 import json
-import gc
 import logging
 from contextlib import closing
 

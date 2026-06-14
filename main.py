@@ -8,7 +8,7 @@ try:
     raise_mlock_limit(target_bytes=64 * 1024 * 1024)
     apply_anti_dump_protections()
 except Exception:
-    pass  # Never crash on security init failure
+    pass  # Security services unavailable (non-Windows or missing deps)
 
 import sys
 import os
