@@ -8,7 +8,10 @@ import time
 import logging
 import gc
 import hashlib
-import sqlite3
+try:
+    from sqlcipher3 import dbapi2 as sqlite3
+except ImportError:
+    import sqlite3
 from typing import List, Tuple, Optional, Dict, Union
 from contextlib import closing
 

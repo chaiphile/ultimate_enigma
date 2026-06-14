@@ -12,6 +12,7 @@ import gc
 import ttkbootstrap as ttk
 
 from views.visual_enigma import VisualEnigma
+import database
 from key_manager import KeyStore
 from views.encrypt_tab import EncryptTab
 from views.decrypt_tab import DecryptTab
@@ -53,6 +54,9 @@ class EnigmaApp:
 
         # Check first-run BEFORE creating KeyStore (which touches the DB)
         self._first_run = not (Path.home() / ".ultimate_enigma" / "enigma.db").exists()
+
+        # Ensure schema exists before KeyStore reads lockout state from settings
+        database.init_db()
 
         # 1. Initialize KeyStore
         self.ks = KeyStore()
