@@ -7,10 +7,11 @@ Registers system-wide hotkeys:
 Uses a dedicated daemon thread to listen for hotkey messages.
 IMPORTANT: Hotkeys are registered from within the listener thread to ensure
 WM_HOTKEY messages are delivered correctly.
+
+On non-Windows platforms, the service is a no-op (hotkeys unavailable).
 """
 
-import ctypes
-import ctypes.wintypes as wintypes
+import sys
 import threading
 import logging
 import time
@@ -26,7 +27,12 @@ MOD_WIN     = 0x0008
 MOD_NOREPEAT = 0x4000  # Prevent repeat-triggering on key hold
 WM_HOTKEY   = 0x0312
 
-user32 = ctypes.windll.user32
+if sys.platform == "win32":
+    import ctypes
+    import ctypes.wintypes as wintypes
+    user32 = ctypes.windll.user32
+else:
+    user32 = None
 
 
 class HotkeyService:
@@ -67,6 +73,9 @@ class HotkeyService:
 
     def start(self) -> None:
         """Start the hotkey listener thread. Hotkeys are registered from within this thread."""
+        if sys.platform != "win32":
+            logger.info("Global hotkeys not available on %s", sys.platform)
+            return
         if self._running:
             return
         self._running = True
@@ -77,6 +86,8 @@ class HotkeyService:
 
     def stop(self) -> None:
         """Stop the listener and unregister hotkeys."""
+        if sys.platform != "win32":
+            return
         self._running = False
         self._stop_event.set()
         

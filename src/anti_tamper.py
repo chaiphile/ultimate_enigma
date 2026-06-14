@@ -421,7 +421,9 @@ def _check_debugger_windows() -> bool:
 
 
 def _check_debugger_processes() -> bool:
-    """Check for known debugger process names via tasklist."""
+    """Check for known debugger process names via tasklist (Windows only)."""
+    if sys.platform != "win32":
+        return False
     try:
         result = subprocess.run(
             ["tasklist", "/FO", "CSV", "/NH"],

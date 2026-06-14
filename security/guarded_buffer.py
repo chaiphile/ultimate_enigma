@@ -11,6 +11,13 @@ from typing import Optional
 PAGE_SIZE = 0x1000  # 4KB
 
 
+def _load_libc():
+    """Load the C library for the current platform."""
+    if sys.platform == "darwin":
+        return ctypes.CDLL("libc.dylib", use_errno=True)
+    return ctypes.CDLL("libc.so.6", use_errno=True)
+
+
 class GuardedBuffer:
     """Allocate sensitive data between PAGE_NOACCESS guard pages.
 
@@ -32,10 +39,27 @@ class GuardedBuffer:
             self._alloc_linux(size)
 
         if lock:
-            VirtualLock = ctypes.windll.kernel32.VirtualLock
-            VirtualLock.restype = ctypes.c_bool
-            VirtualLock.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
-            VirtualLock(self._data_addr, size)
+            self._lock_memory()
+
+    # ------------------------------------------------------------------
+    # Memory locking
+    # ------------------------------------------------------------------
+
+    def _lock_memory(self) -> None:
+        """Lock the data region into physical memory (prevent swapping)."""
+        if self._data_addr is None:
+            return
+        try:
+            if sys.platform == "win32":
+                VirtualLock = ctypes.windll.kernel32.VirtualLock
+                VirtualLock.restype = ctypes.c_bool
+                VirtualLock.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+                VirtualLock(self._data_addr, self._size)
+            else:
+                libc = _load_libc()
+                libc.mlock(self._data_addr, self._size)
+        except Exception:
+            pass  # Best-effort: don't fail if mlock unavailable
 
     # ------------------------------------------------------------------
     # Windows
@@ -99,7 +123,7 @@ class GuardedBuffer:
         MAP_ANONYMOUS = 0x20
         MADV_DONTDUMP = 16
 
-        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        libc = _load_libc()
         total = PAGE_SIZE + size + PAGE_SIZE
 
         mmap = libc.mmap
@@ -125,7 +149,7 @@ class GuardedBuffer:
 
     def _release_linux(self) -> None:
         if self._base is not None:
-            libc = ctypes.CDLL("libc.so.6", use_errno=True)
+            libc = _load_libc()
             libc.munmap(self._base, PAGE_SIZE + self._size + PAGE_SIZE)
             self._base = None
             self._data_addr = None

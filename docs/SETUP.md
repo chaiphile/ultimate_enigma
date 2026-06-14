@@ -58,18 +58,16 @@ Many Python dependencies used by Ultimate Enigma (such as `cryptography`, `argon
 
 #### Automated Installation (Recommended)
 
-We provide a PowerShell script that automatically downloads and installs all required components silently.
-
 1. Open **PowerShell as Administrator**.
 2. Navigate to the project directory:
    ```powershell
-   cd C:\path\to\ultimate-enigma
+   cd C:\path\to\ultimate_enigma
    ```
-3. Run the setup script:
+3. Run the Visual Studio Build Tools installer manually (see below) or use **winget**:
    ```powershell
-   .\setup_dev_env.ps1
+   winget install Microsoft.VisualStudio.2022.BuildTools
    ```
-   *Note: If you get an execution policy error, run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` first.*
+   Then launch "Visual Studio Installer" → select "Desktop development with C++" → install.
 
 #### Manual Installation
 
@@ -90,8 +88,8 @@ After installation, **restart your terminal** or computer to ensure the `cl.exe`
 ### Step 3: Clone the Repository
 
 ```powershell
-git clone https://github.com/yourusername/ultimate-enigma.git
-cd ultimate-enigma
+git clone https://github.com/chaiphile/ultimate_enigma.git
+cd ultimate_enigma
 ```
 
 ### Step 4: Create Virtual Environment (Recommended)
@@ -166,8 +164,8 @@ brew install python-tk
 ### Step 3: Clone and Set Up
 
 ```bash
-git clone https://github.com/yourusername/ultimate-enigma.git
-cd ultimate-enigma
+git clone https://github.com/chaiphile/ultimate_enigma.git
+cd ultimate_enigma
 
 # Create virtual environment
 python3 -m venv venv
@@ -215,8 +213,8 @@ sudo pacman -S python python-pip tk git base-devel cmake
 ### Step 2: Clone and Set Up
 
 ```bash
-git clone https://github.com/yourusername/ultimate-enigma.git
-cd ultimate-enigma
+git clone https://github.com/chaiphile/ultimate_enigma.git
+cd ultimate_enigma
 
 # Create virtual environment
 python3 -m venv venv
@@ -430,7 +428,7 @@ See `docs/SECURITY.md` for full details.
 | Clipboard not clearing | Ensure no other app is monitoring clipboard; Tkinter limitation on some platforms |
 | Hotkeys not working | Global hotkeys are Windows-only. Use the Emergency Lock button on macOS/Linux |
 | NTP sync fails | Check firewall; app falls back to system time automatically |
-| `cryptography` build errors | Install build tools: `build-essential` (Linux), Xcode CLT (macOS), or run `setup_dev_env.ps1` to install Visual C++ Build Tools & Windows 11 SDK (Windows) |
+| `cryptography` build errors | Install build tools: `build-essential` (Linux), Xcode CLT (macOS), or install **Desktop development with C++** workload via Visual Studio Build Tools (Windows) |
 | `sqlcipher3` import fails | Install SQLCipher dev libraries: `libsqlcipher-dev` (Linux), `brew install sqlcipher` (macOS), or download `sqlcipher.dll` (Windows). See [SQLCipher docs](https://www.zetetic.net/sqlcipher/) |
 | App crashes on startup | Check `enigma.log` in the project directory for detailed error messages |
 

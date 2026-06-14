@@ -4,6 +4,7 @@ Displays a dark overlay with lock icon, status text, and an unlock button.
 The unlock button triggers a callback (typically showing password + TOTP dialog).
 """
 
+import sys
 import tkinter as tk
 import ttkbootstrap as ttk
 import logging
@@ -65,10 +66,13 @@ class LockScreen:
         ).pack(pady=(5, 20))
 
         # Info
+        hotkey_line = ""
+        if sys.platform == "win32":
+            hotkey_line = "or use the hotkey Ctrl+Shift+U to unlock.\n"
         tk.Label(
             center, text="All keys have been wiped from memory.\n"
-                         "Press the button below or use the hotkey\n"
-                         "Ctrl+Shift+U to unlock.",
+                         "Press the button below to unlock.\n"
+                         + hotkey_line,
             font=("Segoe UI", 10), bg="#0d0d0d", fg="#888888",
             justify="center"
         ).pack(pady=(0, 25))
