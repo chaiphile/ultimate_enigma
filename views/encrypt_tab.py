@@ -8,8 +8,8 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 import datetime
 import logging
-from services.encryption_service import EncryptionService, EncryptionError
-from services.friends_service import FriendsService
+from services.encryption import EncryptionService, EncryptionError
+from services.friends import FriendsService
 from services.clipboard_service import ClipboardService
 from services.pqc_service import is_pqc_available
 from src.exceptions import CryptoTimeoutError

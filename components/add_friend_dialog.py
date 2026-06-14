@@ -4,7 +4,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 import base64
 
-from services.friends_service import FriendsService, FriendsServiceError
+from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
 from views.utils import password_dialog
 

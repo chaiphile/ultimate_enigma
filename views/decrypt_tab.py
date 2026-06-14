@@ -5,7 +5,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 import logging
 from queue import Queue
-from services.encryption_service import DecryptionError
+from services.encryption import DecryptionError
 from src.exceptions import CryptoTimeoutError
 from src.crypto_task_helper import submit_crypto_task
 

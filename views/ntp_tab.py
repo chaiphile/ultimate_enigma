@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import ttkbootstrap as ttkb
 
 from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS, PRESET_NTP_SERVERS
-from services.encryption_service import EncryptionService
+from services.encryption import EncryptionService
 
 # Build ordered fallback list: presets first, then consensus servers not already in presets
 _FALLBACK_SERVERS = list(PRESET_NTP_SERVERS)

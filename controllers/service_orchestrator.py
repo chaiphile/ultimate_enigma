@@ -16,9 +16,9 @@ import threading
 from typing import Optional
 
 from key_manager import KeyStore
-from services.encryption_service import EncryptionService
+from services.encryption import EncryptionService
 from services.file_service import FileService
-from services.friends_service import FriendsService
+from services.friends import FriendsService
 from services.clipboard_service import ClipboardService
 from services.global_secret_service import GlobalSecretService
 from services.event_bus import event_bus, Events
@@ -135,17 +135,20 @@ class ServiceOrchestrator:
 
     @staticmethod
     def _init_ratchet_storage_key(key_store: KeyStore) -> None:
-        """Derive and set the ratchet at-rest encryption key from global_secret."""
+        """Derive and set the ratchet at-rest encryption key.
+
+        The key is derived from the master password (via KeyStore.load())
+        rather than global_secret, so an attacker with DB access alone
+        cannot recover it.
+        """
         from services.ratchet_service import RatchetService
-        if key_store.global_secret is not None:
-            storage_key = RatchetService._derive_storage_key(
-                bytes(key_store.global_secret)
-            )
+        storage_key = getattr(key_store, '_ratchet_storage_key', None)
+        if storage_key is not None:
             RatchetService.set_ratchet_storage_key(storage_key)
             logger.info("Ratchet state storage encryption key initialized")
         else:
             logger.warning(
-                "No global_secret available — ratchet states will not be "
+                "No ratchet storage key available — ratchet states will not be "
                 "encrypted at rest"
             )
 
@@ -229,6 +232,8 @@ class ServiceOrchestrator:
     def shutdown(self):
         """Clean up services that require explicit shutdown."""
         try:
+            from services.ratchet_service import RatchetService
+            RatchetService.flush_dirty_states()
             self.stop_agents()
             self.clipboard_service.shutdown()
             logger.info("ServiceOrchestrator shutdown complete")

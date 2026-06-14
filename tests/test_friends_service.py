@@ -9,7 +9,7 @@ from cryptography.hazmat.backends import default_backend
 
 import database
 from key_manager import KeyStore, init_db, pubkey_to_pem
-from services.friends_service import FriendsService, FriendsServiceError
+from services.friends import FriendsService, FriendsServiceError
 
 
 # ---------------------------------------------------------------------------

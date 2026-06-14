@@ -31,7 +31,7 @@ Comprehensive documentation for every service in the `services/` directory.
 
 ## EncryptionService
 
-**File:** `services/encryption_service.py` → `services/encryption/` package
+**File:** `services/encryption/` package
 
 Facade over three focused encryption strategies. The public API is preserved via a thin facade that delegates to the appropriate strategy based on mode and envelope type.
 
@@ -39,14 +39,12 @@ Facade over three focused encryption strategies. The public API is preserved via
 
 ```
 services/encryption/
-├── __init__.py              # Re-exports EncryptionService, EncryptionError, DecryptionError
-├── encryption_facade.py     # EncryptionService facade (strategy dispatcher)
+├── __init__.py              # Re-exports EncryptionService, EncryptionStrategy, EncryptionError, DecryptionError
+├── encryption_facade.py     # EncryptionService facade + EncryptionStrategy Protocol
 ├── legacy_strategy.py       # LegacyEncryptionStrategy (shared-secret + RSA hybrid)
 ├── ratchet_strategy.py      # RatchetEncryptionStrategy (Double Ratchet)
 └── pqc_strategy.py          # PqcEncryptionStrategy (Post-Quantum Hybrid KEM)
 ```
-
-The original `services/encryption_service.py` is a backward-compatibility re-export shim.
 
 ### Constructor
 
@@ -164,7 +162,7 @@ FileService(key_store)
 
 ## FriendsService
 
-**File:** `services/friends_service.py` → `services/friends/` package
+**File:** `services/friends/` package
 
 High-level API for managing friends, shared secrets, ECDH keys, PQC keys, and Double Ratchet sessions. Decomposed into four focused sub-services behind a facade.
 
@@ -179,8 +177,6 @@ services/friends/
 ├── pqc_keys.py              # FriendPqcKeyService (PQC key exchange)
 └── hybrid_sig_keys.py       # FriendHybridSigKeyService (hybrid signing keys)
 ```
-
-The original `services/friends_service.py` is a backward-compatibility re-export shim.
 
 ### Exception
 

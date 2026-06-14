@@ -15,7 +15,7 @@ Hybrid signatures combine classical Ed25519 signatures with post-quantum Dilithi
 | `HybridSigner` | `services/pqc_signatures.py` | Core hybrid signature operations (key gen, sign, verify) |
 | `hybrid_sign()` / `hybrid_verify()` | `crypto.py` | Wrapper functions for message signing |
 | `HYBRID_SIG_FLAG` | `crypto.py` | Bit flag (value 8) for hybrid signatures in message packets |
-| `FriendsService` | `services/friends_service.py` | Key generation, import, and management |
+| `FriendsService` | `services/friends/friends_facade.py` | Key generation, import, and management |
 | `FriendsTab` | `friends_tab.py` | UI dialog for hybrid signature key exchange |
 | `FileService` | `services/file_service.py` | Hybrid signature support for file operations |
 | `KeyStore` | `key_manager.py` | Persistent storage and loading of hybrid signing keys |
@@ -173,7 +173,7 @@ Tests are automatically skipped if liboqs is not available.
 
 | File | Change Type | Description |
 |------|-------------|-------------|
-| `services/friends_service.py` | Added methods | `generate_hybrid_sig_keys()`, `import_friend_hybrid_sig_pub()`, `get_hybrid_sig_key_fingerprint()` |
+| `services/friends/` | Added methods | `generate_hybrid_sig_keys()`, `import_friend_hybrid_sig_pub()`, `get_hybrid_sig_key_fingerprint()` |
 | `friends_tab.py` | Added button + dialog | "✍️ Hybrid Sig Exchange" button and `hybrid_sig_exchange_dialog()` |
 | `services/file_service.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |
 | `key_manager.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |

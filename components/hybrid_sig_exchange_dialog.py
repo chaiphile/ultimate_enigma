@@ -3,7 +3,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
-from services.friends_service import FriendsService, FriendsServiceError
+from services.friends import FriendsService, FriendsServiceError
 from views.utils import password_dialog
 
 

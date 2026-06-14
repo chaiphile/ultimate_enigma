@@ -2,7 +2,7 @@
 
 import base64
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Protocol, Tuple, runtime_checkable
 
 from services.encryption.legacy_strategy import LegacyEncryptionStrategy
 from services.encryption.ratchet_strategy import RatchetEncryptionStrategy
@@ -11,6 +11,19 @@ from models.envelope import identify_envelope_type
 from src.exceptions import EncryptionError, DecryptionError
 
 logger = logging.getLogger(__name__)
+
+
+@runtime_checkable
+class EncryptionStrategy(Protocol):
+    """Protocol defining the interface for encryption strategies.
+
+    All encryption strategies (Legacy, Ratchet, PQC) must conform to
+    this interface so new modes can be added without modifying the facade.
+    """
+
+    def encrypt(self, plaintext: str, **kwargs) -> Tuple[bytes, int]: ...
+
+    def decrypt(self, packet: bytes) -> str: ...
 
 
 class EncryptionService:

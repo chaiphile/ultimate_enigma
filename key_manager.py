@@ -78,6 +78,7 @@ class KeyStore:
         self.my_hybrid_sig_combined_pub: Optional[bytes] = None  # Combined public key bytes
         self.friends_hybrid_sig_pubs: Dict[str, tuple] = {}  # name -> (ed_pub_bytes, dil_pub_bytes)
         self._rsa_key_bytes: Optional[GuardedBuffer] = None
+        self._ratchet_storage_key: Optional[bytes] = None  # Derived from master password during load()
 
     # ---------- Persistent lockout helpers ----------
 
@@ -344,6 +345,27 @@ class KeyStore:
             "yes" if self.my_kyber_priv else "no",
             "yes" if self.my_hybrid_sig_combined_pub else "no",
         )
+
+        # Derive ratchet storage key from master password (never persisted).
+        # This key is distinct from global_secret so an attacker with DB
+        # access alone cannot derive it.
+        pw_bytes = password.encode() if isinstance(password, str) else (
+            bytes(password) if isinstance(password, SecureString) else password
+        )
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        from cryptography.hazmat.primitives import hashes as _hashes
+        _hkdf = HKDF(
+            algorithm=_hashes.SHA256(),
+            length=32,
+            salt=None,
+            info=b"enigma-ratchet-storage-key-v1",
+        )
+        self._ratchet_storage_key = _hkdf.derive(pw_bytes)
+        # Wipe intermediate password bytes
+        if isinstance(pw_bytes, bytearray):
+            for i in range(len(pw_bytes)):
+                pw_bytes[i] = 0
+
         return True
 
     def verify_password(self, password: Union[str, bytes, SecureString]) -> bool:
@@ -1054,6 +1076,13 @@ class KeyStore:
                 if isinstance(self.global_secret, GuardedBuffer):
                     self.global_secret.wipe_and_free()
                 self.global_secret = None
+
+            # Wipe ratchet storage key (derived from master password)
+            if self._ratchet_storage_key is not None:
+                ba = bytearray(self._ratchet_storage_key)
+                for i in range(len(ba)):
+                    ba[i] = 0
+                self._ratchet_storage_key = None
 
             wiped_friends = []
             for name, pub, sec in self.friends:

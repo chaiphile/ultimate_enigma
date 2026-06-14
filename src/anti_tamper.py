@@ -174,6 +174,8 @@ CRITICAL_BUNDLE_FILES = [
     "app.py",
 ]
 
+CRITICAL_FILE_HASHES: dict = {}  # Populated at build time by build_app.bat
+
 # ---------------------------------------------------------------------------
 # Windows API Definitions
 # ---------------------------------------------------------------------------
@@ -522,7 +524,12 @@ def _check_timing() -> bool:
 # ---------------------------------------------------------------------------
 
 def _check_meipass() -> bool:
-    """Verify PyInstaller _MEIPASS exists and is valid."""
+    """Verify PyInstaller _MEIPASS exists and critical files are intact.
+
+    If CRITICAL_FILE_HASHES is populated (by the build script), each
+    listed file is checked against its expected SHA-256 digest. Hash
+    comparison uses hmac.compare_digest to prevent timing side channels.
+    """
     try:
         meipass = getattr(sys, "_MEIPASS", None)
         if meipass is None:
@@ -535,6 +542,21 @@ def _check_meipass() -> bool:
         if not path.is_dir():
             _log_trigger("MeipassIntegrity", f"_MEIPASS is not a directory: {meipass}")
             return True
+
+        if CRITICAL_FILE_HASHES:
+            for fname, expected_hash in CRITICAL_FILE_HASHES.items():
+                fpath = path / fname
+                if not fpath.exists():
+                    _log_trigger("MeipassIntegrity", f"Critical file missing: {fname}")
+                    return True
+                actual = hashlib.sha256(fpath.read_bytes()).hexdigest()
+                if not hmac.compare_digest(actual, expected_hash):
+                    _log_trigger(
+                        "MeipassIntegrity",
+                        f"{fname} hash mismatch: expected {expected_hash[:16]}… "
+                        f"got {actual[:16]}…",
+                    )
+                    return True
 
         return False
     except Exception as e:

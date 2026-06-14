@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch, PropertyMock
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.backends import default_backend
 
-from services.encryption_service import EncryptionService, EncryptionError, DecryptionError
+from services.encryption import EncryptionService, EncryptionError, DecryptionError
 from crypto import AES_KEY_SIZE
 
 

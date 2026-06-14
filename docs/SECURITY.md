@@ -114,7 +114,13 @@ All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
 - `RatchetState.root_key`, `send_chain_key`, `recv_chain_key` → `GuardedBuffer(32)`
 - `XChaCha20Poly1305._key` → `GuardedBuffer`
 - `database._MASTER_PASSWORD` → `SecureString` with `.lock()`
-- `RatchetService._storage_key` → `GuardedBuffer(32)`
+- `RatchetService._storage_key` → derived from master password via HKDF (not from `global_secret`)
+
+#### Ratchet Storage Key (SEC-06)
+- Ratchet states are encrypted at rest with AES-256-GCM before DB storage
+- The storage key is derived from the **master password** via HKDF-SHA256 (domain: `enigma-ratchet-storage-key-v1`)
+- Key is derived during `KeyStore.load()` and held only in memory (`KeyStore._ratchet_storage_key`)
+- Never persisted to disk — an attacker with DB access alone cannot recover ratchet state
 
 #### Startup Initialization (`main.py`)
 - `raise_mlock_limit(64MB)` called before any other imports
@@ -295,7 +301,7 @@ Source: `src/anti_tamper.py`
 #### Anti-Tamper (5 methods)
 | Method | Technique | Details |
 |--------|-----------|---------|
-| `_MEIPASS` verification | PyInstaller | Verifies bundle temp directory exists and is a valid directory |
+| `_MEIPASS` verification | PyInstaller | Verifies bundle temp directory exists, is valid, and critical file SHA-256 hashes match expected values (when populated by build script) |
 | Import hook detection | `sys.meta_path` | Detects injected import finders (e.g., Frida loaders) |
 | Frida detection | File + env + modules | Checks for Frida files on disk, environment variables, and loaded modules |
 | Module bytecode integrity | `.pyc` verification | Validates Python magic numbers match running interpreter |

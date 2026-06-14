@@ -11,7 +11,7 @@ from queue import Queue
 
 from views.utils import password_dialog
 from services.file_service import FileServiceError, SharedSecretDetected
-from services.friends_service import FriendsService
+from services.friends import FriendsService
 from services.global_secret_service import GlobalSecretService
 from services.crypto_task_queue import TaskPriority
 from src.exceptions import CryptoTimeoutError

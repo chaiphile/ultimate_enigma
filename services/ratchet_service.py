@@ -75,6 +75,12 @@ class RatchetService:
     # Set via set_ratchet_storage_key() during service initialization.
     _storage_key: Optional[bytes] = None  # 32-byte AES-256 key for encrypting ratchet blobs at rest
 
+    # Deferred persistence: buffer dirty states in memory, flush periodically.
+    _dirty_states: Dict[str, RatchetState] = {}
+    _dirty_lock = threading.Lock()
+    _flush_interval: float = 5.0  # seconds between periodic flushes
+    _flush_timer: Optional[threading.Timer] = None
+
     @classmethod
     def set_ratchet_storage_key(cls, key: bytes) -> None:
         """Set the key used to encrypt ratchet states before persisting to DB.
@@ -111,6 +117,50 @@ class RatchetService:
             backend=default_backend()
         )
         return hkdf.derive(master_secret)
+
+    @classmethod
+    def _mark_dirty(cls, friend_name: str, state: RatchetState) -> None:
+        """Buffer a modified ratchet state for deferred DB persistence."""
+        with cls._dirty_lock:
+            cls._dirty_states[friend_name] = state
+        cls._ensure_flush_timer()
+
+    @classmethod
+    def _ensure_flush_timer(cls) -> None:
+        """Start a periodic flush timer if one isn't already running."""
+        with cls._dirty_lock:
+            if cls._flush_timer is not None and cls._flush_timer.is_alive():
+                return
+            cls._flush_timer = threading.Timer(
+                cls._flush_interval, cls.flush_dirty_states
+            )
+            cls._flush_timer.daemon = True
+            cls._flush_timer.start()
+
+    @classmethod
+    def flush_dirty_states(cls) -> int:
+        """Flush all buffered dirty ratchet states to the database.
+
+        Returns the number of states flushed.
+        """
+        with cls._dirty_lock:
+            to_flush = dict(cls._dirty_states)
+            cls._dirty_states.clear()
+            cls._flush_timer = None
+
+        count = 0
+        for friend_name, state in to_flush.items():
+            try:
+                cls.save_ratchet_state(friend_name, state)
+                count += 1
+            except Exception as e:
+                logger.warning(
+                    "Failed to flush deferred ratchet state for '%s': %s",
+                    friend_name, e,
+                )
+        if count > 0:
+            logger.debug("Flushed %d deferred ratchet states to DB", count)
+        return count
 
     @staticmethod
     def _encrypt_ratchet_blob(plaintext_json: str) -> str:
@@ -700,8 +750,8 @@ class RatchetService:
                     f"Ratchet encryption failed for '{friend_name}': {e}"
                 ) from e
 
-            # Persist the advanced state
-            RatchetService.save_ratchet_state(friend_name, state)
+            # Defer persistence — flush periodically or on shutdown
+            RatchetService._mark_dirty(friend_name, state)
         finally:
             lock.release()
         return header, ciphertext
@@ -768,8 +818,8 @@ class RatchetService:
                     f"Ratchet decryption failed for '{friend_name}': {e}"
                 ) from e
 
-            # Persist the advanced state (including any skipped keys)
-            RatchetService.save_ratchet_state(friend_name, state)
+            # Defer persistence — flush periodically or on shutdown
+            RatchetService._mark_dirty(friend_name, state)
         finally:
             lock.release()
         return plaintext

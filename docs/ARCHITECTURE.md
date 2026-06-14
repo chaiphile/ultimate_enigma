@@ -67,8 +67,6 @@ ultimate_enigma/
 │   │   ├── ratchet_mgmt.py         # Double Ratchet lifecycle
 │   │   ├── pqc_keys.py             # PQC key exchange
 │   │   └── hybrid_sig_keys.py      # Hybrid signing keys
-│   ├── encryption_service.py       # Backward-compat re-export shim
-│   ├── friends_service.py          # Backward-compat re-export shim
 │   ├── file_service.py             # FileService class (thin facade)
 │   ├── file_ops.py                 # Standalone file crypto functions
 │   ├── clipboard_service.py       # Secure clipboard handling
