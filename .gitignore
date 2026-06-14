@@ -2,6 +2,7 @@
 build/
 dist/
 *.spec
+!UltimateEnigma.spec
 
 # Python cache and packaging
 __pycache__/
@@ -21,7 +22,8 @@ ENV/
 env/
 
 # IDEs
-.vscode/
+.vscode/*
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -30,12 +32,35 @@ env/
 # Logs
 *.log
 
+# Non-production scripts and data (debug, test helpers, dev env)
+debug_concurrent.py
+test_concurrent_fix.py
+test_executor_basic.py
+test_timeout_fix.py
+_apply_41_patches.py
+run_concurrent_test.bat
+run_failing_tests.bat
+run_specific_tests.bat
+run_timeout_tests.bat
+setup_dev_env.ps1
+fixroadmap.sh
+legacycodes.csv
+run_tests.py
+verify_timeout_fix.bat
+
+# Non-production reports and guides
+test_ratchet_report.txt
+test_report.txt
+TEST_SUITE_SUMMARY.md
+PERFORMANCE_OPTIMIZATION_GUIDE.md
+PRODUCTION_READINESS_FRAMEWORK.md
+SECURITY_HARDENING_GUIDE.md
+
 # Temporary and generated files
 collect_py.bat
 all_py_files.txt
 replace.txt
 test_file_decrypt_behavior.py
-verify_timeout_fix.bat
 *.bak
 *.zip
 *.tar.gz
