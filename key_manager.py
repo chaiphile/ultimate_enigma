@@ -351,7 +351,7 @@ class KeyStore:
         # This key is distinct from global_secret so an attacker with DB
         # access alone cannot derive it.
         pw_bytes = password.encode() if isinstance(password, str) else (
-            bytes(password) if isinstance(password, SecureString) else password
+            password.to_bytes() if isinstance(password, SecureString) else password
         )
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
         from cryptography.hazmat.primitives import hashes as _hashes
