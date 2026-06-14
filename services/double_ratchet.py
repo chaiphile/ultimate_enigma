@@ -209,8 +209,8 @@ class RatchetState:
         nonce = _xchacha_nonce()
         # Convert message_key to mutable bytearray for secure zeroing after use
         mk_bytes = bytearray(message_key)
-        aead = XChaCha20Poly1305(mk_bytes)
-        ct = aead.encrypt(nonce, plaintext, None)
+        with XChaCha20Poly1305(mk_bytes) as aead:
+            ct = aead.encrypt(nonce, plaintext, None)
         
         # Build header
         dh_pub_bytes = self.dh_priv.public_key().public_bytes(
@@ -308,8 +308,8 @@ class RatchetState:
             raise ValueError("Ciphertext too short")
         nonce = data[:XCHACHA20_NONCE_SIZE]
         ct = data[XCHACHA20_NONCE_SIZE:]
-        aead = XChaCha20Poly1305(key)
-        return aead.decrypt(nonce, ct, None)
+        with XChaCha20Poly1305(key) as aead:
+            return aead.decrypt(nonce, ct, None)
 
     def get_local_dh_public_key(self) -> bytes:
         """Get our current DH public key as raw bytes."""

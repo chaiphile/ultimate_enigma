@@ -1,4 +1,5 @@
 import base64
+import time
 import tkinter as tk
 from tkinter import messagebox
 import ttkbootstrap as ttk

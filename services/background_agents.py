@@ -97,7 +97,7 @@ class BackupReminderAgent:
         """Query BackupService and publish reminder if needed."""
         remind, days_since = self._backup_service.should_remind_backup()
         if remind:
-
+            event_bus.publish(Events.BACKUP_REMINDER, days_since=days_since)
             logger.info(
                 "Backup reminder published (days_since=%s)", days_since
             )
@@ -217,11 +217,12 @@ class RatchetMaintenanceAgent:
         active_names = self._get_active_friend_names()
         removed = RatchetService.cleanup_friend_locks(active_names)
         if removed > 0:
-
+            event_bus.publish(Events.RATCHET_LOCKS_CLEANED, removed=removed)
             logger.info("RatchetMaintenance: cleaned %d stale locks", removed)
 
         # 2. Publish lock stats
         stats = RatchetService.get_lock_stats()
+        event_bus.publish(Events.RATCHET_LOCK_STATS, **stats)
 
 
     def _get_active_friend_names(self) -> List[str]:
@@ -337,7 +338,7 @@ class SystemMonitorAgent:
         """Collect health metrics and publish a status event."""
         status = self.get_status()
         is_healthy = status.get("healthy", True)
-
+        event_bus.publish(Events.SYSTEM_STATUS, status=status, healthy=is_healthy)
 
 
     def get_status(self) -> Dict[str, Any]:
@@ -532,3 +533,4 @@ class KeyInspectorAgent:
         """
         info = self.get_key_info(friend_name)
         fingerprint = self.get_fingerprint(friend_name)
+        event_bus.publish(Events.KEY_INFO, friend_name=friend_name, info=info, fingerprint=fingerprint)

@@ -110,7 +110,6 @@ class AppBuilder:
 
         self.app_controller.start_ntp_sync(
             self.service_orchestrator.encryption_service,
-            self.service_orchestrator.service_lock,
         )
         return True
 

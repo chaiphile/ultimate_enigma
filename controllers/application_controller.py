@@ -75,28 +75,23 @@ class ApplicationController:
     # ------------------------------------------------------------------
     # NTP Synchronization
     # ------------------------------------------------------------------
-    def start_ntp_sync(self, encryption_service, service_lock, delay_ms=2000):
+    def start_ntp_sync(self, encryption_service, delay_ms=2000):
         """Schedule NTP sync to start after GUI is rendered."""
-        self.root.after(delay_ms, lambda: self._start_ntp_thread(encryption_service, service_lock))
+        self.root.after(delay_ms, lambda: self._start_ntp_thread(encryption_service))
 
-    def _start_ntp_thread(self, encryption_service, service_lock):
+    def _start_ntp_thread(self, encryption_service):
         if self._ntp_thread is not None:
             return
         self._ntp_thread = threading.Thread(
             target=self._ntp_sync_loop,
-            args=(encryption_service, service_lock),
+            args=(encryption_service,),
             daemon=True
         )
         self._ntp_thread.start()
         logger.info("NTP sync thread started (deferred)")
 
-    def _ntp_sync_loop(self, encryption_service, service_lock):
-        """Background NTP sync - sequential queries, fully exception-safe.
-
-        NTP queries (up to 10s) run entirely outside the lock.
-        The lock is only acquired for the brief update_ntp_time() assignment
-        to serialise with encrypt/decrypt operations that also hold it.
-        """
+    def _ntp_sync_loop(self, encryption_service):
+        """Background NTP sync - sequential queries, fully exception-safe."""
         try:
             from ntp_client import get_ntp_time
             while self._is_running:

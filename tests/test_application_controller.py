@@ -126,14 +126,13 @@ class TestShutdown:
 class TestNtpSync:
     def test_start_ntp_sync_schedules_thread(self, controller, mock_root):
         """start_ntp_sync calls root.after with delay."""
-        controller.start_ntp_sync(MagicMock(), threading.Lock())
+        controller.start_ntp_sync(MagicMock())
         mock_root.after.assert_called_once()
 
     def test_start_ntp_thread_creates_thread(self, controller):
         """_start_ntp_thread creates and starts a daemon thread."""
         enc_service = MagicMock()
-        lock = threading.Lock()
-        controller._start_ntp_thread(enc_service, lock)
+        controller._start_ntp_thread(enc_service)
 
         assert controller._ntp_thread is not None
         assert controller._ntp_thread.daemon is True
@@ -145,11 +144,10 @@ class TestNtpSync:
     def test_start_ntp_thread_no_duplicate(self, controller):
         """_start_ntp_thread does nothing if thread already exists."""
         enc_service = MagicMock()
-        lock = threading.Lock()
-        controller._start_ntp_thread(enc_service, lock)
+        controller._start_ntp_thread(enc_service)
         first_thread = controller._ntp_thread
 
-        controller._start_ntp_thread(enc_service, lock)
+        controller._start_ntp_thread(enc_service)
         assert controller._ntp_thread is first_thread
 
         controller._is_running = False
@@ -164,7 +162,7 @@ class TestNtpSync:
              patch("controllers.application_controller.time.sleep", side_effect=lambda s: _real_sleep(0.05)):
             t = threading.Thread(
                 target=controller._ntp_sync_loop,
-                args=(enc_service, threading.Lock()),
+                args=(enc_service,),
             )
             t.start()
             _real_sleep(0.5)
@@ -182,7 +180,7 @@ class TestNtpSync:
              patch("controllers.application_controller.time.sleep", side_effect=lambda s: _real_sleep(0.05)):
             t = threading.Thread(
                 target=controller._ntp_sync_loop,
-                args=(enc_service, threading.Lock()),
+                args=(enc_service,),
             )
             t.start()
             _real_sleep(0.5)
@@ -197,7 +195,7 @@ class TestNtpSync:
         enc_service = MagicMock()
 
         def run_loop():
-            controller._ntp_sync_loop(enc_service, threading.Lock())
+            controller._ntp_sync_loop(enc_service)
 
         with patch("ntp_client.get_ntp_time", return_value=1700000000), \
              patch("controllers.application_controller.time.sleep", side_effect=lambda s: _real_sleep(0.05)):
