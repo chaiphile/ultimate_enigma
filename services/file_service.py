@@ -155,8 +155,8 @@ class FileService:
             for stored_fp, (_, owner) in secrets_dict.items():
                 if stored_fp == fp:
                     return (stored_fp, owner)
-        except Exception:
-            pass
+        except (OSError, ValueError, KeyError) as e:
+            logger.debug("Fingerprint detection failed for %s: %s", path, e)
         return None
 
     def _decrypt_shared_file(self, input_path: str, output_path: str) -> str:
@@ -177,8 +177,8 @@ class FileService:
                 from services.pqc_signatures import HybridSigner
                 my_ed_pub, my_dil_pub = HybridSigner.parse_combined_pub(my_combined_pub)
                 friends_hybrid.append(("myself", my_ed_pub, my_dil_pub))
-            except Exception:
-                pass
+            except (ValueError, TypeError) as e:
+                logger.debug("Could not parse hybrid sig combined pub: %s", e)
         sig_msg = file_decrypt_shared(
             input_path, output_path, secrets_dict,
             friends_for_sig=friends_for_sig,

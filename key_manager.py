@@ -120,11 +120,12 @@ class KeyStore:
             ]:
                 try:
                     conn.execute(col_sql)
-                except Exception:
-                    pass  # column already exists or other error (ignore)
+                except Exception as e:
+                    if "duplicate column" not in str(e).lower():
+                        logger.debug("ALTER TABLE for schema migration: %s", e)
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Schema migration failed (likely already applied): %s", e)
 
         conn = database.get_connection()
         try:

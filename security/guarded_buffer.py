@@ -143,9 +143,7 @@ class GuardedBuffer:
             raise ValueError(
                 f"Data length {len(data)} exceeds buffer size {self._size}"
             )
-        buf = (ctypes.c_char * len(data)).from_address(self._data_addr)  # type: ignore[arg-type]
-        for i in range(len(data)):
-            buf[i] = data[i]
+        ctypes.memmove(self._data_addr, data, len(data))
 
     def read(self) -> bytearray:
         """Return a copy of the guarded data."""

@@ -90,12 +90,13 @@ The application implements defense-in-depth memory protection to prevent key mat
 - Sensitive buffers allocated between `PAGE_NOACCESS` guard pages (4 KB each)
 - Any buffer overread/overflow triggers an immediate access violation (SIGSEGV/SEH)
 - Layout: `[PAGE_NOACCESS][sensitive data][PAGE_NOACCESS]`
-- `GuardedBuffer.write()`, `read()`, `wipe_and_free()` with context manager support
+- `GuardedBuffer.write()` uses `ctypes.memmove()` for efficient bulk copy
+- `GuardedBuffer.read()`, `wipe_and_free()` with context manager support
 - Equality comparison uses `hmac.compare_digest` for constant-time semantics (prevents timing side-channels on secret comparison)
 - On Linux: `madvise(MADV_DONTDUMP)` excludes guard-protected regions from core dumps
 
 #### Anti-Dump Protection (`security/anti_dump.py`)
-- **Windows**: Patches `MiniDumpWriteDump` entry point with `RET` instruction (0xC3) to block minidumps
+- **Windows**: Patches `MiniDumpWriteDump` entry point with `RET` instruction (0xC3) to block minidumps, correctly restoring original page protections after patching
 - **Windows**: Removes `SeDebugPrivilege` from process token to limit cross-process memory access
 - **Linux**: Disables core dumps via `setrlimit(RLIMIT_CORE, 0)` and `prctl(PR_SET_DUMPABLE, 0)`
 
@@ -241,7 +242,7 @@ Message → AES-GCM encrypt → Ciphertext
 ## Secure Development Practices
 
 ### Code Organization
-- Constants centralized in `src/constants.py`
+- Constants centralized in `src/constants.py` as frozen dataclasses with backward-compatible dict aliases
 - Custom exceptions in `src/exceptions.py`
 - Secure string handling in `src/secure_string.py`
 - Timeout decorators prevent hanging operations

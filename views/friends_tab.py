@@ -13,6 +13,7 @@ from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
 from ttkbootstrap.tooltip import ToolTip
 import base64
+import logging
 
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
@@ -20,6 +21,8 @@ from views.utils import password_dialog
 from components.add_friend_dialog import AddFriendDialog
 from components.pqc_exchange_dialog import PqcExchangeDialog
 from components.hybrid_sig_exchange_dialog import HybridSigExchangeDialog
+
+logger = logging.getLogger(__name__)
 
 
 class FriendsTab:
@@ -628,7 +631,8 @@ class FriendsTab:
         parent = self.frame.winfo_toplevel()
         try:
             current_name = self.service.get_my_name()
-        except Exception:
+        except (OSError, KeyError) as e:
+            logger.debug("Could not retrieve current name: %s", e)
             current_name = ""
 
         new_name = simpledialog.askstring(

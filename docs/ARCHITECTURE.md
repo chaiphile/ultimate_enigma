@@ -102,7 +102,7 @@ ultimate_enigma/
 ├── components/             # Reusable UI Components
 │   └── totp_dialogs.py           # TOTP setup/verify dialogs
 ├── src/                    # Core Utilities
-│   ├── constants.py              # Centralized constants
+│   ├── constants.py              # Centralized constants (frozen dataclasses with dict aliases)
 │   ├── exceptions.py             # Custom exception classes
 │   ├── secure_string.py          # Memory-safe string handling
 │   ├── timeout.py                # Timeout decorators/utilities

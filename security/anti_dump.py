@@ -39,11 +39,12 @@ def _patch_minidump_windows() -> None:
 
         ctypes.memmove(mini_dump_fn, b"\xC3", 1)
 
+        new_protect = ctypes.c_ulong(0)
         ctypes.windll.kernel32.VirtualProtect(  # type: ignore[attr-defined]
             ctypes.c_void_p(mini_dump_fn),
             ctypes.c_size_t(1),
-            ctypes.byref(old_protect),
-            ctypes.byref(old_protect),
+            old_protect,
+            ctypes.byref(new_protect),
         )
 
         logger.info("MiniDumpWriteDump patched successfully")
