@@ -51,6 +51,7 @@ class FileService:
 
     def __init__(self, key_store: KeyStore):
         self._ks = key_store
+        self._cached_fingerprints: Optional[dict] = None
 
     def encrypt_file(
         self,
@@ -186,8 +187,19 @@ class FileService:
         )
         return sig_msg
 
+    def invalidate_fingerprint_cache(self) -> None:
+        """Invalidate the cached fingerprints after key store changes."""
+        self._cached_fingerprints = None
+
     def _build_secrets_dict(self) -> dict:
-        """Return a dict mapping fingerprint (16 bytes) -> (secret, owner_name)."""
+        """Return a dict mapping fingerprint (16 bytes) -> (secret, owner_name).
+
+        Results are cached since secrets don't change between calls.
+        Call invalidate_fingerprint_cache() after key store modifications.
+        """
+        if self._cached_fingerprints is not None:
+            return self._cached_fingerprints
+
         secrets_dict = {}
         if self._ks.global_secret:
             fp = hashlib.sha256(self._ks.global_secret).digest()[:16]
@@ -196,4 +208,6 @@ class FileService:
             if sec:
                 fp = hashlib.sha256(sec).digest()[:16]
                 secrets_dict[fp] = (sec, name)
+
+        self._cached_fingerprints = secrets_dict
         return secrets_dict

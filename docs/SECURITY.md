@@ -105,6 +105,7 @@ The application implements defense-in-depth memory protection to prevent key mat
 - `wipe()` calls `munlock_memory()` before zeroing
 - Long-lived secrets (master password, DB key) use `.lock()` after creation
 - `database.set_master_password()` accepts `str` or `SecureString` directly (avoids creating plaintext copies)
+- `append()` rejects `str` input with `TypeError` to prevent non-wipeable copies in Python's internal `PyUnicodeObject`; use `bytes` or `bytearray` instead
 
 #### Key Storage Conversion
 All previously immutable `bytes` secrets now stored in `GuardedBuffer`:

@@ -6,7 +6,7 @@ import ttkbootstrap as ttk
 
 from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
 from services.clipboard_service import ClipboardService
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 
 
 class SecretTab:

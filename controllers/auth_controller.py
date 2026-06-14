@@ -40,7 +40,7 @@ class _DefaultUI:
         self.root = root
 
     def password_dialog(self, title, confirm=False, **kwargs):
-        from views.utils import password_dialog
+        from views.dialogs import password_dialog
         return password_dialog(self.root, title, confirm=confirm, **kwargs)
 
     def show_error(self, title, message):

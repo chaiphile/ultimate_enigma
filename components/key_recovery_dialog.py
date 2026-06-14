@@ -7,7 +7,7 @@ from ttkbootstrap.constants import *
 
 import database
 from services.shamir_service import ShamirService, generate_recovery_key
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 
 
 class KeyRecoveryDialog:

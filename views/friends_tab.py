@@ -17,7 +17,7 @@ import logging
 
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 from components.add_friend_dialog import AddFriendDialog
 from components.pqc_exchange_dialog import PqcExchangeDialog
 from components.hybrid_sig_exchange_dialog import HybridSigExchangeDialog

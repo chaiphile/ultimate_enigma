@@ -4,7 +4,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 from models.trust_chain import CertificateType, TrustLevel, RevocationStatus
 
 

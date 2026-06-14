@@ -17,7 +17,7 @@ from ttkbootstrap.dialogs import Messagebox
 import base64
 
 from services.event_bus import event_bus, Events
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 
 
 class TrustTab:

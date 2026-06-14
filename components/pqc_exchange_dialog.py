@@ -5,7 +5,7 @@ from ttkbootstrap.constants import *
 import base64
 
 from services.friends import FriendsService, FriendsServiceError
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 
 
 class PqcExchangeDialog:

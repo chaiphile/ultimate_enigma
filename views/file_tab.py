@@ -9,7 +9,7 @@ import ttkbootstrap as ttk
 import threading
 from queue import Queue
 
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 from services.file_service import FileServiceError, SharedSecretDetected
 from services.friends import FriendsService
 from services.global_secret_service import GlobalSecretService

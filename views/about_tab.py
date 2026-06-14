@@ -6,7 +6,7 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttkb
 
 from services.backup_service import BackupService, BackupServiceError
-from views.utils import password_dialog
+from views.dialogs import password_dialog
 from controllers.auth_controller import AuthController
 from key_manager import KeyStore
 

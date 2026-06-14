@@ -235,24 +235,28 @@ class SecureString:
             raise RuntimeError("SecureString has been wiped and cannot be accessed")
         return bytes(self._data).decode('utf-8').encode(encoding)
 
-    def append(self, data: Union[str, bytes, bytearray, "SecureString"]) -> None:
+    def append(self, data: Union[bytes, bytearray, "SecureString"]) -> None:
         """Append data to the internal bytearray.
 
         Args:
-            data: Data to append.
+            data: Data to append (bytes, bytearray, or SecureString).
 
         Raises:
+            TypeError: If data is a str (creates non-wipeable copies).
             RuntimeError: If the data has been wiped.
         """
         if self._wiped:
             raise RuntimeError("SecureString has been wiped and cannot be modified")
 
-        if isinstance(data, SecureString):
+        if isinstance(data, str):
+            raise TypeError(
+                "append() with str creates non-wipeable copies. "
+                "Encode to bytes first."
+            )
+        elif isinstance(data, SecureString):
             if data._wiped:
                 raise ValueError("Cannot append wiped SecureString")
             self._data.extend(data._data)
-        elif isinstance(data, str):
-            self._data.extend(data.encode('utf-8'))
         elif isinstance(data, (bytes, bytearray)):
             self._data.extend(data)
         else:

@@ -174,11 +174,11 @@ class TestSecureString:
             hash(ss)
         ss.wipe()
 
-    def test_append_string(self):
-        """Test appending a string."""
+    def test_append_string_raises_type_error(self):
+        """Test appending a string raises TypeError to prevent non-wipeable copies."""
         ss = SecureString("hello")
-        ss.append(" world")
-        assert ss.to_str() == "hello world"
+        with pytest.raises(TypeError, match="non-wipeable"):
+            ss.append(" world")
         ss.wipe()
 
     def test_append_bytes(self):

@@ -144,6 +144,8 @@ Decrypts shared-secret file with multi-layer signature verification. Returns sig
 FileService(key_store)
 ```
 
+The constructor initializes a fingerprint cache for `_build_secrets_dict()`. SHA-256 fingerprints are computed once and reused across calls. Call `invalidate_fingerprint_cache()` after key store modifications.
+
 #### Methods
 
 | Method | Description |
@@ -151,6 +153,7 @@ FileService(key_store)
 | `encrypt_file(input_path, output_path, method, password=None, friend_name=None, sign=False)` | Encrypts a file. `method`: `'password'`, `'global'`, or `'friend'` |
 | `decrypt_file(input_path, output_path, password=None) -> str` | Auto-detects encryption method. Returns signature message. May raise `SharedSecretDetected` |
 | `decrypt_with_shared_secret(input_path, output_path, fingerprint) -> str` | Decrypts after user confirms detected fingerprint |
+| `invalidate_fingerprint_cache()` | Invalidate cached fingerprints after key store changes |
 
 ### Constants
 

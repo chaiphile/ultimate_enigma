@@ -30,7 +30,7 @@ class TkinterAuthUI:
         self.root = root
     
     def password_dialog(self, title: str, confirm: bool = False, **kwargs: Any) -> Optional[str]:
-        from views.utils import password_dialog
+        from views.dialogs import password_dialog
         return password_dialog(self.root, title, confirm=confirm, **kwargs)
     
     def show_error(self, title: str, message: str) -> None:

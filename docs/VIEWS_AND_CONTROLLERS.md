@@ -438,12 +438,21 @@ perform_ecdh(parent, purpose="friend") -> (derived_secret, friend_x25519_b64) | 
 
 ## Utility Functions
 
+### Pure Utilities
+
 **File:** `views/utils.py`
 
 | Function | Returns | Description |
 |----------|---------|-------------|
 | `validate_password_strength(pw)` | `(is_valid, message, score)` | Military-grade password validation |
 | `get_strength_label(score)` | `(label, color)` | Visual strength indicator |
+
+### Dialogs
+
+**File:** `views/dialogs.py`
+
+| Function | Returns | Description |
+|----------|---------|-------------|
 | `password_dialog(parent, title, confirm, topmost, bg, fg, enforce_strength)` | `SecureString \| None` | Modal password entry with strength meter |
 
 ### Password Requirements
