@@ -62,6 +62,11 @@ class KeyRecoveryDialog:
         self._build_recover_tab(tab_recover)
         self._build_status_tab(tab_status)
 
+        if self.mode == "split":
+            notebook.select(tab_split)
+        elif self.mode == "recover":
+            notebook.select(tab_recover)
+
         ttk.Button(dlg, text="Close", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))
 
