@@ -22,6 +22,8 @@ The database module (`database.py`) provides:
 - [Tables](#tables)
   - [settings](#settings-table)
   - [friends](#friends-table)
+  - [trust_certificates](#trust_certificates-table)
+  - [recovery_shares](#recovery_shares-table)
 - [Models Layer](#models-layer)
 - [Secret Encryption Format](#secret-encryption-format)
 - [Usage Patterns](#usage-patterns)
@@ -175,6 +177,7 @@ CREATE TABLE IF NOT EXISTS settings (
 | `last_backup_ts` | text | Unix timestamp of last versioned backup | `BackupService._record_backup_timestamp()` |
 | `sqlcipher_db_key` | JSON | Per-machine DB encryption key (encrypted) | `init_db()` |
 | `my_name` | text | User's display name for ratchet envelope sender identity | `set_my_name()` |
+| `ratchet_hkdf_salt` | TEXT | HKDF salt for ratchet storage key derivation | `init_db()` |
 
 #### Key Lifecycle
 
@@ -254,7 +257,87 @@ ALTER TABLE friends ADD COLUMN hybrid_sig_pub_b64 TEXT;
 Migration logic exists in:
 - `database.init_db()` — adds all columns on schema init
 - `key_manager.KeyStore.load()` — adds `x25519_public_key_b64` and `hybrid_sig_pub_b64` as a safety net
-- `models/key_store.py.KeyStoreModel.load()` — depends on columns already existing
+- `key_manager.KeyStore.load()` — depends on columns already existing
+
+---
+
+### `trust_certificates` Table
+
+Stores X.509-style trust certificates binding identities to public keys for the decentralized trust chain system.
+
+#### Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS trust_certificates (
+    cert_id             TEXT PRIMARY KEY,
+    subject_name        TEXT NOT NULL,
+    subject_pub_b64     TEXT NOT NULL,
+    issuer_name         TEXT NOT NULL,
+    issuer_pub_b64      TEXT NOT NULL,
+    cert_type           TEXT NOT NULL,
+    not_before          REAL NOT NULL,
+    not_after           REAL NOT NULL,
+    signature_b64       TEXT NOT NULL,
+    revoked             INTEGER NOT NULL DEFAULT 0,
+    revocation_reason   TEXT,
+    received_from       TEXT,
+    created_at          REAL NOT NULL
+);
+```
+
+#### Column Details
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `cert_id` | TEXT PK | No | UUID4 string identifying this certificate |
+| `subject_name` | TEXT | No | The identity this certificate is about |
+| `subject_pub_b64` | TEXT | No | Base64-encoded combined hybrid sig public key of the subject |
+| `issuer_name` | TEXT | No | The identity that signed this certificate |
+| `issuer_pub_b64` | TEXT | No | Base64-encoded combined hybrid sig public key of the issuer |
+| `cert_type` | TEXT | No | Type: `identity`, `recovery`, or `delegation` |
+| `not_before` | REAL | No | Epoch timestamp when the certificate becomes valid |
+| `not_after` | REAL | No | Epoch timestamp when the certificate expires |
+| `signature_b64` | TEXT | No | Hybrid signature over subject_pub + cert_type + validity window |
+| `revoked` | INTEGER | No | Boolean flag: 1 if revoked |
+| `revocation_reason` | TEXT | Yes | Human-readable reason for revocation |
+| `received_from` | TEXT | Yes | Who sent this certificate (empty if self-issued) |
+| `created_at` | REAL | No | Epoch timestamp when this certificate was created |
+
+---
+
+### `recovery_shares` Table
+
+Stores Shamir secret sharing recovery shares for threshold-based key recovery.
+
+#### Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS recovery_shares (
+    share_id            TEXT PRIMARY KEY,
+    owner_name          TEXT NOT NULL,
+    share_index         INTEGER NOT NULL,
+    total_shares        INTEGER NOT NULL,
+    threshold           INTEGER NOT NULL,
+    encrypted_share_b64 TEXT NOT NULL,
+    holder_name         TEXT NOT NULL,
+    holder_pub_b64      TEXT NOT NULL,
+    created_at          REAL NOT NULL
+);
+```
+
+#### Column Details
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `share_id` | TEXT PK | No | UUID4 string identifying this share |
+| `owner_name` | TEXT | No | The identity whose key this share can help recover |
+| `share_index` | INTEGER | No | 1-based index within total shares (1..N) |
+| `total_shares` | INTEGER | No | Total number of shares created (N in K-of-N) |
+| `threshold` | INTEGER | No | Minimum shares needed for recovery (K in K-of-N) |
+| `encrypted_share_b64` | TEXT | No | AES-GCM encrypted share data, Base64 encoded |
+| `holder_name` | TEXT | No | The identity currently holding this share |
+| `holder_pub_b64` | TEXT | No | Base64-encoded hybrid sig public key of the holder |
+| `created_at` | REAL | No | Epoch timestamp when this share was created |
 
 ---
 
@@ -277,25 +360,9 @@ class FriendProfile:
     pqc_combined_pub: Optional[bytes] = None
 ```
 
-### `KeyStoreModel` (`models/key_store.py`)
-
-Pure data model and persistence manager for cryptographic keys. Provides:
-- `load(password)` — loads all keys from DB
-- `save_friend(name, pem, ...)` — persists friend data
-- `remove_friend(name)` — deletes friend from DB
-- `get_decryption_snapshot()` — thread-safe snapshot for decryption workers
-- `wipe()` — secure memory erasure
-
 ### `KeyStore` (`key_manager.py`)
 
-Full runtime key store extending the data model with business logic. Thin orchestrator that delegates:
-- **Lockout** → `security/lockout.py` (`LockoutManager`): exponential backoff + hard lockout state machine
-- **Key generation** → `src/key_generation.py` (`init_db()`): RSA/PQC/hybrid key generation
-- Password verification with exponential backoff and hard lockout
-- PQC key generation and management
-- RSA key rotation with 30-day legacy retention
-- Duress password mode
-- Password change (re-encrypt all secrets)
+The `KeyStore` class in `key_manager.py` is the runtime key store. It is not a model layer class but the main key management orchestrator.
 
 ### Envelope Models (`models/envelope.py`)
 
@@ -305,6 +372,15 @@ Defines the binary wire formats for message envelopes:
 |-------|-----------|---------|
 | `RatchetEnvelope` | `0xD0` | Double Ratchet message format |
 | `PQCEncvelope` | `0x50` | Post-Quantum Hybrid KEM message format |
+
+### Trust Chain Models (`models/trust_chain.py`)
+
+Defines structured data objects for the decentralized trust chain certificate system:
+
+| Model | Purpose |
+|-------|---------|
+| `TrustCertificate` | Identity-to-public-key binding with expiration, revocation, and trust levels |
+| `RecoveryShare` | Threshold share for K-of-N key recovery scheme |
 
 ---
 

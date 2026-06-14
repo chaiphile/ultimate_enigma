@@ -22,13 +22,15 @@ Comprehensive installation and setup instructions for **Windows**, **macOS**, an
 
 | Requirement | Minimum Version | Notes |
 |-------------|----------------|-------|
-| Python | 3.8+ | 3.10+ recommended |
+| Python | 3.10+ | 3.12 recommended |
 | pip | Latest | Comes with Python |
 | Tkinter | Bundled | May need separate install on Linux |
 | Git | Any | For cloning the repository |
 | C/C++ Compiler (Windows) | Required | Visual Studio Build Tools with MSVC (needed for `cryptography`, `argon2-cffi`, and building `liboqs`)
 | Windows 11 SDK | Required | Required for MSVC compilation on Windows 11
 | CMake | Optional | Only needed if building liboqs from source |
+
+**Note:** The application also requires `qrcode` and `Pillow` (included in requirements.txt) for rendering TOTP QR codes during setup.
 
 ---
 
@@ -398,6 +400,17 @@ See `docs/SECURITY.md` for full details.
    - This name is embedded in ratchet envelopes so recipients can look up the correct session
    - If not set, a fallback identifier (`user-<8-char-hash>`) is derived from your public key
 
+4a. **Trust Certificate (Optional)**
+   - Navigate to the "🔗 Trust Chain" tab
+   - Issue certificates for your friends to create a verifiable chain of trust
+   - Certificates use hybrid signatures (Ed25519 + Dilithium3) for quantum-safe identity binding
+   - Trust levels: NONE → BASIC → VERIFIED → TRUSTED based on certificate accumulation
+
+4b. **Key Recovery Setup (Optional)**
+   - In the "About" tab, you can configure Shamir secret sharing for key recovery
+   - Split your master secret into shares distributed to trusted contacts
+   - A threshold number of shares can reconstruct access if the master password is lost
+
 5. **Ready to Use**
    - Add friends via the Friends tab
    - Perform ECDH key exchange for per-friend secrets
@@ -430,7 +443,7 @@ See `docs/SECURITY.md` for full details.
 ### Getting Help
 
 1. Check the log file for error details
-2. Verify Python version: `python --version` (must be 3.8+)
+2. Verify Python version: `python --version` (must be 3.10+)
 3. Verify all dependencies: `pip list | grep -E "ttkbootstrap|cryptography|argon2|qrcode|liboqs"`
 4. Try deleting `~/.ultimate_enigma/enigma.db` and restarting (fresh setup)
 

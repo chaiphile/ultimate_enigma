@@ -24,6 +24,9 @@ Comprehensive documentation for every service in the `services/` directory.
 - [DoubleRatchet (RatchetState)](#doubleratchet-ratchetstate)
 - [PQCService (HybridKEM)](#pqcservice-hybridkem)
 - [PQCSignatures (HybridSigner)](#pqcsignatures-hybridsigner)
+- [TrustChainService](#trustchainservice)
+- [ShamirService](#shamirservice)
+- [BackgroundAgents](#backgroundagents)
 - [FriendRepository](#friendrepository)
 - [AuthController](#authcontroller)
 
@@ -621,6 +624,97 @@ Hybrid digital signatures combining Ed25519 with CRYSTALS-Dilithium3 (or ML-DSA-
 ### Signature Format
 
 `[ed_sig_len(2) | ed_sig(64) | dil_sig(variable)]`
+
+---
+
+### TrustChainService
+
+**File:** `services/trust_chain_service.py` (540+ lines)
+
+Decentralized trust chain management for certificate-based identity verification.
+
+```python
+class TrustChainService:
+    def __init__(self, key_store: KeyStore)
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `issue_certificate(subject_name, subject_pub_b64, cert_type, validity_days=365)` | `TrustCertificate` | Create, sign, and persist a new certificate |
+| `receive_certificate(cert_data, received_from=None)` | `bool` | Import and verify a certificate from a peer |
+| `revoke_certificate(cert_id, reason=None)` | `bool` | Mark a certificate as revoked |
+| `get_certificate(cert_id)` | `Optional[TrustCertificate]` | Retrieve certificate by ID |
+| `get_certificates_for_subject(name)` | `List[TrustCertificate]` | All certificates for a subject |
+| `get_certificates_by_type(cert_type)` | `List[TrustCertificate]` | Filter by certificate type |
+| `get_all_certificates()` | `List[TrustCertificate]` | All stored certificates |
+| `get_trust_level(subject_name)` | `TrustLevel` | Compute aggregate trust level |
+| `verify_certificate_chain(cert)` | `bool` | Verify chain of trust up to trusted root |
+| `export_certificate(cert_id)` | `Optional[str]` | Export as Base64 string |
+| `import_certificate(b64_data)` | `Optional[TrustCertificate]` | Import from Base64 string |
+| `clean_expired()` | `int` | Remove expired certificates |
+
+Trust levels: NONE (0), BASIC (1), VERIFIED (2), TRUSTED (3+).
+
+---
+
+### ShamirService
+
+**File:** `services/shamir_service.py` (223 lines)
+
+Shamir's Secret Sharing over GF(256) for threshold-based key recovery.
+
+```python
+class ShamirService:
+    @staticmethod
+    def split_secret(secret: bytes, total_shares: int, threshold: int) -> List[Tuple[int, bytes]]
+        """Split a secret into N shares, requiring T for reconstruction.
+        Returns list of (share_index, share_data) tuples."""
+    
+    @staticmethod
+    def reconstruct_secret(shares: List[Tuple[int, bytes]]) -> bytes
+        """Reconstruct the original secret from T or more shares.
+        Uses Lagrange interpolation over GF(256)."""
+    
+    @staticmethod
+    def generate_recovery_share(owner_name, holder_name, holder_pub, secret, threshold, total_shares, password) -> List[dict]
+        """Generate and persist encrypted recovery shares across holders."""
+    
+    @staticmethod
+    def recover_secret(shares_data, password) -> Optional[bytes]
+        """Reconstruct secret from collected shares and decrypt."""
+```
+
+Parameters: irreducible polynomial 0x11D over GF(256). Pre-computed exp/log tables for fast field arithmetic. Max 10 shares, min threshold 2.
+
+---
+
+### Background Agents
+
+**File:** `services/background_agents.py` (536 lines)
+
+Background agent framework for periodic maintenance and monitoring tasks. Each agent runs in its own daemon thread.
+
+**Base class:** `BackgroundAgent` — common lifecycle (start, stop, loop interval, threading.Event for shutdown signaling).
+
+**Agent classes:**
+
+| Agent | Interval | Description |
+|-------|----------|-------------|
+| `BackupReminderAgent` | 3600s (1h) | Checks last backup timestamp and publishes BACKUP_REMINDER if overdue |
+| `RatchetMaintenanceAgent` | 3600s (1h) | Cleans stale ratchet locks, detects deadlocks, publishes lock statistics |
+| `SystemMonitorAgent` | 300s (5m) | Monitors memory usage, key integrity, and publishes SYSTEM_HEALTH events |
+| `KeyInspectorAgent` | 3600s (1h) | Checks key expiry, rotation needs, publishes KEY_INFO and KEY_FINGERPRINT |
+
+**Lifecycle:**
+```python
+# Start all agents
+agent_manager.start_agents()
+
+# Stop all agents (called during shutdown)
+agent_manager.stop_agents()
+```
+
+Agents are managed by ServiceOrchestrator (`controllers/service_orchestrator.py:56-134`), which provides `start_agents()` and `stop_agents()` methods. Tab references can subscribe to agent-published events for UI updates.
 
 ---
 

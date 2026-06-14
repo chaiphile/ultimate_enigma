@@ -17,6 +17,7 @@ Comprehensive documentation for all UI views (tabs) and MVC controllers.
   - [SecretTab](#secrettab)
   - [FileTab](#filetab)
   - [FriendsTab](#friendstab)
+  - [TrustTab](#trusttab)
   - [NtpTab](#ntptab)
   - [AboutTab](#abouttab)
 - [Components](#components)
@@ -134,7 +135,7 @@ Centralized manager for all business service instances. Handles creation, rebuil
 ServiceOrchestrator(root, key_store, crypto_queue=None)
 ```
 
-Creates: `EncryptionService`, `FileService`, `FriendsService`, `ClipboardService`, `GlobalSecretService`
+Creates: EncryptionService, FileService, FriendsService, ClipboardService, GlobalSecretService, TrustChainService
 
 #### Properties
 
@@ -145,6 +146,7 @@ Creates: `EncryptionService`, `FileService`, `FriendsService`, `ClipboardService
 | `friends_service` | FriendsService | Current instance |
 | `clipboard_service` | ClipboardService | Current instance |
 | `global_secret_service` | GlobalSecretService | Current instance |
+| `trust_chain_service` | TrustChainService | Current instance |
 | `service_lock` | RLock | Thread-safe service access |
 
 #### Methods
@@ -153,6 +155,8 @@ Creates: `EncryptionService`, `FileService`, `FriendsService`, `ClipboardService
 |--------|-------------|
 | `rebuild_services(new_key_store, tab_references)` | Rebuild all services, update tab refs, publish event |
 | `shutdown()` | Clean up clipboard service |
+| `start_agents()` | Start background agents (BackupReminderAgent, RatchetMaintenanceAgent, SystemMonitorAgent, KeyInspectorAgent) |
+| `stop_agents()` | Stop all background agents |
 
 #### Events Published
 - `SERVICES_REBUILT`
@@ -300,7 +304,7 @@ Friend management with modern table UI, search, context menu, and detail panel.
 
 #### Constructor
 ```python
-FriendsTab(parent, friends_service, style_config=None)
+FriendsTab(parent, friends_service, style_config=None, trust_chain_service=None)
 ```
 
 #### UI Elements
@@ -351,6 +355,34 @@ NtpTab(parent, encryption_service)
 
 ---
 
+### TrustTab
+
+**File:** `views/trust_tab.py`
+
+Trust chain certificate management interface with treeview, filters, and action buttons.
+
+#### Constructor
+```python
+TrustTab(parent, trust_chain_service, friends_service, clipboard_service, key_store)
+```
+
+#### UI Elements
+- Certificate treeview with columns: Subject, Type, Issuer, Status, Expires, Trust Level
+- Filter: All / Valid / Revoked / Expired
+- Actions: Issue Certificate, View Certificate, Revoke Certificate, Export, Import
+
+#### Methods
+| Method | Description |
+|--------|-------------|
+| `refresh_list()` | Reload certificates from service |
+| `issue_certificate()` | Create and sign new certificate for a friend |
+| `revoke_certificate()` | Mark selected certificate as revoked |
+| `export_certificate()` | Export certificate to Base64 string |
+| `import_certificate()` | Import certificate from Base64 string |
+| `view_certificate_details()` | Show full certificate details dialog |
+
+---
+
 ### AboutTab
 
 **File:** `views/about_tab.py`
@@ -359,7 +391,7 @@ Version info, backup export/import, password change, duress password setup.
 
 #### Constructor
 ```python
-AboutTab(parent, key_store, auth_controller)
+AboutTab(parent, key_store, auth_controller, backup_service=None)
 ```
 
 #### Methods
@@ -375,27 +407,23 @@ AboutTab(parent, key_store, auth_controller)
 
 ## Components
 
-### TOTPVerifyDialog
+### AddFriendDialog
+**File:** `components/add_friend_dialog.py` — Full form for adding friends with all key fields.
 
-**File:** `components/totp_dialogs.py`
+### PqcExchangeDialog
+**File:** `components/pqc_exchange_dialog.py` — Multi-tab PQC key exchange (generate, import, status).
 
-Modal dialog for verifying a 6-digit TOTP code with countdown timer.
+### HybridSigExchangeDialog
+**File:** `components/hybrid_sig_exchange_dialog.py` — Multi-tab hybrid signature key exchange.
 
-```python
-TOTPVerifyDialog(parent, totp_service)
-dialog.show() -> bool  # True if verified
-```
+### CertificateDialog
+**File:** `components/certificate_dialog.py` — View and manage trust certificates.
 
-### TOTPSetupDialog
+### KeyRecoveryDialog
+**File:** `components/key_recovery_dialog.py` — Shamir secret sharing key recovery UI.
 
-**File:** `components/totp_dialogs.py`
-
-Modal dialog for TOTP setup with QR code, provisioning URI, Base32 secret, live code preview, and regenerate button.
-
-```python
-TOTPSetupDialog(parent, totp_service, provisioning_uri, on_regenerate=None)
-dialog.show() -> bool  # True if acknowledged
-```
+### TOTPVerifyDialog / TOTPSetupDialog
+**File:** `components/totp_dialogs.py` — TOTP verification and setup dialogs.
 
 ---
 
@@ -465,8 +493,4 @@ perform_ecdh(parent, purpose="friend") -> (derived_secret, friend_x25519_b64) | 
 
 Application entry point. Configures logging, creates themed Tkinter window (`darkly` theme), handles PyInstaller DLL path resolution for liboqs, and runs anti-tamper checks before any other imports when running as a frozen .exe.
 
-### auth_ui_callbacks.py
 
-**File:** `views/auth_ui_callbacks.py`
-
-Provides UI callback implementations for `AuthController`, wrapping `tkinter.messagebox` and `password_dialog` for authentication prompts (password entry, TOTP verification, etc.).

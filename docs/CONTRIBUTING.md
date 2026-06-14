@@ -6,7 +6,7 @@ Thank you for your interest in contributing to Ultimate Enigma Messenger! This d
 
 ### Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - pip (Python package manager)
 - Git
 - **Windows Users Only:** Visual Studio Build Tools with MSVC and Windows 11 SDK (required for native Python extensions like `cryptography` and `argon2-cffi`). Run the provided `setup_dev_env.ps1` script as Administrator to install these automatically.
@@ -69,7 +69,7 @@ Follow the MVC architecture:
 ### Example: Service Method
 
 ```python
-def encrypt_message(self, plaintext: str, friend_name: str = None) -> str:
+def encrypt(self, plaintext: str, friend_name: str = None, mode: str = 'shared', sign: bool = True) -> bytes:
     """Encrypt a message for optional specific recipient.
 
     Args:
@@ -134,11 +134,10 @@ class TestEncryptionService:
         service = EncryptionService(key_store)
         plaintext = "Hello, World!"
         
-        ciphertext = service.encrypt_message(plaintext)
-        result = service.decrypt_message(ciphertext)
+        ciphertext, timestamp = service.encrypt(plaintext)
+        result = service.decrypt(ciphertext)
         
-        assert result["plaintext"] == plaintext
-        assert result["verified"] is True
+        assert plaintext in result
     
     def test_decrypt_invalid_ciphertext_raises(self, key_store):
         """Test that invalid ciphertext raises DecryptionError."""
@@ -156,7 +155,8 @@ class TestEncryptionService:
 2. Define the service class with `__init__(self, key_store: KeyStore)`
 3. Add to `ServiceOrchestrator.__init__()` and `rebuild_services()`
 4. Update tab references if needed
-5. Write comprehensive tests
+5. If the service needs periodic background work, create an agent class in `services/background_agents.py`
+6. Write comprehensive tests
 
 ### Adding a New Tab
 
@@ -190,8 +190,9 @@ class TestEncryptionService:
 4. Update documentation if applicable:
    - `docs/ARCHITECTURE.md` for structural changes
    - `docs/API.md` for new public APIs
-   - `docs/SECURITY.md` for security-relevant changes
-   - `readme.md` for user-facing changes
+    - `docs/SECURITY.md` for security-relevant changes
+    - `docs/SCIENTIFIC_REPORT.md` for cryptographic research and standards updates
+    - `readme.md` for user-facing changes
 
 5. Submit a pull request with:
    - Clear description of changes

@@ -16,7 +16,7 @@ Hybrid signatures combine classical Ed25519 signatures with post-quantum Dilithi
 | `hybrid_sign()` / `hybrid_verify()` | `crypto.py` | Wrapper functions for message signing |
 | `HYBRID_SIG_FLAG` | `crypto.py` | Bit flag (value 8) for hybrid signatures in message packets |
 | `FriendsService` | `services/friends/friends_facade.py` | Key generation, import, and management |
-| `FriendsTab` | `friends_tab.py` | UI dialog for hybrid signature key exchange |
+| `HybridSigExchangeDialog` | `components/hybrid_sig_exchange_dialog.py` | Multi-tab dialog for hybrid signature key exchange (with trust chain integration) |
 | `FileService` | `services/file_service.py` | Hybrid signature support for file operations |
 | `KeyStore` | `key_manager.py` | Persistent storage and loading of hybrid signing keys |
 
@@ -65,7 +65,7 @@ In `decrypt_message()`:
 
 ### 5. File Operations Integration
 
-In `file_service.py` and `key_manager.py`:
+In `services/file_ops.py`:
 - New flag bit `_FILE_FLAG_HYBRID_SIGN = 2` for file-level hybrid signatures
 - `file_encrypt_shared()` accepts `hybrid_ed_priv` and `hybrid_dil_priv` params
 - `file_decrypt_shared()` accepts `friends_hybrid` list for verification
@@ -97,6 +97,10 @@ In `friends_tab.py`:
 
 - Friend list table shows "✍️ Yes" in "Hybrid Sig" column when key is stored
 - Detail panel shows "✍️ Stored" or "❌ Not configured" for hybrid sig key
+
+### Trust Chain Integration
+
+The `HybridSigExchangeDialog` in `components/hybrid_sig_exchange_dialog.py` receives a `trust_chain_service` parameter and integrates with certificate exchange. When importing a friend's hybrid signature public key, the dialog can optionally issue a trust certificate binding the friend's identity to their hybrid signing key. This provides cryptographic authentication beyond simple key import.
 
 ## Usage Workflow
 
@@ -174,7 +178,7 @@ Tests are automatically skipped if liboqs is not available.
 | File | Change Type | Description |
 |------|-------------|-------------|
 | `services/friends/` | Added methods | `generate_hybrid_sig_keys()`, `import_friend_hybrid_sig_pub()`, `get_hybrid_sig_key_fingerprint()` |
-| `friends_tab.py` | Added button + dialog | "✍️ Hybrid Sig Exchange" button and `hybrid_sig_exchange_dialog()` |
+| `components/hybrid_sig_exchange_dialog.py` | New component | Multi-tab hybrid signature exchange dialog with trust chain certificate support |
 | `services/file_service.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |
 | `key_manager.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |
 | `tests/test_pqc_signatures.py` | New file | Comprehensive test suite for hybrid signatures |

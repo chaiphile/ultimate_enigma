@@ -117,7 +117,7 @@ Core cryptographic operations. Decomposed into three strategy classes behind a f
 
 ```python
 class EncryptionService:
-    def __init__(self, key_store: KeyStore)
+    def __init__(self, key_store: KeyStore, crypto_queue=None)
     
     def encrypt(self, plaintext: str, friend_name: str = None,
                 mode: str = 'shared', sign: bool = True,
@@ -150,13 +150,14 @@ File encryption operations.
 class FileService:
     def __init__(self, key_store: KeyStore)
     
-    def encrypt_file(self, input_path: str, output_path: str,
-                    password: str = None, friend_name: str = None) -> bool
-        """Encrypt a file. Uses password or friend's key."""
+    def encrypt_file(self, input_path, output_path,
+                    password=None, friend_name=None,
+                    method='password', sign=False) -> bool
+        """Encrypt a file using the specified method."""
     
-    def decrypt_file(self, input_path: str, output_path: str,
-                    password: str = None) -> bool
-        """Decrypt a file."""
+    def decrypt_file(self, input_path, output_path,
+                    password=None) -> str
+        """Decrypt a file, automatically choosing the correct method."""
 ```
 
 ### FriendsService
@@ -165,23 +166,30 @@ Contact management.
 
 ```python
 class FriendsService:
-    def __init__(self, key_store: KeyStore)
+    def __init__(self, key_store, encryption_service=None)
     
-    def add_friend(self, name: str, public_key_pem: str,
-                  shared_secret_b64: str = None) -> bool
-        """Add a new friend/contact."""
+    def add_friend(self, name, public_key_pem, shared_secret=None,
+                   master_password="", x25519_pub_b64=None,
+                   capabilities=None, pqc_combined_pub_b64=None,
+                   hybrid_sig_pub_b64=None) -> bool
+        """Add a new friend or update an existing one."""
     
-    def remove_friend(self, name: str) -> bool
-        """Remove a friend by name."""
+    def remove_friend(self, name) -> bool
+        """Remove a friend entirely."""
     
-    def get_friend(self, name: str) -> FriendProfile | None
-        """Retrieve a friend's profile."""
+    def get_friend_details(self, name) -> Optional[Dict]
+        """Return a detailed view of one friend, or None if not found."""
     
-    def list_friends(self) -> list[str]
-        """Get list of all friend names."""
+    def get_all_friends(self) -> List[Dict]
+        """Return a list of friend summaries suitable for the UI."""
     
-    def update_shared_secret(self, name: str, secret_b64: str) -> bool
-        """Update ECDH-derived shared secret for a friend."""
+    def get_friend_names(self) -> List[str]
+        """Return list of all friend names."""
+    
+    def update_shared_secret(self, name, new_secret: bytes,
+                             master_password: str,
+                             x25519_pub_b64=None) -> bool
+        """Replace the shared secret for an existing friend."""
 ```
 
 ### ClipboardService
@@ -192,7 +200,7 @@ Secure clipboard handling.
 class ClipboardService:
     def __init__(self, root: tk.Tk)
     
-    def copy(self, text: str, auto_clear: bool = True) -> None
+    def copy(self, text: str, auto_clear: bool = True) -> bool
         """Copy text to clipboard with optional auto-clear."""
     
     def get(self) -> str
@@ -214,16 +222,19 @@ class GlobalSecretService:
     def __init__(self, key_store: KeyStore)
     
     def get_fingerprint(self) -> str
-        """Get fingerprint of current global secret."""
+        """Return the fingerprint of the current global secret, or None if not set."""
     
-    def export_secret(self) -> str
-        """Export global secret as Base64."""
+    def export_secret_b64(self) -> str
+        """Return the global secret as Base64 string."""
     
-    def import_secret(self, secret_b64: str) -> bool
-        """Import a new global secret."""
+    def validate_secret_b64(self, secret_b64: str) -> bool
+        """Validate and decode a Base64 secret string."""
     
-    def perform_ecdh(self, peer_public_key: bytes) -> str
-        """Perform ECDH key exchange. Returns derived secret as Base64."""
+    def update_secret(self, new_secret_b64: str, password: str) -> bool
+        """Update the global secret."""
+    
+    def has_secret(self) -> bool
+        """Check if a global secret is currently loaded."""
 ```
 
 ### TOTPService
@@ -232,16 +243,29 @@ Time-based one-time password.
 
 ```python
 class TOTPService:
-    def __init__(self, secret: bytes = None)
+    def __init__(self)
     
-    def generate_totp_uri(self, account_name: str, issuer: str = "UltimateEnigma") -> str
-        """Generate otpauth:// URI for QR code."""
+    def set_secret(self, secret: bytes) -> None
+        """Set the TOTP secret (must be at least 20 bytes)."""
     
-    def verify(self, code: str) -> bool
-        """Verify a TOTP code."""
+    def generate(self, timestamp=None) -> str
+        """Generate the current 6-digit TOTP code."""
     
-    def get_current_code(self) -> str
-        """Get current TOTP code (for testing)."""
+    def verify(self, code, timestamp=None) -> bool
+        """Verify a TOTP code with ±1 step drift tolerance."""
+    
+    def provisioning_uri(self, account="UltimateEnigma",
+                         issuer="UltimateEnigma") -> str
+        """Return an otpauth:// URI compatible with Google Authenticator, etc."""
+    
+    def time_remaining(self) -> int
+        """Seconds remaining until the current code expires."""
+    
+    def get_b32_secret(self) -> str
+        """Return the Base32-encoded secret (for display in setup dialogs)."""
+    
+    def get_raw_secret(self) -> bytes
+        """Return the raw 20-byte secret (for persistence to database)."""
 ```
 
 ### BackupService
@@ -379,40 +403,58 @@ event_bus = EventBus()
 
 ```python
 class Events:
-    # Authentication
+    # Authentication & Lock events
     UNLOCK_REQUESTED = "unlock_requested"
     EMERGENCY_LOCK = "emergency_lock"
     UNLOCKED = "unlocked"
     LOCKED = "locked"
-    DURESS_MODE_ENTERED = "duress_mode_entered"
-    
-    # Keys
+
+    # Key & credential events
     KEYS_WIPED = "keys_wiped"
     KEYS_LOADED = "keys_loaded"
     PASSWORD_CHANGED = "password_changed"
-    
-    # TOTP
+    DURESS_MODE_ENTERED = "duress_mode_entered"
+
+    # TOTP events
     TOTP_SETUP_COMPLETE = "totp_setup_complete"
     TOTP_VERIFIED = "totp_verified"
     TOTP_CHANGED = "totp_changed"
-    
-    # Ratchet
-    RATCHET_INITIALIZED = "ratchet_initialized"
-    RATCHET_RESET = "ratchet_reset"
-    
-    # Services
+
+    # Service events
     SERVICES_REBUILT = "services_rebuilt"
     NTP_SYNCED = "ntp_synced"
     NTP_SYNC_FAILED = "ntp_sync_failed"
-    
-    # Data
+
+    # Data events
     FRIEND_LIST_CHANGED = "friend_list_changed"
     FRIEND_ADDED = "friend_added"
     FRIEND_REMOVED = "friend_removed"
-    
-    # Lifecycle
+    RATCHET_INITIALIZED = "ratchet_initialized"
+    RATCHET_RESET = "ratchet_reset"
+
+    # Trust chain events
+    CERTIFICATE_ISSUED = "certificate_issued"
+    CERTIFICATE_RECEIVED = "certificate_received"
+    CERTIFICATE_REVOKED = "certificate_revoked"
+    TRUST_LEVEL_CHANGED = "trust_level_changed"
+    RECOVERY_SHARE_CREATED = "recovery_share_created"
+    RECOVERY_KEY_RECONSTRUCTED = "recovery_key_reconstructed"
+
+    # Application lifecycle
     APP_STARTING = "app_starting"
     APP_SHUTDOWN = "app_shutdown"
+
+    # Background agent events
+    BACKUP_REMINDER = "backup_reminder"
+    BACKUP_COMPLETED = "backup_completed"
+    RATCHET_LOCKS_CLEANED = "ratchet_locks_cleaned"
+    RATCHET_DEADLOCK_DETECTED = "ratchet_deadlock_detected"
+    RATCHET_LOCK_STATS = "ratchet_lock_stats"
+    SYSTEM_STATUS = "system_status"
+    SYSTEM_HEALTH_OK = "system_health_ok"
+    SYSTEM_HEALTH_DEGRADED = "system_health_degraded"
+    KEY_INFO = "key_info"
+    KEY_FINGERPRINT = "key_fingerprint"
 ```
 
 ---
@@ -427,9 +469,6 @@ Key storage abstraction with delegated lockout management.
 class KeyStore:
     def load(self, master_password: str) -> bool
         """Load and decrypt keys from database."""
-    
-    def save(self) -> None
-        """Persist encrypted keys to database."""
     
     def wipe(self) -> None
         """Zero all keys from memory."""
@@ -470,31 +509,17 @@ class KeyStore:
 Friend/contact data model.
 
 ```python
-@dataclass
+@dataclass(frozen=True)
 class FriendProfile:
     name: str
-    public_key_pem: str
-    shared_secret: bytes | None
-    created_at: datetime
-    fingerprint: str
+    public_key: Optional[bytes] = None
+    shared_secret: Optional[bytes] = None
+    capabilities: Dict[str, Any] = field(default_factory=dict)
+    has_active_ratchet: bool = False
+    pqc_combined_pub: Optional[bytes] = None
 ```
 
-### Envelope
 
-Message envelope structure.
-
-```python
-@dataclass
-class Envelope:
-    version: int
-    flags: int
-    timestamp: int
-    nonce: bytes
-    ciphertext: bytes
-    tag: bytes
-    signature: bytes | None
-    self_destruct: int | None
-```
 
 ---
 

@@ -9,8 +9,8 @@ Comprehensive documentation for all data models in the `models/` directory and c
 - [RatchetEnvelope](#ratchetenvelope)
 - [PQCEncvelope](#pqcencvelope)
 - [FriendProfile](#friendprofile)
-- [KeyStoreModel](#keystoremodel)
 - [KeyStore (Runtime)](#keystore-runtime)
+- [TrustChain](#trustchain)
 - [Database Schema](#database-schema)
 - [SecureString](#securestring)
 - [Exception Hierarchy](#exception-hierarchy)
@@ -130,104 +130,110 @@ Immutable representation of a friend's profile and session state. Replaces scatt
 
 ---
 
-## KeyStoreModel
+## KeyStore (Runtime)
 
-**File:** `models/key_store.py`
-
-Pure data model and persistence manager for cryptographic keys. Strictly a data/persistence layer — no business logic. PQC dependencies (`is_pqc_available`, `HybridSigner`) are injected at runtime via `configure_pqc_support()` to avoid upward model → service imports. PEM helpers are imported from `src.crypto_utils` to eliminate duplication.
-
-### Attributes
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `my_pub` | RSA public key | Own RSA public key |
-| `my_priv` | RSA private key | Own RSA private key |
-| `legacy_priv` | RSA private key | Previous RSA key (30-day retention) |
-| `global_secret` | `Optional[bytearray]` | Global shared secret (mutable for wiping) |
-| `friends` | `List[Tuple]` | `(name, pub, shared_secret)` tuples |
-| `friends_x25519` | `Dict[str, str]` | Name → Base64 X25519 public key |
-| `friends_capabilities` | `Dict[str, dict]` | Name → capabilities dict |
-| `friends_pqc_combined_pub` | `Dict[str, bytes]` | Name → raw PQC combined pub |
-| `my_kyber_priv` | `Optional[bytes]` | Local Kyber secret key |
-| `my_pqc_combined_pub` | `Optional[bytes]` | Local hybrid combined pub |
-| `my_ed_priv` | Ed25519PrivateKey | Hybrid signing Ed25519 key |
-| `my_dil_priv` | `Optional[bytes]` | Hybrid signing Dilithium3 key |
-| `my_hybrid_sig_combined_pub` | `Optional[bytes]` | Hybrid signing combined pub |
-| `friends_hybrid_sig_pubs` | `Dict[str, tuple]` | Name → `(ed_pub, dil_pub)` |
-| `my_name` (property) | `str` | Display name for ratchet envelope sender identification; falls back to `user-<8-char-hash>` if unset |
-
-### Methods
-
-| Method | Description |
-|--------|-------------|
-| `to_dict() -> dict` | Serialize non-sensitive metadata |
-| `from_dict(data) -> KeyStoreModel` | Restore metadata (no key material) |
-| `load(password)` | Load all keys from database |
-| `save_friend(name, pem, ...)` | Save friend to DB and memory |
-| `remove_friend(name)` | Remove from DB and memory |
-| `get_friend_secret(name)` | Retrieve friend's shared secret |
-| `get_decryption_snapshot()` | Thread-safe snapshot for decryption workers |
-| `wipe()` | Securely erase all sensitive keys |
-
-### PQC Dependency Injection
-
-The model layer cannot import from the service layer (architectural constraint). PQC availability is injected at startup:
-
-```python
-from models.key_store import configure_pqc_support
-
-# Called by ServiceOrchestrator.__init__ and rebuild_services
-configure_pqc_support(is_pqc_available, HybridSigner)
-```
-
-This allows the model to check PQC support without creating an upward dependency.
-
-### Shared Utilities
-
-PEM helpers (`_pem_to_pubkey`, `_pem_to_privkey`, `pubkey_to_pem`, `_privkey_to_encrypted_pem`) are imported from `src.crypto_utils` to eliminate duplication across `key_manager.py`, `models/key_store.py`, and `crypto.py`.
-
----
+> **Note:** There is no `models/key_store.py` file. All key store logic is in `key_manager.py` at the project root. The `KeyStore` class in `key_manager.py` is the single source of truth for in-memory key management.
 
 ## KeyStore (Runtime)
 
 **File:** `key_manager.py`
 
-Full runtime key store with authentication, lockout, PQC key management, and password change workflows. Thin orchestrator that delegates lockout to `security/lockout.py` (`LockoutManager`) and key generation to `src/key_generation.py`.
+Full runtime key store with authentication, lockout, PQC key management, and password change workflows. Thin orchestrator that delegates lockout to `security/lockout.py` (`LockoutManager`) and key generation to `src/key_generation.py`. The KeyStore is the single in-memory container that holds all cryptographic keys and friend data.
 
-### Additional Attributes
+### In-Memory Key Attributes
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `_lockout` | `LockoutManager` | Delegated lockout state machine (`security/lockout.py`) |
+| `my_pub` / `my_priv` | RSA public/private key | Own RSA 4096-bit key pair |
+| `legacy_priv` | RSA private key | Previous RSA key (30-day retention) |
+| `global_secret` | `GuardedBuffer` | 256-bit global shared secret in guarded memory |
+| `friends` | `List[Tuple]` | `(name, pub, shared_secret)` where secrets are `GuardedBuffer` |
+| `friends_x25519` | `Dict[str, str]` | Name → Base64 X25519 public key |
+| `friends_capabilities` | `Dict[str, dict]` | Name → capabilities dict |
+| `friends_pqc_combined_pub` | `Dict[str, bytes]` | Name → raw PQC combined pub bytes |
+| `friends_hybrid_sig_pubs` | `Dict[str, tuple]` | Name → `(ed_pub, dil_pub)` |
+| `my_kyber_priv` | `Optional[bytes]` | Own Kyber768 secret key |
+| `my_pqc_combined_pub` | `Optional[bytes]` | Own hybrid combined PQC public key |
+| `my_ed_priv` | `Ed25519PrivateKey` | Own hybrid signing Ed25519 key |
+| `my_dil_priv` | `Optional[bytes]` | Own hybrid signing Dilithium3 secret key |
+| `my_hybrid_sig_combined_pub` | `Optional[bytes]` | Own hybrid signing combined public key |
+| `my_name` (property) | `str` | Display name for ratchet envelope sender |
+| `_lockout` | `LockoutManager` | Delegated lockout state machine |
 | `_duress_mode` | `bool` | Whether duress password was used |
 | `_needs_rotation` | `bool` | RSA key below CNSA 2.0 minimum |
+| `_ratchet_storage_key` | `bytearray` | AES-256 key for encrypted ratchet persistence |
 
 ### Key Methods
 
-| Method | Description |
-|--------|-------------|
-| `load(password) -> bool` | Load all keys from DB |
-| `verify_password(password) -> bool` | Check master or duress password with backoff |
-| `set_duress_password(duress_password)` | Configure duress password |
-| `update_global_secret(new_secret, password)` | Update global secret |
-| `ensure_pqc_keys(password)` | Generate PQC keys if missing |
-| `ensure_pqc_keys_full(password) -> Optional[dict]` | Full PQC bundle with X25519 priv |
-| `load_pqc_bundle(password) -> Optional[dict]` | Load existing PQC bundle |
-| `rotate_rsa_key(password)` | Generate new 4096-bit RSA, retire old |
-| `change_password(old, new)` | Re-encrypt all secrets |
-| `get_decryption_snapshot()` | Thread-safe snapshot for background decryption |
-| `load_duress_decoy() -> bool` | Load fake decoy state |
-| `set_my_name(name)` | Persist display name to `settings` table for ratchet sender identity |
-| `wipe()` | Securely erase all keys |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `load(password)` | `bool` | Load all keys from DB, decrypt with password |
+| `verify_password(password)` | `(bool, bool)` | Check master or duress password; returns `(is_valid, is_duress)` |
+| `set_duress_password(duress_password)` | — | Configure duress password |
+| `update_global_secret(new_secret, password)` | — | Update global secret |
+| `ensure_pqc_keys(password)` | — | Generate PQC keys if missing |
+| `ensure_pqc_keys_full(password)` | `Optional[dict]` | Full PQC bundle with X25519 priv |
+| `load_pqc_bundle(password)` | `Optional[dict]` | Load existing PQC bundle |
+| `rotate_rsa_key(password)` | — | Generate new 4096-bit RSA, retire old |
+| `change_password(old, new)` | — | Re-encrypt all secrets |
+| `get_decryption_snapshot()` | `tuple` | Thread-safe snapshot for background decryption |
+| `load_duress_decoy()` | `bool` | Load fake decoy state |
+| `save_friend(name, pem, …)` | — | Save friend to DB and memory |
+| `remove_friend(name)` | — | Remove from DB and memory |
+| `set_my_name(name)` | — | Persist display name to settings |
+| `wipe()` | — | Securely erase all keys from memory |
 
-### File Encryption Functions (in key_manager.py)
+> Note: File encryption functions (`file_encrypt`, `file_encrypt_shared`, etc.) are defined in `services/file_ops.py`, not in `key_manager.py`. The `key_manager.py` may import them but does not define them.
 
-| Function | Description |
-|----------|-------------|
-| `file_encrypt(input_path, output_path, password)` | Password-based file encryption (Argon2id) |
-| `file_decrypt(input_path, output_path, password)` | Auto-detect KDF, decrypt file |
-| `file_encrypt_shared(input_path, output_path, shared_secret, sign, my_priv)` | Shared-secret file encryption |
-| `file_decrypt_shared(input_path, output_path, secrets_dict, friends_for_sig)` | Shared-secret file decryption |
+---
+
+## TrustChain
+
+**File:** `models/trust_chain.py`
+
+Trust certificate system for decentralized identity verification. Defines certificate types, trust levels, and revocation status.
+
+### Enums
+
+```python
+class CertificateType(Enum):
+    IDENTITY = "identity"        # Binds name to public key
+    RECOVERY = "recovery"        # Recovery authority certificate
+    DELEGATION = "delegation"    # Delegated signing authority
+
+class TrustLevel(IntEnum):
+    NONE = 0         # No certificates
+    BASIC = 1        # One or more certs (basic verification)
+    VERIFIED = 2     # Multiple confirming certs
+    TRUSTED = 3      # Mutually attested (highest level)
+
+class RevocationStatus(Enum):
+    VALID = "valid"              # Certificate is valid
+    REVOKED = "revoked"          # Certificate was revoked
+    EXPIRED = "expired"          # Past expiration date
+```
+
+### TrustCertificate
+
+Immutable dataclass for certificate data:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `cert_id` | `str` | UUID4 unique identifier |
+| `subject_name` | `str` | Certificate subject display name |
+| `subject_pub_b64` | `str` | Subject's public key (Base64) |
+| `issuer_name` | `str` | Issuer's display name |
+| `issuer_pub_b64` | `str` | Issuer's public key (Base64) |
+| `cert_type` | `CertificateType` | Identity, recovery, or delegation |
+| `not_before` | `float` | Validity start (epoch) |
+| `not_after` | `float` | Validity end (epoch) |
+| `signature_b64` | `str` | Hybrid signature (Ed25519 + Dilithium3) |
+| `revoked` | `bool` | Whether certificate has been revoked |
+| `revocation_reason` | `Optional[str]` | Reason for revocation |
+| `received_from` | `Optional[str]` | Who forwarded this certificate |
+| `created_at` | `float` | Creation timestamp |
+
+Certificate operations are managed by `services/trust_chain_service.py`.
 
 ---
 
@@ -245,7 +251,37 @@ SQLite database at `~/.ultimate_enigma/enigma.db` with WAL mode and foreign keys
 | `key` | TEXT PK | Setting name |
 | `value` | TEXT NOT NULL | Setting value (JSON for encrypted data) |
 
-Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_private_key_encrypted`, `legacy_key_expiry`, `kyber_priv_encrypted`, `pqc_combined_pub_b64`, `pqc_x25519_priv_encrypted`, `ed25519_priv_encrypted`, `dilithium_priv_encrypted`, `hybrid_sig_combined_pub_b64`, `totp_secret_encrypted`, `totp_setup_complete`, `totp_enabled`, `lockout_data`, `duress_verifier`, `last_backup_ts`, `my_name`
+Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_private_key_encrypted`, `legacy_key_expiry`, `kyber_priv_encrypted`, `pqc_combined_pub_b64`, `pqc_x25519_priv_encrypted`, `ed25519_priv_encrypted`, `dilithium_priv_encrypted`, `hybrid_sig_combined_pub_b64`, `totp_secret_encrypted`, `totp_setup_complete`, `totp_enabled`, `lockout_data`, `duress_verifier`, `last_backup_ts`, `my_name`, `sqlcipher_db_key`, `ratchet_hkdf_salt`
+
+#### `trust_certificates`
+| Column | Type | Description |
+|--------|------|-------------|
+| `cert_id` | TEXT PK | UUID4 certificate ID |
+| `subject_name` | TEXT NOT NULL | Certificate subject |
+| `subject_pub_b64` | TEXT NOT NULL | Subject public key (Base64) |
+| `issuer_name` | TEXT NOT NULL | Certificate issuer |
+| `issuer_pub_b64` | TEXT NOT NULL | Issuer public key (Base64) |
+| `cert_type` | TEXT NOT NULL | Certificate type enum value |
+| `not_before` | REAL NOT NULL | Validity start timestamp |
+| `not_after` | REAL NOT NULL | Validity end timestamp |
+| `signature_b64` | TEXT NOT NULL | Hybrid signature (Base64) |
+| `revoked` | INTEGER NOT NULL | Revocation flag |
+| `revocation_reason` | TEXT | Reason if revoked |
+| `received_from` | TEXT | Forwarding source |
+| `created_at` | REAL NOT NULL | Creation timestamp |
+
+#### `recovery_shares`
+| Column | Type | Description |
+|--------|------|-------------|
+| `share_id` | TEXT PK | Unique share identifier |
+| `owner_name` | TEXT NOT NULL | Secret owner |
+| `share_index` | INTEGER NOT NULL | Share number |
+| `total_shares` | INTEGER NOT NULL | Total shares in scheme |
+| `threshold` | INTEGER NOT NULL | Minimum shares needed |
+| `encrypted_share_b64` | TEXT NOT NULL | Encrypted share data |
+| `holder_name` | TEXT NOT NULL | Share holder identity |
+| `holder_pub_b64` | TEXT NOT NULL | Holder's public key |
+| `created_at` | REAL NOT NULL | Creation timestamp |
 
 #### `friends`
 | Column | Type | Description |

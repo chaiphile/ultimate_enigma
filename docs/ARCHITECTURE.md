@@ -50,9 +50,9 @@ ultimate_enigma/
 │   ├── auth_controller.py         # Authentication, TOTP, lock/unlock
 │   └── service_orchestrator.py    # Service creation and DI
 ├── models/                 # Data Models
-│   ├── envelope.py         # Message envelope structures
-│   ├── friend_profile.py   # Friend/contact data model
-│   └── key_store.py        # Key storage abstraction (pure data + persistence)
+│   ├── envelope.py         # Message envelope structures (RatchetEnvelope, PQCEncvelope)
+│   ├── friend_profile.py   # Friend/contact data model with capabilities
+│   └── trust_chain.py      # Trust certificates, revocation, and chain verification
 ├── services/               # Business Logic Services
 │   ├── encryption/                 # EncryptionService package (decomposed)
 │   │   ├── __init__.py             # Re-exports
@@ -84,6 +84,10 @@ ultimate_enigma/
 │   ├── xchacha20_poly1305.py      # XChaCha20-Poly1305 AEAD encryption
 │   ├── hotkey_service.py          # Global hotkey registration
 │   ├── crypto_task_queue.py       # Async crypto operations
+│   ├── trust_chain_service.py     # Certificate issuance, verification, revocation
+│   ├── shamir_service.py          # Shamir's Secret Sharing over GF(256)
+│   ├── background_agents.py       # Background agent framework (backup, ratchet maintenance, monitoring)
+│   ├── ntp_client.py              # Multi-server NTP sync with outlier rejection
 │   └── event_bus.py               # Pub/sub event system
 ├── views/                  # View Layer (Tkinter UI)
 │   ├── __init__.py
@@ -91,16 +95,22 @@ ultimate_enigma/
 │   ├── decrypt_tab.py      # Message decryption UI
 │   ├── file_tab.py         # File encryption UI
 │   ├── friends_tab.py      # Friend management UI
-│   ├── about_tab.py        # Settings/about UI
+│   ├── trust_tab.py        # Trust chain certificate management
+│   ├── about_tab.py        # Settings/about UI (backup, password change, duress)
 │   ├── ntp_tab.py          # NTP sync UI
-│   ├── secret_tab.py       # Shared secret UI
+│   ├── secret_tab.py       # Shared secret management
 │   ├── lock_screen.py      # Lock screen overlay
 │   ├── visual_enigma.py    # Rotor animation widget
 │   ├── ecdh.py             # ECDH key exchange dialog
-│   ├── auth_ui_callbacks.py # UI callback injection for AuthController
-│   └── utils.py            # Password dialog and validation
-├── components/             # Reusable UI Components
-│   └── totp_dialogs.py           # TOTP setup/verify dialogs
+│   ├── dialogs.py          # Shared modal dialogs (password entry)
+│   └── utils.py            # Password validation and strength utilities
+├── components/             # Reusable UI Components (modal dialogs for exchanges)
+│   ├── totp_dialogs.py           # TOTP setup/verify dialogs
+│   ├── pqc_exchange_dialog.py    # PQC key exchange (multi-tab)
+│   ├── hybrid_sig_exchange_dialog.py # Hybrid signature key exchange (multi-tab)
+│   ├── add_friend_dialog.py      # Add friend form with all fields
+│   ├── certificate_dialog.py     # Trust certificate viewer/management
+│   └── key_recovery_dialog.py    # Shamir secret sharing key recovery UI
 ├── src/                    # Core Utilities
 │   ├── constants.py              # Centralized constants (frozen dataclasses with dict aliases)
 │   ├── exceptions.py             # Custom exception classes
@@ -216,26 +226,47 @@ The EventBus enables loose coupling between components:
 [AuthController] --SERVICES_REBUILT-> [EventBus] --> [All Tabs]
 ```
 
-### Available Events
+### Available Events (32 total)
 
-| Event | Description |
-|-------|-------------|
-| `UNLOCK_REQUESTED` | User initiated unlock |
-| `EMERGENCY_LOCK` | Emergency lock triggered |
-| `UNLOCKED` | App successfully unlocked |
-| `LOCKED` | App locked |
-| `DURESS_MODE_ENTERED` | Duress mode activated (coerced unlock) |
-| `KEYS_WIPED` | Keys cleared from memory |
-| `KEYS_LOADED` | Keys loaded from database |
-| `TOTP_SETUP_COMPLETE` | TOTP configured |
-| `TOTP_VERIFIED` | TOTP code validated |
-| `TOTP_CHANGED` | TOTP secret updated |
-| `RATCHET_INITIALIZED` | New ratchet session established |
-| `RATCHET_RESET` | Ratchet session reset |
-| `SERVICES_REBUILT` | Services recreated |
-| `NTP_SYNCED` | Time synchronized |
-| `FRIEND_LIST_CHANGED` | Contacts modified |
-| `APP_SHUTDOWN` | Application closing |
+| Event | Category | Description |
+|-------|----------|-------------|
+| `UNLOCK_REQUESTED` | Auth | User initiated unlock |
+| `EMERGENCY_LOCK` | Auth | Emergency lock triggered |
+| `UNLOCKED` | Auth | App successfully unlocked |
+| `LOCKED` | Auth | App locked |
+| `DURESS_MODE_ENTERED` | Auth | Duress mode activated (coerced unlock) |
+| `KEYS_WIPED` | Key | Keys cleared from memory |
+| `KEYS_LOADED` | Key | Keys loaded from database |
+| `PASSWORD_CHANGED` | Key | Master password changed |
+| `TOTP_SETUP_COMPLETE` | TOTP | TOTP configured |
+| `TOTP_VERIFIED` | TOTP | TOTP code validated |
+| `TOTP_CHANGED` | TOTP | TOTP secret updated |
+| `SERVICES_REBUILT` | Service | Services recreated after unlock |
+| `NTP_SYNCED` | Service | Time synchronized successfully |
+| `NTP_SYNC_FAILED` | Service | All NTP servers unreachable |
+| `RATCHET_INITIALIZED` | Ratchet | New ratchet session established |
+| `RATCHET_RESET` | Ratchet | Ratchet session reset |
+| `FRIEND_LIST_CHANGED` | Data | Contacts modified |
+| `FRIEND_ADDED` | Data | New friend added |
+| `FRIEND_REMOVED` | Data | Friend removed |
+| `CERTIFICATE_ISSUED` | Trust Chain | New certificate created |
+| `CERTIFICATE_RECEIVED` | Trust Chain | Certificate received from peer |
+| `CERTIFICATE_REVOKED` | Trust Chain | Certificate revoked |
+| `TRUST_LEVEL_CHANGED` | Trust Chain | Friend trust level updated |
+| `RECOVERY_SHARE_CREATED` | Trust Chain | Recovery share generated |
+| `RECOVERY_KEY_RECONSTRUCTED` | Trust Chain | Secret reconstructed from shares |
+| `BACKUP_REMINDER` | Agent | Backup reminder triggered |
+| `BACKUP_COMPLETED` | Agent | Backup export finished |
+| `RATCHET_LOCKS_CLEANED` | Agent | Stale ratchet locks cleaned |
+| `RATCHET_DEADLOCK_DETECTED` | Agent | Potential deadlock in ratchet locks detected |
+| `RATCHET_LOCK_STATS` | Agent | Ratchet lock contention statistics |
+| `SYSTEM_STATUS` | Agent | General system status update |
+| `SYSTEM_HEALTH_OK` | Agent | All health checks passed |
+| `SYSTEM_HEALTH_DEGRADED` | Agent | One or more health checks degraded |
+| `KEY_INFO` | Agent | Key metadata info event |
+| `KEY_FINGERPRINT` | Agent | Key fingerprint verification event |
+| `APP_STARTING` | Lifecycle | Application starting up |
+| `APP_SHUTDOWN` | Lifecycle | Application closing |
 
 ## Threading Model
 
