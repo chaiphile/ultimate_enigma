@@ -348,10 +348,12 @@ class CertificateDialog:
 
         load_trust_status()
 
+        btn_trust_frame = ttk.Frame(tab_status)
+        btn_trust_frame.pack(fill=tk.X)
         ttk.Button(
-            tab_status, text="🔄 Refresh",
+            btn_trust_frame, text="🔄 Refresh",
             command=load_trust_status, bootstyle="info-outline",
-        ).pack(anchor="w")
+        ).pack(side=tk.RIGHT)
 
         ttk.Button(dlg, text="Close", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))

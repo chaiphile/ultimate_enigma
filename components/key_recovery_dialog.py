@@ -362,9 +362,9 @@ class KeyRecoveryDialog:
         tree.column("status", width=100)
 
         scrollbar = ttk.Scrollbar(parent, orient=tk.VERTICAL, command=tree.yview)
-        tree.configure(yscrollcommand=scrollbar.set)
-        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.configure(yscrollcommand=scrollbar.set)
+        tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         def load_status():
             for item in tree.get_children():
@@ -391,5 +391,7 @@ class KeyRecoveryDialog:
 
         load_status()
 
-        ttk.Button(parent, text="Refresh", command=load_status,
-                   bootstyle="warning-outline").pack(anchor="e", pady=(5, 0))
+        btn_frame = ttk.Frame(parent)
+        btn_frame.pack(fill=tk.X)
+        ttk.Button(btn_frame, text="🔄 Refresh", command=load_status,
+                   bootstyle="warning-outline").pack(side=tk.RIGHT)
