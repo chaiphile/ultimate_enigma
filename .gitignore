@@ -35,8 +35,19 @@ collect_py.bat
 all_py_files.txt
 replace.txt
 test_file_decrypt_behavior.py
+verify_timeout_fix.bat
+*.bak
 *.zip
 *.tar.gz
+
+# Development planning artifacts (do not commit)
+fix.md
+fixroadmap.md
+code_review.md
+code_review_fix_plan.md
+mvc_roadmap.md
+phase3integration.md
+TASKS.md
 
 # Non-code assets
 *.docx
