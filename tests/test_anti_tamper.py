@@ -299,7 +299,7 @@ class TestRunAllChecks:
              mock.patch("src.anti_tamper._check_frida", return_value=False), \
              mock.patch("src.anti_tamper._check_module_integrity", return_value=False), \
              mock.patch("src.anti_tamper._check_pe_header", return_value=False):
-            assert _run_all_checks() is False
+            assert _run_all_checks() is True
 
 
 class TestBackgroundChecks:

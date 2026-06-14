@@ -108,15 +108,17 @@ ultimate_enigma/
 │   ├── timeout.py                # Timeout decorators/utilities
 │   ├── crypto_utils.py           # Shared PEM/password helpers (DRY)
 │   ├── crypto_task_helper.py     # Shared crypto task submission helper
+│   ├── key_generation.py         # RSA/PQC/hybrid key generation and DB init
 │   └── anti_tamper.py            # Anti-debugger & anti-tamper protections (frozen .exe only)
 ├── security/               # Security Hardening
 │   ├── __init__.py               # Package init
 │   ├── memory_security.py        # VirtualLock/mlock page locking
 │   ├── guarded_buffer.py         # PAGE_NOACCESS guard page buffers
+│   ├── lockout.py                # Exponential backoff lockout state machine
 │   └── anti_dump.py              # Anti-dump protections
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
-├── key_manager.py          # KeyStore runtime implementation
+├── key_manager.py          # KeyStore thin orchestrator (lockout → security/lockout.py, keygen → src/key_generation.py)
 └── tests/                  # Test suite
 ```
 
@@ -263,4 +265,4 @@ The EventBus enables loose coupling between components:
 - Clipboard auto-clear prevents leakage
 - Per-friend ratchet locks prevent race conditions
 - TOTP required for unlock after emergency lock
-- Anti-tamper protections active in frozen .exe (debugger + binary integrity checks)
+- Anti-tamper protections active in frozen .exe (debugger + binary integrity checks, fail-closed on errors)

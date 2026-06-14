@@ -102,6 +102,7 @@ The application implements defense-in-depth memory protection to prevent key mat
 - New `lock()` method calls `mlock_memory()` on the internal bytearray
 - `wipe()` calls `munlock_memory()` before zeroing
 - Long-lived secrets (master password, DB key) use `.lock()` after creation
+- `database.set_master_password()` accepts `str` or `SecureString` directly (avoids creating plaintext copies)
 
 #### Key Storage Conversion
 All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
@@ -143,10 +144,10 @@ All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
 - Rate limiting on verification attempts
 
 ### Lockout Protection
-- Exponential backoff on failed attempts
+- Exponential backoff on failed attempts via `LockoutManager` (`security/lockout.py`)
 - Backoff table: [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600] seconds
 - Hard lockout after 15 failures (1 hour duration)
-- Per-session attempt tracking
+- Persistent attempt tracking across restarts via database
 
 ## Message Security
 
@@ -332,14 +333,14 @@ ANTI_TAMPER_CONSTANTS = {
 4. **Escalation**: When suspicious activity is detected (3+ consecutive findings), scan frequency increases and deep scans (memory region analysis) are performed
 5. **On-demand**: `check_on_demand()` can be called before critical operations
 6. **Detection**: Any confirmed check triggers immediate silent exit
-7. **Errors**: Individual check failures are caught and skipped (resilient pipeline)
+7. **Fail-closed**: Exceptions in individual checks are treated as tamper (fail closed, not open) — prevents attackers from bypassing checks by triggering errors
 
 ### Testing
 
 58 unit tests in `tests/test_anti_tamper.py` cover:
 - All detection methods in isolation
 - Skipped behavior when not frozen
-- Exception resilience in the check pipeline
+- Fail-closed exception handling in the check pipeline
 - Background thread startup
 - Mocked Windows API calls for cross-platform testing
 - Test classes: TestDebuggerWindows, TestDebuggerPresent, TestRemoteDebugger, TestPEBDebuggerFlag, TestSilentExit

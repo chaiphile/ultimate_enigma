@@ -51,6 +51,7 @@ CRYPTO_CONSTANTS = {
     "WINDOW_SIZE": 2,               # Sliding window size: ±2 steps (±60 seconds tolerance)
     "SELF_DESTRUCT_FLAG": 4,        # Bit flag for self-destruct messages
     "HYBRID_SIG_FLAG": 8,           # Bit flag for hybrid signatures (Ed25519 + Dilithium3)
+    "KEY_HINT_FLAG": 16,            # Bit flag: 2-byte SHA-256 key hint for fast legacy decryption
 }
 
 # ---------------------------------------------------------------------------

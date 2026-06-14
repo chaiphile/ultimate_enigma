@@ -421,7 +421,7 @@ class Events:
 
 ### KeyStore
 
-Key storage abstraction.
+Key storage abstraction with delegated lockout management.
 
 ```python
 class KeyStore:
@@ -450,6 +450,12 @@ class KeyStore:
     def public_key(self) -> rsa.RSAPublicKey
     @property
     def global_secret(self) -> bytes
+    @property
+    def failed_attempts(self) -> int
+        """Number of consecutive failed authentication attempts (delegates to LockoutManager)."""
+    @property
+    def locked_until(self) -> float
+        """Epoch timestamp until which the account is locked (delegates to LockoutManager)."""
     @property
     def my_name(self) -> str
         """Display name for ratchet envelope sender identification.
@@ -579,7 +585,7 @@ class GuardedBuffer:
 
 ### Anti-Tamper (src/anti_tamper.py)
 
-Anti-debugger and anti-tamper protections for the frozen .exe. All functions are no-ops when `sys.frozen` is not set.
+Anti-debugger and anti-tamper protections for the frozen .exe. All functions are no-ops when `sys.frozen` is not set. The check pipeline is **fail-closed**: any unexpected exception in a check function is treated as tamper detected.
 
 ```python
 def run_anti_tamper_checks() -> None:
@@ -587,6 +593,7 @@ def run_anti_tamper_checks() -> None:
     
     Call this function BEFORE any other imports in main.py when running frozen.
     Handles: debugger detection, PE verification, import hooks, timing anomalies.
+    Fail-closed: exceptions in checks are treated as tamper.
     """
 
 def start_background_checks(interval: int = None) -> None:

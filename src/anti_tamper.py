@@ -993,8 +993,8 @@ def _run_all_checks() -> bool:
                 logger.debug("Anti-tamper check triggered: %s", name)
                 return True
         except Exception as e:
-            _log_info(f"Check '{name}' raised exception: {type(e).__name__}: {e}")
-            continue
+            _log_trigger(name, f"Exception treated as tamper: {type(e).__name__}: {e}")
+            return True  # Fail closed: exceptions are treated as tamper
 
     return False
 

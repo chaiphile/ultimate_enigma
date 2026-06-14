@@ -96,7 +96,12 @@ class ApplicationController:
         logger.info("NTP sync thread started (deferred)")
 
     def _ntp_sync_loop(self, encryption_service, service_lock):
-        """Background NTP sync - sequential queries, fully exception-safe."""
+        """Background NTP sync - sequential queries, fully exception-safe.
+
+        NTP queries (up to 10s) run entirely outside the lock.
+        The lock is only acquired for the brief update_ntp_time() assignment
+        to serialise with encrypt/decrypt operations that also hold it.
+        """
         try:
             from ntp_client import get_ntp_time
             while self._is_running:
@@ -112,8 +117,7 @@ class ApplicationController:
                             "NTP sync OK: %s (offset %+.2f ms)",
                             ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), offset_ms
                         )
-                        with service_lock:
-                            encryption_service.update_ntp_time(t)
+                        encryption_service.update_ntp_time(t)
                         event_bus.publish(
                             Events.NTP_SYNCED,
                             source="application_controller",
@@ -121,8 +125,7 @@ class ApplicationController:
                         )
                     else:
                         logger.warning("NTP sync failed - using system time")
-                        with service_lock:
-                            encryption_service.update_ntp_time(None)
+                        encryption_service.update_ntp_time(None)
                         event_bus.publish(
                             Events.NTP_SYNC_FAILED,
                             source="application_controller"

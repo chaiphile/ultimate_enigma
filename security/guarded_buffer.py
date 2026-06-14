@@ -169,7 +169,8 @@ class GuardedBuffer:
         if isinstance(other, GuardedBuffer):
             if self._freed or other._freed:
                 return False
-            return self.read() == other.read()
+            import hmac as _hmac
+            return _hmac.compare_digest(bytes(self.read()), bytes(other.read()))
         return NotImplemented
 
     def wipe_and_free(self) -> None:

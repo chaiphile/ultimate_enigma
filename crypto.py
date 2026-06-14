@@ -35,6 +35,7 @@ TIME_STEP = CRYPTO_CONSTANTS["TIME_STEP"]
 WINDOW_SIZE = CRYPTO_CONSTANTS["WINDOW_SIZE"]
 SELF_DESTRUCT_FLAG = CRYPTO_CONSTANTS["SELF_DESTRUCT_FLAG"]
 HYBRID_SIG_FLAG = CRYPTO_CONSTANTS["HYBRID_SIG_FLAG"]
+KEY_HINT_FLAG = CRYPTO_CONSTANTS["KEY_HINT_FLAG"]
 
 def _pack_bytes(data: bytes) -> bytes:
     return struct.pack(">H", len(data)) + data
@@ -296,11 +297,14 @@ def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
         flags |= HYBRID_SIG_FLAG
     elif sign:
         flags |= 1
+    key_hint = b""
     if encrypt_for_friend_pub:
         aes_key = secrets.token_bytes(AES_KEY_SIZE)
         flags |= 2
     else:
         aes_key = derive_time_key(const_key, int(timestamp))
+        flags |= KEY_HINT_FLAG
+        key_hint = hashlib.sha256(const_key).digest()[:2]
 
     inner = struct.pack(">Q", int(timestamp))
     if self_destruct_seconds is not None and self_destruct_seconds > 0:

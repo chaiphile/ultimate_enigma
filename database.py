@@ -14,7 +14,7 @@ import base64
 import secrets
 import logging
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Union
 from contextlib import closing
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -220,15 +220,22 @@ def _derive_db_key() -> bytes:
 _MASTER_PASSWORD = None
 
 
-def set_master_password(password: str) -> None:
+def set_master_password(password: Union[str, SecureString]) -> None:
     """Set the master password used to decrypt the per-machine DB key.
 
     Called by key_manager.KeyStore.load() after successful authentication.
+
+    Args:
+        password: Master password as str or SecureString. Stored as SecureString
+                  and locked in memory to prevent swapping.
     """
     global _MASTER_PASSWORD
     if _MASTER_PASSWORD is not None:
         _MASTER_PASSWORD.wipe()
-    _MASTER_PASSWORD = SecureString(password)
+    if isinstance(password, SecureString):
+        _MASTER_PASSWORD = password
+    else:
+        _MASTER_PASSWORD = SecureString(password)
     _MASTER_PASSWORD.lock()
 
 

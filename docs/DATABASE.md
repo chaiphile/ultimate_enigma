@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS settings (
 | `totp_secret_encrypted` | JSON | TOTP secret (encrypted 20-byte key) | Auth setup |
 | `totp_setup_complete` | text | Flag indicating TOTP setup completion | Auth setup |
 | `totp_enabled` | text | Flag indicating TOTP is enabled | Auth setup |
-| `lockout_data` | JSON | `{"failures": int, "locked_until": float}` | `KeyStore._save_lockout_state()` |
+| `lockout_data` | JSON | `{"failures": int, "locked_until": float}` | `LockoutManager.save_state()` |
 | `duress_verifier` | JSON | Encrypted dummy secret for duress detection | `set_duress_password()` |
 | `last_backup_ts` | text | Unix timestamp of last versioned backup | `BackupService._record_backup_timestamp()` |
 | `sqlcipher_db_key` | JSON | Per-machine DB encryption key (encrypted) | `init_db()` |
@@ -288,7 +288,9 @@ Pure data model and persistence manager for cryptographic keys. Provides:
 
 ### `KeyStore` (`key_manager.py`)
 
-Full runtime key store extending the data model with business logic:
+Full runtime key store extending the data model with business logic. Thin orchestrator that delegates:
+- **Lockout** → `security/lockout.py` (`LockoutManager`): exponential backoff + hard lockout state machine
+- **Key generation** → `src/key_generation.py` (`init_db()`): RSA/PQC/hybrid key generation
 - Password verification with exponential backoff and hard lockout
 - PQC key generation and management
 - RSA key rotation with 30-day legacy retention

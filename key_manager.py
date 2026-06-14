@@ -1,4 +1,12 @@
-"""KeyStore using SQLite database (no JSON files)."""
+"""KeyStore using SQLite database (no JSON files).
+
+This module is a thin orchestrator that composes:
+  - security/lockout.py — LockoutManager for auth attempt lockout
+  - src/key_generation.py — RSA/PQC/hybrid key generation and DB init
+  - src/crypto_utils.py — PEM/key conversion helpers
+
+The KeyStore class itself remains here as the primary interface.
+"""
 
 import json
 import base64
@@ -24,19 +32,21 @@ from services.pqc_service import HybridKEM, is_pqc_available
 from src.exceptions import KeyStoreError
 from src.secure_string import SecureString
 from security.guarded_buffer import GuardedBuffer
+from security.lockout import LockoutManager
+from src.key_generation import (
+    init_db,
+    get_rsa_key_size,
+    MIN_RSA_KEY_SIZE,
+    LEGACY_KEY_RETENTION_DAYS,
+    _HYBRID_SIG_AVAILABLE,
+)
 
 try:
     from services.pqc_signatures import HybridSigner
-    _HYBRID_SIG_AVAILABLE = True
 except (ImportError, RuntimeError, OSError):
     HybridSigner = None  # type: ignore[assignment,misc]
-    _HYBRID_SIG_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
-
-# RSA key rotation constants
-_MIN_RSA_KEY_SIZE = 4096       # CNSA 2.0 minimum
-_LEGACY_KEY_RETENTION_DAYS = 30  # Keep old key for legacy message decryption
 
 from src.crypto_utils import (
     pem_to_pubkey as _pem_to_pubkey,
@@ -45,84 +55,12 @@ from src.crypto_utils import (
     privkey_to_encrypted_pem as _privkey_to_encrypted_pem,
 )
 
-
-def _get_rsa_key_size(pub_key) -> int:
-    """Return the bit size of an RSA public key."""
-    try:
-        return pub_key.key_size
-    except AttributeError:
-        return 0
-
-def init_db(password: Union[str, bytes, SecureString]) -> bool:
-    """Create database and first keys if missing. Returns True if new keys were generated.
-    
-    Args:
-        password: Master password as str, bytes, or SecureString.
-    """
-    database.init_db()
-    new_keys = False
-    with closing(database.get_connection()) as conn:
-        cur = conn.execute("SELECT value FROM settings WHERE key='private_key_encrypted'")
-        if cur.fetchone() is None:
-            priv = rsa.generate_private_key(65537, 4096, default_backend())
-            pub = priv.public_key()
-            encrypted_priv = _privkey_to_encrypted_pem(priv, password)
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("public_key", pubkey_to_pem(pub)))
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("private_key_encrypted", encrypted_priv))
-            global_secret = secrets.token_bytes(32)
-            enc = database.encrypt_secret(global_secret, password)
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ("global_secret", json.dumps(enc)))
-            conn.commit()
-            new_keys = True
-
-        # Generate hybrid signing keys (Ed25519 + Dilithium3) if liboqs is available
-        if _HYBRID_SIG_AVAILABLE:
-            cur_hybrid = conn.execute(
-                "SELECT value FROM settings WHERE key='hybrid_sig_combined_pub_b64'"
-            )
-            if cur_hybrid.fetchone() is None:
-                try:
-                    hybrid_keys = HybridSigner.generate_keys()
-                    # Encrypt and store Ed25519 private key (raw 32 bytes)
-                    ed_priv_bytes = hybrid_keys['ed_priv'].private_bytes_raw()
-                    ed_priv_enc = database.encrypt_secret(ed_priv_bytes, password)
-                    conn.execute(
-                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                        ("ed25519_priv_encrypted", json.dumps(ed_priv_enc))
-                    )
-                    # Encrypt and store Dilithium3 private key
-                    dil_priv_enc = database.encrypt_secret(hybrid_keys['dil_priv'], password)
-                    conn.execute(
-                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                        ("dilithium_priv_encrypted", json.dumps(dil_priv_enc))
-                    )
-                    # Store combined public key
-                    combined_pub_b64 = base64.b64encode(hybrid_keys['combined_pub']).decode()
-                    conn.execute(
-                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                        ("hybrid_sig_combined_pub_b64", combined_pub_b64)
-                    )
-                    conn.commit()
-                    logger.info("Hybrid signing keys (Ed25519 + Dilithium3) generated and stored")
-                except (ValueError, TypeError, sqlite3.Error) as e:
-                    logger.warning("Failed to generate hybrid signing keys: %s", e)
-
-    return new_keys
-
 class KeyStore:
-    # Exponential backoff table (seconds) indexed by consecutive failure count.
-    # Indices 0-4: no delay; 5+: escalating delays up to 30 minutes.
-    _BACKOFF_TABLE = [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600]
-    _HARD_LOCKOUT_THRESHOLD = 15   # failures before hard lockout
-    _HARD_LOCKOUT_DURATION = 3600  # 1 hour in seconds
-
     def __init__(self):
         self._lock = threading.RLock()
-        self.failed_attempts = 0          # global brute-force counter
-        self.locked_until = 0.0           # epoch timestamp; 0 means not locked
+        self._lockout = LockoutManager()
         self._duress_mode = False
         self._needs_rotation = False
-        self._load_lockout_state()
         self.my_pub = None
         self.my_priv = None
         self.legacy_priv = None          # Previous RSA private key (kept for 30-day legacy decryption)
@@ -143,54 +81,23 @@ class KeyStore:
 
     # ---------- Persistent lockout helpers ----------
 
-    def _load_lockout_state(self) -> None:
-        """Load persistent lockout state from the database."""
-        try:
-            conn = database.get_connection()
-            row = conn.execute(
-                "SELECT value FROM settings WHERE key='lockout_data'"
-            ).fetchone()
-            conn.close()
-            if row:
-                data = json.loads(row[0])
-                self.failed_attempts = int(data.get("failures", 0))
-                self.locked_until = float(data.get("locked_until", 0))
-            else:
-                self.failed_attempts = 0
-                self.locked_until = 0.0
-        except (sqlite3.Error, json.JSONDecodeError, ValueError):
-            self.failed_attempts = 0
-            self.locked_until = 0.0
+    @property
+    def failed_attempts(self) -> int:
+        """Number of consecutive failed authentication attempts."""
+        return self._lockout.failed_attempts
 
-    def _save_lockout_state(self) -> None:
-        """Persist current lockout state to the database."""
-        try:
-            data = json.dumps({
-                "failures": self.failed_attempts,
-                "locked_until": self.locked_until
-            })
-            conn = database.get_connection()
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("lockout_data", data)
-            )
-            conn.commit()
-            conn.close()
-        except (sqlite3.Error, TypeError) as e:
-            logger.warning("Failed to persist lockout state: %s", e)
+    @failed_attempts.setter
+    def failed_attempts(self, value: int) -> None:
+        self._lockout.failed_attempts = value
 
-    def _get_lockout_delay(self) -> float:
-        """Return the number of seconds the caller must wait before the next attempt.
+    @property
+    def locked_until(self) -> float:
+        """Epoch timestamp until which the account is locked (0 = not locked)."""
+        return self._lockout.locked_until
 
-        If a hard-lockout timer is active its remaining time takes precedence.
-        Otherwise the exponential backoff table is consulted.
-        """
-        now = time.time()
-        if self.locked_until > now:
-            return self.locked_until - now
-
-        idx = min(self.failed_attempts, len(self._BACKOFF_TABLE) - 1)
-        return float(self._BACKOFF_TABLE[idx])
+    @locked_until.setter
+    def locked_until(self, value: float) -> None:
+        self._lockout.locked_until = value
 
     @property
     def is_duress_mode(self) -> bool:
@@ -226,13 +133,13 @@ class KeyStore:
             self.my_pub = _pem_to_pubkey(row[0])
 
             # Check if RSA key meets CNSA 2.0 minimum size
-            current_key_size = _get_rsa_key_size(self.my_pub)
-            if current_key_size < _MIN_RSA_KEY_SIZE:
+            current_key_size = get_rsa_key_size(self.my_pub)
+            if current_key_size < MIN_RSA_KEY_SIZE:
                 self._needs_rotation = True
                 logger.warning(
                     "RSA key size %d-bit is below CNSA 2.0 minimum (%d-bit). "
                     "Key rotation recommended.",
-                    current_key_size, _MIN_RSA_KEY_SIZE
+                    current_key_size, MIN_RSA_KEY_SIZE
                 )
             else:
                 self._needs_rotation = False
@@ -431,7 +338,7 @@ class KeyStore:
         logger.info(
             "Keys loaded: RSA=%d-bit, global_secret=%s, friends=%d, "
             "pqc=%s, hybrid_sig=%s",
-            _get_rsa_key_size(self.my_pub),
+            get_rsa_key_size(self.my_pub),
             "yes" if self.global_secret else "no",
             len(self.friends),
             "yes" if self.my_kyber_priv else "no",
@@ -458,7 +365,7 @@ class KeyStore:
         """
         with self._lock:
             # Enforce any active lockout / backoff delay
-            delay = self._get_lockout_delay()
+            delay = self._lockout.get_delay()
             if delay > 0:
                 logger.warning(
                     "Account lockout active. %d consecutive failure(s). "
@@ -478,10 +385,8 @@ class KeyStore:
                     enc_dict = json.loads(row[0])
                     database.decrypt_secret(enc_dict, password)
                     # Success: reset lockout state
-                    self.failed_attempts = 0
-                    self.locked_until = 0.0
+                    self._lockout.reset()
                     self._duress_mode = False
-                    self._save_lockout_state()
                     return True
             except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
                 logger.debug("Master password verification failed: %s", e)
@@ -497,34 +402,23 @@ class KeyStore:
                     duress_data = json.loads(row[0])
                     database.decrypt_secret(duress_data, password)
                     # Duress success: reset lockout but flag decoy mode
-                    self.failed_attempts = 0
-                    self.locked_until = 0.0
+                    self._lockout.reset()
                     self._duress_mode = True
-                    self._save_lockout_state()
                     logger.warning("DURESS PASSWORD USED - entering decoy mode")
                     return True
             except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
                 logger.debug("Duress password verification failed: %s", e)
 
             # --- Failed attempt: escalate lockout ---
-            self.failed_attempts += 1
+            self._lockout.record_failure()
 
-            if self.failed_attempts >= self._HARD_LOCKOUT_THRESHOLD:
-                self.locked_until = time.time() + self._HARD_LOCKOUT_DURATION
-                logger.critical(
-                    "HARD LOCKOUT: %d consecutive failures. "
-                    "Account locked for %d seconds.",
-                    self.failed_attempts, self._HARD_LOCKOUT_DURATION
+            backoff = self._lockout.get_delay()
+            if backoff > 0:
+                logger.warning(
+                    "Failed password attempt #%d. Next attempt delayed by %.0f seconds.",
+                    self.failed_attempts, backoff
                 )
-            else:
-                backoff = self._get_lockout_delay()
-                if backoff > 0:
-                    logger.warning(
-                        "Failed password attempt #%d. Next attempt delayed by %.0f seconds.",
-                        self.failed_attempts, backoff
-                    )
 
-            self._save_lockout_state()
             return False
 
     def set_duress_password(self, duress_password: Union[str, bytes, SecureString]) -> None:
@@ -913,7 +807,7 @@ class KeyStore:
                     )
 
                 # Calculate legacy key expiry (30 days from now)
-                legacy_expiry = time.time() + (_LEGACY_KEY_RETENTION_DAYS * 86400)
+                legacy_expiry = time.time() + (LEGACY_KEY_RETENTION_DAYS * 86400)
 
                 # Save current key as legacy
                 conn.execute(
@@ -926,7 +820,7 @@ class KeyStore:
                 )
 
                 # Generate new 4096-bit RSA key pair
-                new_priv = rsa.generate_private_key(65537, _MIN_RSA_KEY_SIZE, default_backend())
+                new_priv = rsa.generate_private_key(65537, MIN_RSA_KEY_SIZE, default_backend())
                 new_pub = new_priv.public_key()
                 new_encrypted_priv = _privkey_to_encrypted_pem(new_priv, password.encode())
 
@@ -952,7 +846,7 @@ class KeyStore:
 
                 logger.info(
                     "RSA key rotated to %d-bit. Legacy key retained for %d days.",
-                    _MIN_RSA_KEY_SIZE, _LEGACY_KEY_RETENTION_DAYS
+                    MIN_RSA_KEY_SIZE, LEGACY_KEY_RETENTION_DAYS
                 )
 
             except KeyStoreError:

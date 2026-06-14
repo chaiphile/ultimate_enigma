@@ -192,14 +192,13 @@ PEM helpers (`_pem_to_pubkey`, `_pem_to_privkey`, `pubkey_to_pem`, `_privkey_to_
 
 **File:** `key_manager.py`
 
-Full runtime key store with authentication, lockout, PQC key management, and password change workflows. Extends the data model with business logic.
+Full runtime key store with authentication, lockout, PQC key management, and password change workflows. Thin orchestrator that delegates lockout to `security/lockout.py` (`LockoutManager`) and key generation to `src/key_generation.py`.
 
 ### Additional Attributes
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `failed_attempts` | `int` | Brute-force counter |
-| `locked_until` | `float` | Epoch timestamp for lockout |
+| `_lockout` | `LockoutManager` | Delegated lockout state machine (`security/lockout.py`) |
 | `_duress_mode` | `bool` | Whether duress password was used |
 | `_needs_rotation` | `bool` | RSA key below CNSA 2.0 minimum |
 
