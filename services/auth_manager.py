@@ -194,7 +194,6 @@ class AuthManager:
                 self._ks.locked_until = 0.0
                 self._ks._duress_mode = True
                 self.save_lockout_state()
-                logger.warning("DURESS PASSWORD USED - entering decoy mode")
                 return True, True
         except Exception as e:
             logger.debug("Duress verification exception: %s", e)

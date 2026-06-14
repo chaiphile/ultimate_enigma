@@ -173,7 +173,6 @@ class TestLoadKeys:
         pw = SecureString("duress_pw")
         controller._ui.password_dialog.return_value = pw
         controller.auth_manager.verify_password.return_value = (True, True)
-        mock_ks.is_duress_mode = True
 
         with patch.object(controller, "enter_duress_mode") as mock_enter:
             result = controller.load_keys(first_run=False)
@@ -202,7 +201,7 @@ class TestChangePassword:
             return None
 
         controller._ui.password_dialog.side_effect = dialog_side_effect
-        mock_ks.verify_password.return_value = True
+        controller.auth_manager.verify_password.return_value = (True, False)
         mock_ks.change_password.return_value = True
 
         with patch.object(controller, "persist_totp_secret"):
@@ -215,7 +214,7 @@ class TestChangePassword:
     def test_change_password_wrong_old_password(self, controller, mock_ks):
         """Wrong current password returns False."""
         controller._ui.password_dialog.return_value = SecureString("wrong_old")
-        mock_ks.verify_password.return_value = False
+        controller.auth_manager.verify_password.return_value = (False, False)
 
         result = controller.change_password()
 
@@ -238,7 +237,7 @@ class TestChangePassword:
             return None
 
         controller._ui.password_dialog.side_effect = side_effect
-        mock_ks.verify_password.return_value = True
+        controller.auth_manager.verify_password.return_value = (True, False)
 
         result = controller.change_password()
         assert result is False
@@ -255,12 +254,23 @@ class TestChangePassword:
             return None
 
         controller._ui.password_dialog.side_effect = dialog_side_effect
-        mock_ks.verify_password.return_value = True
+        controller.auth_manager.verify_password.return_value = (True, False)
 
         result = controller.change_password()
         assert result is False
         controller._ui.show_warning.assert_called()
 
+    def test_change_password_duress_password_rejected(self, controller, mock_ks):
+        """Duress password cannot change master password."""
+        controller._ui.password_dialog.return_value = SecureString("duress_pw")
+        controller.auth_manager.verify_password.return_value = (True, True)
+
+        result = controller.change_password()
+
+        assert result is False
+        controller._ui.show_error.assert_called_once_with(
+            "Verification Failed", "Cannot change password while in duress mode."
+        )
 
 # ---------------------------------------------------------------------------
 # Tests: set_duress_password
@@ -280,8 +290,7 @@ class TestSetDuressPassword:
             return duress_pw
 
         controller._ui.password_dialog.side_effect = dialog_side_effect
-        mock_ks.verify_password.return_value = True
-        mock_ks.is_duress_mode = False
+        controller.auth_manager.verify_password.return_value = (True, False)
 
         result = controller.set_duress_password()
 
@@ -296,7 +305,7 @@ class TestSetDuressPassword:
     def test_set_duress_password_wrong_master(self, controller, mock_ks):
         """Wrong master password."""
         controller._ui.password_dialog.return_value = SecureString("wrong")
-        mock_ks.verify_password.return_value = False
+        controller.auth_manager.verify_password.return_value = (False, False)
         assert controller.set_duress_password() is False
 
     def test_set_duress_password_same_as_master(self, controller, mock_ks):
@@ -311,8 +320,7 @@ class TestSetDuressPassword:
             return SecureString("master")
 
         controller._ui.password_dialog.side_effect = dialog_side_effect
-        mock_ks.verify_password.return_value = True
-        mock_ks.is_duress_mode = False
+        controller.auth_manager.verify_password.return_value = (True, False)
 
         result = controller.set_duress_password()
         assert result is False
@@ -321,8 +329,7 @@ class TestSetDuressPassword:
     def test_set_duress_password_when_already_duress(self, controller, mock_ks):
         """Cannot set duress password while in duress mode."""
         controller._ui.password_dialog.return_value = SecureString("master")
-        mock_ks.verify_password.return_value = True
-        mock_ks.is_duress_mode = True
+        controller.auth_manager.verify_password.return_value = (True, True)
 
         result = controller.set_duress_password()
         assert result is False
@@ -333,12 +340,72 @@ class TestSetDuressPassword:
 # ---------------------------------------------------------------------------
 
 class TestEnterDuressMode:
-    def test_enter_duress_mode_publishes_event(self, controller, mock_ks):
-        """enter_duress_mode activates duress mode."""
-        controller.enter_duress_mode()
+    def test_enter_duress_mode_loads_decoy_and_publishes_event(self, controller, mock_ks):
+        """enter_duress_mode activates duress mode and publishes event."""
+        with patch("controllers.auth_controller.event_bus") as mock_eb:
+            controller.enter_duress_mode()
 
         mock_ks.load_duress_decoy.assert_called_once()
         mock_ks.clear_secret.assert_not_called()
+        mock_eb.publish.assert_called_once_with(
+            Events.DURESS_MODE_ENTERED, source="auth_controller"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: request_unlock
+# ---------------------------------------------------------------------------
+
+class TestRequestUnlock:
+    def test_unlock_duress_mode(self, controller, mock_ks):
+        """Unlock with duress password returns decoy keys."""
+        pw = SecureString("duress_pw")
+        controller._ui.password_dialog.return_value = pw
+        # Set master_password_hash to a real hash of a different password
+        # so Argon2 verify naturally raises VerifyMismatchError
+        controller._master_password_hash = controller._ph.hash("real_master_password")
+        controller.auth_manager.verify_password.return_value = (True, True)
+
+        result, new_ks, new_totp = controller.request_unlock(mock_ks)
+
+        assert result is True
+        assert new_ks is not None
+        assert new_totp is not None
+
+    def test_unlock_duress_mode_no_totp_secret(self, controller, mock_ks):
+        """Unlock with duress password yields TOTP service with no secret."""
+        pw = SecureString("duress_pw")
+        controller._ui.password_dialog.return_value = pw
+        controller._master_password_hash = controller._ph.hash("real_master_password")
+        controller.auth_manager.verify_password.return_value = (True, True)
+
+        result, new_ks, new_totp = controller.request_unlock(mock_ks)
+
+        assert result is True
+        assert not new_totp.has_secret()
+
+    def test_unlock_duress_when_hash_is_none(self, controller, mock_ks):
+        """Unlock with duress password when hash is None recovers via auth_manager."""
+        pw = SecureString("duress_pw")
+        controller._ui.password_dialog.return_value = pw
+        controller._master_password_hash = None
+
+        with patch.object(controller, "_recover_password_hash") as mock_recover:
+            mock_recover.return_value = False
+            result, new_ks, new_totp = controller.request_unlock(mock_ks)
+
+        assert result is False
+
+    def test_unlock_cancels_password_dialog(self, controller):
+        """User cancels unlock password dialog."""
+        controller._master_password_hash = "dummy_hash"
+        controller._ui.password_dialog.return_value = None
+
+        result, new_ks, new_totp = controller.request_unlock(None)
+
+        assert result is False
+        assert new_ks is None
+        assert new_totp is None
 
 
 # ---------------------------------------------------------------------------

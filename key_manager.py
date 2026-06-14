@@ -455,7 +455,6 @@ class KeyStore:
                     # Duress success: reset lockout but flag decoy mode
                     self._lockout.reset()
                     self._duress_mode = True
-                    logger.warning("DURESS PASSWORD USED - entering decoy mode")
                     return True
             except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
                 logger.debug("Duress password verification failed: %s", e)
@@ -1178,6 +1177,5 @@ class KeyStore:
             self.global_secret = bytearray(secrets.token_bytes(32))
 
             self._duress_mode = True
-            logger.warning("Duress decoy state loaded - no real data accessible")
             return True
 

@@ -19,6 +19,7 @@ from services.totp_service import TOTPService
 from services.totp_persistence import TotpPersistence
 
 from src.secure_string import SecureString
+from services.event_bus import event_bus, Events
 
 
 logger = logging.getLogger(__name__)
@@ -118,12 +119,12 @@ class AuthController:
                 return False
             
             try:
-                is_valid, _ = self.auth_manager.verify_password(pw)
+                is_valid, is_duress = self.auth_manager.verify_password(pw)
                 if not is_valid:
                     self._ui.show_error("Wrong Password", "Incorrect password.")
                     continue
 
-                if self.ks.is_duress_mode:
+                if is_duress:
                     self.enter_duress_mode()
                     return True
 
@@ -164,11 +165,18 @@ class AuthController:
             return False, None, None
 
         try:
-            # Verify password hash
             pw_str = pw.to_str() if isinstance(pw, SecureString) else pw
             try:
                 self._ph.verify(self._master_password_hash, pw_str)
             except VerifyMismatchError:
+                # Check if this is a duress password
+                is_valid, is_duress = self.auth_manager.verify_password(pw)
+                if is_valid and is_duress:
+                    temp_ks = KeyStore()
+                    temp_ks.load_duress_decoy()
+                    self._master_password_hash = self._ph.hash(_DURESS_PLACEHOLDER)
+                    temp_totp = TOTPService()
+                    return True, temp_ks, temp_totp
                 self._ui.show_error("Failed", "Incorrect master password.")
                 logger.warning("Unlock failed: incorrect password")
                 return False, None, None
@@ -369,9 +377,14 @@ class AuthController:
             return False
 
         try:
-            is_valid = self.ks.verify_password(old_pw)
+            is_valid, is_duress = self.auth_manager.verify_password(old_pw)
             if not is_valid:
                 self._ui.show_error("Verification Failed", "Current password is incorrect.")
+                return False
+
+            if is_duress:
+                self._ui.show_error("Verification Failed", "Cannot change password while in duress mode.")
+                logger.warning("Password change rejected: duress password used")
                 return False
 
             new_pw = self._ui.password_dialog("Change Password - Set New Password", confirm=True, enforce_strength=True)
@@ -417,8 +430,7 @@ class AuthController:
             return False
 
         try:
-            is_valid = self.ks.verify_password(master_pw)
-            is_duress = self.ks.is_duress_mode if is_valid else False
+            is_valid, is_duress = self.auth_manager.verify_password(master_pw)
             if not is_valid or is_duress:
                 self._ui.show_error("Verification Failed", "Master password is incorrect.")
                 return False
@@ -455,10 +467,10 @@ class AuthController:
 
     def enter_duress_mode(self) -> None:
         """Enter decoy mode with fake data."""
-        logger.warning("Entering DURESS / DECOY mode")
         self.ks.load_duress_decoy()
         self._master_password_hash = self._ph.hash(_DURESS_PLACEHOLDER)
         self.totp_service.clear_secret()
+        event_bus.publish(Events.DURESS_MODE_ENTERED, source="auth_controller")
 
 
     # ------------------------------------------------------------------
