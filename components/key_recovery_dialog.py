@@ -5,6 +5,7 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
 import database
+from services.event_bus import event_bus, Events
 from services.shamir_service import ShamirService, generate_recovery_key
 from views.dialogs import password_dialog
 
@@ -199,6 +200,7 @@ class KeyRecoveryDialog:
 
                 shares_display.config(state="disabled")
                 status_var.set(f"✅ {n} shares created (threshold: {k}), distributed to {len(selected_names)} friends")
+                event_bus.publish(Events.RECOVERY_SHARE_CREATED, n=n, k=k, holders=selected_names)
                 messagebox.showinfo(
                     "Shares Created",
                     f"Recovery key split into {n} shares (K={k}).\n\n"
@@ -316,6 +318,7 @@ class KeyRecoveryDialog:
                 result_display.insert("1.0", masked)
                 result_display.config(state="disabled")
                 result_var.set("✅ Key reconstructed successfully")
+                event_bus.publish(Events.RECOVERY_KEY_RECONSTRUCTED, num_shares=len(raw_shares))
 
             except Exception as e:
                 messagebox.showerror("Reconstruction Failed",

@@ -3,14 +3,6 @@
 Coordinates login, unlock, TOTP verification, password management,
 and duress mode. Acts as the intermediary between the View layer (EnigmaApp/UI)
 and the Model/Service layers (KeyStore, AuthManager, TOTPService).
-
-Publishes Events:
-    PASSWORD_CHANGED - after master password is changed.
-    TOTP_SETUP_COMPLETE - after TOTP setup is completed.
-    TOTP_VERIFIED - after TOTP verification succeeds.
-    TOTP_CHANGED - after TOTP secret is regenerated.
-    DURESS_MODE_ENTERED - when duress mode is activated.
-    KEYS_LOADED - after keys are loaded successfully.
 """
 
 import gc
@@ -25,7 +17,7 @@ from key_manager import KeyStore
 from services.auth_manager import AuthManager
 from services.totp_service import TOTPService
 from services.totp_persistence import TotpPersistence
-from services.event_bus import event_bus, Events
+
 from src.secure_string import SecureString
 
 
@@ -109,7 +101,7 @@ class AuthController:
             self._master_password_hash = self._ph.hash(pw.to_str() if isinstance(pw, SecureString) else pw)
             self.init_totp(pw)
             logger.info("Master password hash set (first run)")
-            event_bus.publish(Events.KEYS_LOADED, source="auth_controller", first_run=True)
+
             return True
         finally:
             # Securely wipe the password from memory
@@ -139,7 +131,7 @@ class AuthController:
                     self._master_password_hash = self._ph.hash(pw.to_str() if isinstance(pw, SecureString) else pw)
                     self.init_totp(pw)
                     logger.info("Master password hash set (existing DB)")
-                    event_bus.publish(Events.KEYS_LOADED, source="auth_controller", first_run=False)
+
                     return True
                 else:
                     self._ui.show_error("Error", "Failed to load keys.")
@@ -241,7 +233,7 @@ class AuthController:
             pw = None
             gc.collect()
 
-    def _unlock_password_dialog(self) -> str | None:
+    def _unlock_password_dialog(self) -> SecureString | None:
         return self._ui.password_dialog("Unlock - Master Password", confirm=False, topmost=True, bg="#1a1a1a", fg="#ffffff")
 
     def _totp_verify_dialog(self, totp_service: TOTPService) -> bool:
@@ -297,7 +289,7 @@ class AuthController:
             self.set_totp_setup_complete(True)
             self.set_totp_enabled(True)
             logger.info("Mandatory TOTP setup completed successfully")
-            event_bus.publish(Events.TOTP_SETUP_COMPLETE, source="auth_controller", mandatory=True)
+
             return True
         else:
             self._ui.show_error(
@@ -319,7 +311,7 @@ class AuthController:
                 self._ui.show_error("Access Denied", "TOTP verification failed.\nApplication will now exit.")
                 self.totp_service.clear_secret()
                 return False
-            event_bus.publish(Events.TOTP_VERIFIED, source="auth_controller")
+
         elif self.is_totp_enabled() and self.is_totp_setup_complete() and not self.totp_service.has_secret():
             logger.warning("TOTP setup marked complete but secret not loaded - skipping verification")
             
@@ -332,7 +324,7 @@ class AuthController:
         actual_secret = self.totp_service.get_raw_secret()
         self.persist_totp_secret(actual_secret)
         logger.info("TOTP secret regenerated and persisted")
-        event_bus.publish(Events.TOTP_CHANGED, source="auth_controller")
+
 
     def show_totp_setup(self) -> None:
         """Show TOTP setup dialog."""
@@ -350,7 +342,7 @@ class AuthController:
             if not self.is_totp_enabled():
                 self.set_totp_enabled(True)
                 logger.info("TOTP automatically enabled after setup completion")
-            event_bus.publish(Events.TOTP_SETUP_COMPLETE, source="auth_controller", mandatory=False)
+
 
     # ------------------------------------------------------------------
     # TOTP Settings Accessors
@@ -405,7 +397,7 @@ class AuthController:
 
                 self._ui.show_info("Password Changed", "Master password has been changed successfully.")
                 logger.info("Master password changed successfully via UI")
-                event_bus.publish(Events.PASSWORD_CHANGED, source="auth_controller")
+
                 return True
             finally:
                 if isinstance(new_pw, SecureString):
@@ -467,7 +459,7 @@ class AuthController:
         self.ks.load_duress_decoy()
         self._master_password_hash = self._ph.hash(_DURESS_PLACEHOLDER)
         self.totp_service.clear_secret()
-        event_bus.publish(Events.DURESS_MODE_ENTERED, source="auth_controller")
+
 
     # ------------------------------------------------------------------
     # Cleanup
@@ -476,4 +468,4 @@ class AuthController:
         """Clear all sensitive authentication data from memory."""
         self.totp_service.clear_secret()
         self.ks.wipe()
-        event_bus.publish(Events.KEYS_WIPED, source="auth_controller")
+

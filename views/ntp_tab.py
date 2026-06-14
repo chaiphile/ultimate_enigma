@@ -3,11 +3,13 @@
 import tkinter as tk
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 import ttkbootstrap as ttkb
 
 from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS, PRESET_NTP_SERVERS
 from services.encryption import EncryptionService
+from services.event_bus import event_bus, Events
 
 # Build ordered fallback list: presets first, then consensus servers not already in presets
 _FALLBACK_SERVERS = list(PRESET_NTP_SERVERS)
@@ -28,6 +30,8 @@ class NtpTab:
         self._syncing = False
         self._build_ui()
         self._start_auto_refresh()
+        event_bus.subscribe(Events.NTP_SYNCED, self._on_ntp_synced)
+        event_bus.subscribe(Events.NTP_SYNC_FAILED, self._on_ntp_sync_failed)
 
     def _build_ui(self) -> None:
         # --- Bottom action bar (packed FIRST so it's always visible) ---
@@ -212,11 +216,19 @@ class NtpTab:
         # Build fallback list (all known servers except the one we already tried)
         fallbacks = [s for s in _FALLBACK_SERVERS if s != primary]
         
-        for srv in fallbacks:
-            t = get_ntp_time(server=srv)
-            if t is not None:
-                self.frame.after(0, lambda ts=t, s=srv: self._on_sync_complete(ts, s, fallback=True))
-                return
+        with ThreadPoolExecutor(max_workers=min(len(fallbacks), 8)) as pool:
+            futures = {pool.submit(get_ntp_time, server=s): s for s in fallbacks}
+            for fut in as_completed(futures, timeout=3):
+                srv = futures[fut]
+                try:
+                    t = fut.result()
+                except Exception:
+                    continue
+                if t is not None:
+                    for f in futures:
+                        f.cancel()
+                    self.frame.after(0, lambda ts=t, s=srv: self._on_sync_complete(ts, s, fallback=True))
+                    return
         
         # All servers failed
         self.frame.after(0, lambda: self._on_sync_complete(None, primary))
@@ -260,3 +272,24 @@ class NtpTab:
                 text=f"❌ All NTP servers unreachable (tried {len(_FALLBACK_SERVERS)} servers)",
                 bootstyle="inverse-danger"
             )
+
+    def _on_ntp_synced(self, **kwargs) -> None:
+        """Handle NTP_SYNCED event from background sync."""
+        timestamp = kwargs.get("timestamp")
+        server = kwargs.get("server", "background")
+        if timestamp:
+            ntp_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            local_dt = datetime.now(timezone.utc)
+            offset_ms = (ntp_dt - local_dt).total_seconds() * 1000
+            self.ntp_time_label.config(text=ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), bootstyle="inverse-success")
+            self.offset_label.config(text=f"{offset_ms:+.2f} ms",
+                                     bootstyle="inverse-success" if abs(offset_ms) < 1000 else "inverse-danger")
+            self.last_sync_label.config(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            self.status_indicator.config(text="✅ Background sync completed", bootstyle="inverse-success")
+            if server:
+                self.server_label.config(text=f"{server}:123")
+
+    def _on_ntp_sync_failed(self, **kwargs) -> None:
+        """Handle NTP_SYNC_FAILED event from background sync."""
+        reason = kwargs.get("reason", "unknown error")
+        self.status_indicator.config(text=f"⚠️ Background sync failed: {reason}", bootstyle="inverse-danger")

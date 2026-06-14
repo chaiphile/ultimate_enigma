@@ -376,7 +376,6 @@ class FriendsTab:
                 self.service.remove_friend(choice)
                 self.refresh_list()
                 messagebox.showinfo("Removed", f"Friend '{choice}' removed.")
-                event_bus.publish(Events.FRIEND_REMOVED, source="friends_tab", friend_name=choice)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
         elif choice:
             messagebox.showerror("Not Found", "Name not found in friend list.")
@@ -567,7 +566,6 @@ class FriendsTab:
                     f"for '{name}'.\n\n"
                     "Messages to/from this friend will now use forward-secret encryption."
                 )
-                event_bus.publish(Events.RATCHET_INITIALIZED, source="friends_tab", friend_name=name)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
                 messagebox.showerror("Ratchet Init Failed", str(e), parent=dlg)
@@ -613,7 +611,6 @@ class FriendsTab:
             self.refresh_list()
             messagebox.showinfo("Reset Complete",
                                 f"Ratchet session for '{name}' has been deleted.")
-            event_bus.publish(Events.RATCHET_RESET, source="friends_tab", friend_name=name)
             event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
         except FriendsServiceError as e:
             messagebox.showerror("Error", str(e))

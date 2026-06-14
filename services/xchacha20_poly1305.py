@@ -343,4 +343,8 @@ def run_self_test() -> bool:
 
 
 # Run self-test on import to catch implementation errors early
-_run_self_test = run_self_test()
+try:
+    _run_self_test = run_self_test()
+except Exception as e:
+    logger.error("XChaCha20 self-test failed: %s", e)
+    _run_self_test = False

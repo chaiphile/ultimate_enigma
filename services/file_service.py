@@ -138,7 +138,10 @@ class FileService:
         try:
             return self._decrypt_shared_file(tmp_path, output_path)
         finally:
-            os.unlink(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                logger.warning("Failed to remove temp file: %s", tmp_path)
 
     def _read_magic(self, path: str) -> bytes:
         with open(path, "rb") as f:

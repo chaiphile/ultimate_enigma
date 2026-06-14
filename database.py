@@ -13,6 +13,7 @@ except ImportError:
 import base64
 import secrets
 import logging
+import threading
 from pathlib import Path
 from typing import List, Tuple, Optional, Union
 from contextlib import closing
@@ -218,6 +219,7 @@ def _derive_db_key() -> bytes:
 # NOTE: Module-level mutable state is used here because SQLCipher key setup
 # must happen at connection time and multiple modules need access to it.
 _MASTER_PASSWORD = None
+_master_pw_lock = threading.Lock()
 
 
 def set_master_password(password: Union[str, SecureString]) -> None:
@@ -230,13 +232,14 @@ def set_master_password(password: Union[str, SecureString]) -> None:
                   and locked in memory to prevent swapping.
     """
     global _MASTER_PASSWORD
-    if _MASTER_PASSWORD is not None:
-        _MASTER_PASSWORD.wipe()
-    if isinstance(password, SecureString):
-        _MASTER_PASSWORD = password
-    else:
-        _MASTER_PASSWORD = SecureString(password)
-    _MASTER_PASSWORD.lock()
+    with _master_pw_lock:
+        if _MASTER_PASSWORD is not None:
+            _MASTER_PASSWORD.wipe()
+        if isinstance(password, SecureString):
+            _MASTER_PASSWORD = password
+        else:
+            _MASTER_PASSWORD = SecureString(password)
+        _MASTER_PASSWORD.lock()
 
 
 def get_master_password():
@@ -244,15 +247,17 @@ def get_master_password():
 
     Useful for testing or inspecting state; avoids direct global access.
     """
-    return _MASTER_PASSWORD
+    with _master_pw_lock:
+        return _MASTER_PASSWORD
 
 
 def clear_master_password() -> None:
     """Clear the in-memory master password (call on lock/ logout)."""
     global _MASTER_PASSWORD
-    if _MASTER_PASSWORD is not None:
-        _MASTER_PASSWORD.wipe()
-        _MASTER_PASSWORD = None
+    with _master_pw_lock:
+        if _MASTER_PASSWORD is not None:
+            _MASTER_PASSWORD.wipe()
+            _MASTER_PASSWORD = None
 
 def get_connection() -> sqlite3.Connection:
     """Get a database connection with proper pragmas.

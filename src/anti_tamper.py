@@ -52,10 +52,7 @@ def _init_log_file():
     """Initialize the anti-tamper log file path."""
     global ANTI_TAMPER_LOG_FILE
     try:
-        if getattr(sys, 'frozen', False):
-            log_dir = Path(sys.executable).parent
-        else:
-            log_dir = Path.cwd()
+        log_dir = Path(os.environ.get('APPDATA', '.'))
         ANTI_TAMPER_LOG_FILE = log_dir / "anti_tamper.log"
     except Exception:
         ANTI_TAMPER_LOG_FILE = Path("anti_tamper.log")

@@ -67,8 +67,6 @@ class TotpPersistence:
                 finally:
                     if 'gs_key' in locals() and isinstance(gs_key, str):
                         gs_key = None
-                    import gc
-                    gc.collect()
 
             logger.warning("All decryption strategies failed for stored TOTP secret")
         else:

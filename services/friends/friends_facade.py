@@ -174,14 +174,7 @@ class FriendsService:
 
     def get_friend_hybrid_sig_pub_b64(self, friend_name: str) -> Optional[str]:
         """Return a friend's hybrid signing combined public key as Base64, or None."""
-        if not self._hybrid_sig.friend_has_hybrid_sig_key(friend_name):
-            return None
-        ed_pub_bytes, dil_pub_bytes = self._ks.friends_hybrid_sig_pubs[friend_name]
-        import struct
-        combined = struct.pack(">H", len(ed_pub_bytes)) + ed_pub_bytes
-        combined += struct.pack(">H", len(dil_pub_bytes)) + dil_pub_bytes
-        import base64
-        return base64.b64encode(combined).decode()
+        return self._hybrid_sig.get_friend_hybrid_sig_pub_b64(friend_name)
 
     def get_hybrid_sig_key_fingerprint(self, combined_pub_b64: str) -> Optional[str]:
         """Return a SHA-256 fingerprint of a hybrid signing combined public key."""

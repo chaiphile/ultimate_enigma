@@ -362,10 +362,29 @@ class KeyStore:
         )
         from cryptography.hazmat.primitives.kdf.hkdf import HKDF
         from cryptography.hazmat.primitives import hashes as _hashes
+        import base64 as _b64
+        import secrets as _secrets
+
+        try:
+            _salt_row = conn.execute(
+                "SELECT value FROM settings WHERE key='ratchet_hkdf_salt'"
+            ).fetchone()
+            if _salt_row:
+                _ratchet_salt = _b64.b64decode(_salt_row[0])
+            else:
+                _ratchet_salt = _secrets.token_bytes(32)
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    ("ratchet_hkdf_salt", _b64.b64encode(_ratchet_salt).decode())
+                )
+                conn.commit()
+        except Exception:
+            _ratchet_salt = None
+
         _hkdf = HKDF(
             algorithm=_hashes.SHA256(),
             length=32,
-            salt=None,
+            salt=_ratchet_salt,
             info=b"enigma-ratchet-storage-key-v1",
         )
         self._ratchet_storage_key = _hkdf.derive(pw_bytes)
@@ -403,6 +422,8 @@ class KeyStore:
                     self.failed_attempts, delay
                 )
                 time.sleep(delay)
+                # TODO: This blocks the calling thread. If called from the GUI thread,
+                #       replace with a non-blocking timer / polling approach.
 
             # --- Check master password first ---
             try:
@@ -482,8 +503,10 @@ class KeyStore:
         with closing(database.get_connection()) as conn:
             conn.execute("UPDATE settings SET value=? WHERE key='global_secret'", (json.dumps(enc),))
             conn.commit()
-        # Store as bytearray for secure wiping
-        self.global_secret = bytearray(new_secret)
+        # Store in GuardedBuffer for secure memory
+        gb = GuardedBuffer(len(new_secret))
+        gb.write(new_secret)
+        self.global_secret = gb
 
     def save_friend(self, name: str, pem: str, shared_secret: Optional[bytes] = None,
                     password: Union[str, bytes, SecureString] = "", x25519_pub_b64: Optional[str] = None,
@@ -982,13 +1005,23 @@ class KeyStore:
                     "SELECT name, shared_secret_encrypted FROM friends "
                     "WHERE has_shared_secret=1 AND shared_secret_encrypted IS NOT NULL"
                 ).fetchall()
-                friend_secrets = {}  # name -> plaintext bytes
+                # Process each friend: decrypt, re-encrypt, and store in
+                # GuardedBuffer without accumulating raw plaintext.
+                friend_updates = {}
                 for fname, sec_json in friend_rows:
                     if not sec_json:
                         continue
                     try:
                         sec_dict = json.loads(sec_json)
-                        friend_secrets[fname] = database.decrypt_secret(sec_dict, old_password)
+                        friend_plain = database.decrypt_secret(sec_dict, old_password)
+                        new_sec_enc = database.encrypt_secret(friend_plain, new_password)
+                        conn.execute(
+                            "UPDATE friends SET shared_secret_encrypted=? WHERE name=?",
+                            (json.dumps(new_sec_enc), fname)
+                        )
+                        gb = GuardedBuffer(len(friend_plain))
+                        gb.write(friend_plain)
+                        friend_updates[fname] = gb
                     except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning(
                             "change_password: could not decrypt secret for '%s': %s",
@@ -1022,14 +1055,6 @@ class KeyStore:
                     (new_pk_pem,)
                 )
 
-                # Friend shared secrets
-                for fname, sec_plain in friend_secrets.items():
-                    new_sec_enc = database.encrypt_secret(sec_plain, new_password)
-                    conn.execute(
-                        "UPDATE friends SET shared_secret_encrypted=? WHERE name=?",
-                        (json.dumps(new_sec_enc), fname)
-                    )
-
                 # TOTP secret
                 if totp_plain is not None:
                     new_totp_enc = database.encrypt_secret(totp_plain, new_password)
@@ -1052,18 +1077,16 @@ class KeyStore:
                 # Update friend secrets in memory
                 updated_friends = []
                 for name, pub, sec in self.friends:
-                    if name in friend_secrets:
+                    if name in friend_updates:
                         if isinstance(sec, GuardedBuffer):
                             sec.wipe_and_free()
-                        new_sec = GuardedBuffer(len(friend_secrets[name]))
-                        new_sec.write(bytes(friend_secrets[name]) if isinstance(friend_secrets[name], bytearray) else friend_secrets[name])
-                        updated_friends.append((name, pub, new_sec))
+                        updated_friends.append((name, pub, friend_updates[name]))
                     else:
                         updated_friends.append((name, pub, sec))
                 self.friends = updated_friends
 
                 logger.info("Master password changed successfully (%d friend secrets re-encrypted)",
-                            len(friend_secrets))
+                            len(friend_updates))
 
             except KeyStoreError:
                 conn.rollback()
@@ -1146,7 +1169,7 @@ class KeyStore:
 
             # Generate a throwaway RSA key pair so the app doesn't crash
             # when code paths expect my_pub/my_priv to exist
-            decoy_priv = rsa.generate_private_key(65537, 2048, default_backend())
+            decoy_priv = rsa.generate_private_key(65537, MIN_RSA_KEY_SIZE, default_backend())
             self.my_priv = decoy_priv
             self.my_pub = decoy_priv.public_key()
 

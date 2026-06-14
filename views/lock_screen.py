@@ -2,16 +2,11 @@
 
 Displays a dark overlay with lock icon, status text, and an unlock button.
 The unlock button triggers a callback (typically showing password + TOTP dialog).
-
-Publishes Events:
-    UNLOCK_REQUESTED - when the user clicks "Unlock" or presses the unlock hotkey.
 """
 
 import tkinter as tk
 import ttkbootstrap as ttk
 import logging
-
-from services.event_bus import event_bus, Events
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +100,6 @@ class LockScreen:
 
     def _handle_unlock_request(self) -> None:
         """Publish unlock event and invoke the registered callback."""
-        event_bus.publish(Events.UNLOCK_REQUESTED, source="lock_screen")
         self._on_unlock_request()
 
     def unlock(self) -> None:

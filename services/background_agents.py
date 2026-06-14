@@ -1,8 +1,6 @@
 """Background agents for periodic maintenance, monitoring, and diagnostics.
 
-Implements subagent-style background tasks that run independently of the GUI,
-publishing events via the EventBus for any interested UI components. These
-agents encapsulate non-GUI-integrated abilities that were previously unused.
+Implements subagent-style background tasks that run independently of the GUI.
 
 Agents:
     BackupReminderAgent - Periodic backup age checks and reminders
@@ -99,12 +97,7 @@ class BackupReminderAgent:
         """Query BackupService and publish reminder if needed."""
         remind, days_since = self._backup_service.should_remind_backup()
         if remind:
-            event_bus.publish(
-                Events.BACKUP_REMINDER,
-                source="backup_reminder_agent",
-                days_since=days_since,
-                message=self.format_reminder_message(days_since),
-            )
+
             logger.info(
                 "Backup reminder published (days_since=%s)", days_since
             )
@@ -224,20 +217,12 @@ class RatchetMaintenanceAgent:
         active_names = self._get_active_friend_names()
         removed = RatchetService.cleanup_friend_locks(active_names)
         if removed > 0:
-            event_bus.publish(
-                Events.RATCHET_LOCKS_CLEANED,
-                source="ratchet_maintenance_agent",
-                removed_count=removed,
-            )
+
             logger.info("RatchetMaintenance: cleaned %d stale locks", removed)
 
         # 2. Publish lock stats
         stats = RatchetService.get_lock_stats()
-        event_bus.publish(
-            Events.RATCHET_LOCK_STATS,
-            source="ratchet_maintenance_agent",
-            stats=stats,
-        )
+
 
     def _get_active_friend_names(self) -> List[str]:
         """Get list of currently active friend names."""
@@ -353,23 +338,7 @@ class SystemMonitorAgent:
         status = self.get_status()
         is_healthy = status.get("healthy", True)
 
-        event_bus.publish(
-            Events.SYSTEM_STATUS,
-            source="system_monitor_agent",
-            status=status,
-        )
 
-        if is_healthy:
-            event_bus.publish(
-                Events.SYSTEM_HEALTH_OK,
-                source="system_monitor_agent",
-            )
-        else:
-            event_bus.publish(
-                Events.SYSTEM_HEALTH_DEGRADED,
-                source="system_monitor_agent",
-                issues=status.get("issues", []),
-            )
 
     def get_status(self) -> Dict[str, Any]:
         """Collect current system status (on-demand or periodic).
@@ -562,18 +531,4 @@ class KeyInspectorAgent:
             friend_name: Friend name, or None for local info.
         """
         info = self.get_key_info(friend_name)
-        event_bus.publish(
-            Events.KEY_INFO,
-            source="key_inspector_agent",
-            friend_name=friend_name,
-            info=info,
-        )
-
         fingerprint = self.get_fingerprint(friend_name)
-        if fingerprint:
-            event_bus.publish(
-                Events.KEY_FINGERPRINT,
-                source="key_inspector_agent",
-                friend_name=friend_name,
-                fingerprint=fingerprint,
-            )

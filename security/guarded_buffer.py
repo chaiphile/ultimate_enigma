@@ -167,8 +167,16 @@ class GuardedBuffer:
         if isinstance(other, GuardedBuffer):
             if self._freed or other._freed:
                 return False
-            import hmac as _hmac
-            return _hmac.compare_digest(bytes(self.read()), bytes(other.read()))
+            if self._size != other._size:
+                return False
+            buf1 = (ctypes.c_uint8 * self._size).from_address(self._data_addr)
+            buf2 = (ctypes.c_uint8 * other._size).from_address(other._data_addr)
+            # Constant-time comparison directly on guarded memory avoids
+            # copying data to the Python heap.
+            result = 0
+            for i in range(self._size):
+                result |= buf1[i] ^ buf2[i]
+            return result == 0
         return NotImplemented
 
     def wipe_and_free(self) -> None:

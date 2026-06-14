@@ -56,7 +56,6 @@ class EnigmaApp:
         self.secondary = built["secondary"]
         self.dark = built["dark"]
 
-        self.last_sent_b64 = ""
         self.vis_enigma = VisualEnigma()
         self.rotor_positions = [0, 0, 0]
         self._is_locked = False
@@ -92,7 +91,6 @@ class EnigmaApp:
         event_bus.unsubscribe_all(self._on_friend_list_changed)
         event_bus.unsubscribe_all(self._on_services_rebuilt)
         event_bus.unsubscribe_all(self._on_trust_changed)
-        event_bus.publish(Events.APP_SHUTDOWN, source="app")
         self.root.destroy()
 
     # ------------------------------------------------------------------
@@ -245,8 +243,7 @@ class EnigmaApp:
         self.auth_controller.wipe_sensitive_data()
         self.service_orchestrator.clipboard_service.shutdown()
         self.lock_screen.lock()
-        event_bus.publish(Events.EMERGENCY_LOCK, source="app")
-        event_bus.publish(Events.LOCKED, source="app")
+
 
     # ------------------------------------------------------------------
     # Unlock
@@ -292,7 +289,7 @@ class EnigmaApp:
 
         messagebox.showinfo("Unlocked", "Application unlocked successfully.\nAll keys restored.")
         logger.info("Application unlocked successfully")
-        event_bus.publish(Events.UNLOCKED, source="app")
+
 
     # ------------------------------------------------------------------
     # Event subscriptions (decoupled cross-component communication)

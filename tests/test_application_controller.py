@@ -156,13 +156,7 @@ class TestNtpSync:
         first_thread.join(timeout=2)
 
     def test_ntp_sync_loop_publishes_synced(self, controller):
-        """_ntp_sync_loop publishes NTP_SYNCED on success."""
-        from services.event_bus import event_bus, Events
-
-        published = []
-        handler = lambda **kw: published.append(kw)
-        event_bus.subscribe(Events.NTP_SYNCED, handler)
-
+        """_ntp_sync_loop calls update_ntp_time on success."""
         controller._is_running = True
         enc_service = MagicMock()
 
@@ -177,18 +171,10 @@ class TestNtpSync:
             controller._is_running = False
             t.join(timeout=3)
 
-        assert len(published) >= 1
-        assert published[0]["source"] == "application_controller"
-        event_bus.unsubscribe(Events.NTP_SYNCED, handler)
+        enc_service.update_ntp_time.assert_called()
 
     def test_ntp_sync_loop_publishes_failed_on_none(self, controller):
-        """_ntp_sync_loop publishes NTP_SYNC_FAILED when get_ntp_time returns None."""
-        from services.event_bus import event_bus, Events
-
-        published = []
-        handler = lambda **kw: published.append(kw)
-        event_bus.subscribe(Events.NTP_SYNC_FAILED, handler)
-
+        """_ntp_sync_loop calls update_ntp_time(None) when get_ntp_time returns None."""
         controller._is_running = True
         enc_service = MagicMock()
 
@@ -203,8 +189,7 @@ class TestNtpSync:
             controller._is_running = False
             t.join(timeout=3)
 
-        assert len(published) >= 1
-        event_bus.unsubscribe(Events.NTP_SYNC_FAILED, handler)
+        enc_service.update_ntp_time.assert_called_with(None)
 
     def test_ntp_sync_loop_stops_when_is_running_false(self, controller):
         """_ntp_sync_loop exits when _is_running becomes False."""

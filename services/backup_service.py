@@ -15,9 +15,11 @@ The HMAC key is derived from the master password via HKDF so that
 tampering with the export file is detected on import.
 """
 
-import json
-import time
 import hmac
+import json
+import os
+import stat
+import time
 import hashlib
 import logging
 import shutil
@@ -35,6 +37,20 @@ from key_manager import KeyStore
 logger = logging.getLogger(__name__)
 
 BACKUP_VERSION = 1
+
+
+def _validate_backup_schema(data: dict) -> None:
+    """Validate backup JSON structure before processing."""
+    required_keys = {"version", "exported_at", "settings", "friends", "hmac"}
+    if not isinstance(data, dict):
+        raise ValueError("Invalid backup format: expected JSON object")
+    if not required_keys.issubset(data.keys()):
+        missing = required_keys - data.keys()
+        raise ValueError(f"Invalid backup format: missing keys {missing}")
+    if not isinstance(data.get("settings"), dict):
+        raise ValueError("Invalid backup format: settings must be a dict")
+    if not isinstance(data.get("friends", []), list):
+        raise ValueError("Invalid backup format: friends must be a list")
 DEFAULT_BACKUP_DIR = Path.home() / ".ultimate_enigma" / "backups"
 DEFAULT_MAX_BACKUPS = 10
 DEFAULT_REMINDER_DAYS = 7
@@ -99,6 +115,8 @@ class BackupService:
         into an export dictionary.  The caller is responsible for writing
         this to disk as JSON.
         """
+        if not self._ks.verify_password(password):
+            raise BackupServiceError("Invalid master password — cannot export backup")
         try:
             conn = database.get_connection()
         except Exception as exc:
@@ -165,6 +183,9 @@ class BackupService:
         4. Replace database contents atomically
         5. Reload keys into KeyStore
         """
+        # --- 0. Schema validation ---
+        _validate_backup_schema(data)
+
         # --- 1. Version check ---
         version = data.get("version")
         if version != BACKUP_VERSION:
@@ -242,7 +263,10 @@ class BackupService:
                 "Backup imported: %d friends restored", len(friends)
             )
         except Exception as exc:
-            conn.rollback()
+            try:
+                conn.rollback()
+            except Exception as rb_exc:
+                logger.warning("Database rollback failed during import error handling: %s", rb_exc)
             raise BackupServiceError(f"Database restore failed: {exc}") from exc
         finally:
             conn.close()
@@ -275,6 +299,7 @@ class BackupService:
         try:
             with open(filepath, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=True)
+            os.chmod(filepath, stat.S_IRUSR | stat.S_IWUSR)
         except OSError as exc:
             raise BackupServiceError(f"Failed to write backup file: {exc}") from exc
 

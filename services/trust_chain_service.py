@@ -521,9 +521,7 @@ class TrustChainService:
 
             if imported > 0:
                 logger.info("Imported %d certificate(s) from peer", imported)
-                event_bus.publish(
-                    Events.CERTIFICATE_RECEIVED, count=imported
-                )
+
             return imported
 
     # ------------------------------------------------------------------

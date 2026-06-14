@@ -186,7 +186,6 @@ class AddFriendDialog:
                 self.refresh_list()
                 dlg.destroy()
                 messagebox.showinfo("Success", f"Friend '{name}' added successfully.")
-                event_bus.publish(Events.FRIEND_ADDED, source="friends_tab", friend_name=name)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
                 messagebox.showerror("Error", str(e), parent=dlg)

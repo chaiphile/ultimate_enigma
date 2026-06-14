@@ -97,7 +97,9 @@ class RatchetService:
 
     @classmethod
     def _derive_storage_key(cls, master_secret: bytes) -> bytes:
-        """Derive a ratchet storage encryption key from the master secret.
+        """Deprecated: use key_manager.KeyStore._ratchet_storage_key instead.
+        
+        Derive a ratchet storage encryption key from the master secret.
         
         Uses HKDF-SHA256 with a domain-separated info string so that
         the derived key is distinct from any other keys derived from

@@ -10,8 +10,11 @@ Publishes Events:
 """
 
 import json
+import logging
 import tkinter as tk
 from tkinter import messagebox, simpledialog
+
+logger = logging.getLogger(__name__)
 import ttkbootstrap as ttk
 from ttkbootstrap.dialogs import Messagebox
 
@@ -43,6 +46,7 @@ class TrustTab:
         self.all_friend_names = []
         self._tooltips = {}
         self._build_ui()
+        event_bus.subscribe(Events.TRUST_LEVEL_CHANGED, self.notify_trust_changed)
 
     def _build_ui(self) -> None:
         top_bar = ttk.Frame(self.frame, padding=(10, 8))
@@ -294,12 +298,11 @@ class TrustTab:
             from components.certificate_dialog import CertificateDialog
             CertificateDialog(parent, self.trust_service, self.friends_service,
                               self._bg, mode="issue", friend_name=name).show()
-        except ImportError:
+        except ImportError as e:
+            logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "Issue Certificate",
-                f"Certificate Issuance for: {name or '(select a friend)'}\n\n"
-                "The certificate dialog component is not yet available.\n"
-                "This feature will be available when CertificateDialog is implemented.",
+                "Not Available",
+                "This feature requires additional components.",
                 parent=parent,
             )
 
@@ -349,7 +352,8 @@ class TrustTab:
                 self.refresh_list()
                 dlg.destroy()
                 messagebox.showinfo("Imported", f"Imported {count} certificate(s).", parent=parent)
-                event_bus.publish(Events.CERTIFICATE_RECEIVED, source="trust_tab")
+                event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
+
             except Exception as e:
                 messagebox.showerror("Import Failed", str(e), parent=dlg)
 
@@ -364,11 +368,11 @@ class TrustTab:
             from components.key_recovery_dialog import KeyRecoveryDialog
             KeyRecoveryDialog(parent, self.trust_service, self.friends_service,
                               self._bg, mode="split").show()
-        except ImportError:
+        except ImportError as e:
+            logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "Split Recovery Key",
-                "Key recovery share generation is not yet available.\n"
-                "This feature will be available when KeyRecoveryDialog is implemented.",
+                "Not Available",
+                "This feature requires additional components.",
                 parent=parent,
             )
 
@@ -378,11 +382,11 @@ class TrustTab:
             from components.key_recovery_dialog import KeyRecoveryDialog
             KeyRecoveryDialog(parent, self.trust_service, self.friends_service,
                               self._bg, mode="recover").show()
-        except ImportError:
+        except ImportError as e:
+            logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "Recover Key",
-                "Key recovery reconstruction is not yet available.\n"
-                "This feature will be available when KeyRecoveryDialog is implemented.",
+                "Not Available",
+                "This feature requires additional components.",
                 parent=parent,
             )
 
@@ -407,6 +411,7 @@ class TrustTab:
             messagebox.showinfo("Revoked", f"Certificate for '{name}' revoked.")
             event_bus.publish(Events.CERTIFICATE_REVOKED, source="trust_tab", friend_name=name)
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab", friend_name=name)
+
         except Exception as e:
             messagebox.showerror("Error", str(e))
 

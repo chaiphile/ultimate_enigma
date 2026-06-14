@@ -122,7 +122,7 @@ class TestImportBackup:
     def test_import_missing_hmac_raises(self, backup_service, password):
         data = backup_service.export_backup(password)
         del data["hmac"]
-        with pytest.raises(BackupServiceError, match="missing HMAC"):
+        with pytest.raises((ValueError, BackupServiceError), match="missing keys|missing HMAC"):
             backup_service.import_backup(data, password)
 
     def test_import_missing_setting_raises(self, backup_service, password):

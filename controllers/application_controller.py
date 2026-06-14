@@ -2,10 +2,6 @@
 
 Manages startup/shutdown sequences, NTP synchronization, global hotkeys,
 and the main task queue. Extracted from EnigmaApp to enforce MVC separation.
-
-Publishes Events:
-    NTP_SYNCED - after successful NTP synchronization.
-    NTP_SYNC_FAILED - when NTP sync fails.
 """
 
 import logging
@@ -13,7 +9,6 @@ import threading
 import time
 from queue import Queue, Empty
 
-from services.event_bus import event_bus, Events
 from services.crypto_task_queue import CryptoTaskQueue, TaskPriority
 from src.constants import CONCURRENCY_CONSTANTS
 
@@ -118,18 +113,11 @@ class ApplicationController:
                             ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), offset_ms
                         )
                         encryption_service.update_ntp_time(t)
-                        event_bus.publish(
-                            Events.NTP_SYNCED,
-                            source="application_controller",
-                            offset_ms=offset_ms
-                        )
+
                     else:
                         logger.warning("NTP sync failed - using system time")
                         encryption_service.update_ntp_time(None)
-                        event_bus.publish(
-                            Events.NTP_SYNC_FAILED,
-                            source="application_controller"
-                        )
+
                 except Exception as e:
                     logger.error("NTP sync error (non-fatal): %s", e)
                 time.sleep(1800)

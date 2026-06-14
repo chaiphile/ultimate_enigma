@@ -184,9 +184,10 @@ def _constant_time_decrypt_with_window(
     Attempt decryption across the time window in constant time.
     Returns (inner_plaintext, aes_key) or raises ValueError.
 
-    Eliminates timing side-channel by always iterating through ALL
-    candidate keys regardless of when a match is found, using a
-    constant-time selection strategy to avoid early returns.
+    NOTE: This is a BEST-EFFORT constant-time implementation. Python's
+    language semantics (branching, bytecode, GC) make true constant-time
+    execution impossible. A production-grade constant-time implementation
+    would require a C or Rust extension.
     """
     result_inner = None
     result_key = None

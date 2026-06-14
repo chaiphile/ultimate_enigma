@@ -1,6 +1,8 @@
 """About tab with backup export/import."""
 
 import json
+import os
+import stat
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttkb
@@ -135,6 +137,7 @@ class AboutTab:
         try:
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2, ensure_ascii=True)
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
             messagebox.showinfo("Success", f"Backup exported to:\n{path}")
         except OSError as exc:
             messagebox.showerror("Export Failed", f"Could not write file: {exc}")

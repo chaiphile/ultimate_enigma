@@ -334,17 +334,11 @@ class TestSetDuressPassword:
 
 class TestEnterDuressMode:
     def test_enter_duress_mode_publishes_event(self, controller, mock_ks):
-        """enter_duress_mode publishes DURESS_MODE_ENTERED."""
-        published_events = []
-        from services.event_bus import event_bus
-        event_bus.subscribe(Events.DURESS_MODE_ENTERED, lambda **kw: published_events.append(kw))
-
+        """enter_duress_mode activates duress mode."""
         controller.enter_duress_mode()
 
         mock_ks.load_duress_decoy.assert_called_once()
         mock_ks.clear_secret.assert_not_called()
-        assert len(published_events) == 1
-        event_bus.unsubscribe(Events.DURESS_MODE_ENTERED, lambda **kw: published_events.append(kw))
 
 
 # ---------------------------------------------------------------------------

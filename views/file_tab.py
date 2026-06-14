@@ -7,6 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 import threading
+from pathlib import Path
 from queue import Queue
 
 from views.dialogs import password_dialog
@@ -109,14 +110,32 @@ class FileTab:
         else:
             self.friend_combo.config(state="disabled")
 
+    # ===================== PATH VALIDATION =====================
+    @staticmethod
+    def _validate_path(filepath: str) -> Path:
+        p = Path(filepath).resolve()
+        if len(str(p)) > 260:
+            raise ValueError(f"Path too long: {len(str(p))} chars")
+        return p
+
     # ===================== ENCRYPT =====================
     def encrypt_file(self) -> None:
         infile = filedialog.askopenfilename(title="Select file to encrypt")
         if not infile:
             return
+        try:
+            self._validate_path(infile)
+        except ValueError as e:
+            messagebox.showerror("Invalid Path", str(e))
+            return
         outfile = filedialog.asksaveasfilename(title="Save encrypted file as",
                                                defaultextension=".enc")
         if not outfile:
+            return
+        try:
+            self._validate_path(outfile)
+        except ValueError as e:
+            messagebox.showerror("Invalid Path", str(e))
             return
 
         method = self.method_var.get()
@@ -206,8 +225,18 @@ class FileTab:
         infile = filedialog.askopenfilename(title="Select encrypted file")
         if not infile:
             return
+        try:
+            self._validate_path(infile)
+        except ValueError as e:
+            messagebox.showerror("Invalid Path", str(e))
+            return
         outfile = filedialog.asksaveasfilename(title="Save decrypted file as")
         if not outfile:
+            return
+        try:
+            self._validate_path(outfile)
+        except ValueError as e:
+            messagebox.showerror("Invalid Path", str(e))
             return
 
         def _do_decrypt():

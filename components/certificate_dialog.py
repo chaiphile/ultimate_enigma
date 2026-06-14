@@ -5,6 +5,7 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
 from views.dialogs import password_dialog
+from services.event_bus import event_bus, Events
 from models.trust_chain import CertificateType, TrustLevel, RevocationStatus
 
 
@@ -153,6 +154,7 @@ class CertificateDialog:
                     f"ID: {cert.cert_id[:12]}...",
                     parent=dlg,
                 )
+                event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog", friend_name=fname)
             except Exception as e:
                 messagebox.showerror("Error", str(e), parent=dlg)
 
@@ -276,6 +278,7 @@ class CertificateDialog:
                 messagebox.showinfo("Revoked",
                                     "Certificate has been revoked successfully.",
                                     parent=dlg)
+                event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
             except Exception as e:
                 messagebox.showerror("Error", str(e), parent=dlg)
 
