@@ -42,7 +42,9 @@ Ultimate Enigma Messenger follows a **Model-View-Controller (MVC)** architecture
 ```
 ultimate_enigma/
 ├── main.py                 # Application entry point, logging setup
-├── app.py                  # EnigmaApp - main window orchestration
+├── app.py                  # EnigmaApp - main window orchestration (delegates to AppBuilder)
+├── builders/               # Composition root
+│   └── app_builder.py      # AppBuilder - step-by-step app construction
 ├── controllers/            # MVC Controllers
 │   ├── application_controller.py  # App lifecycle, hotkeys, queues
 │   ├── auth_controller.py         # Authentication, TOTP, lock/unlock
@@ -241,7 +243,7 @@ The EventBus enables loose coupling between components:
 
 - **Main Thread**: Tkinter GUI event loop
 - **Crypto Workers**: ThreadPoolExecutor for async crypto operations
-- **Background Tasks**: NTP sync, clipboard auto-clear timers
+- **Background Tasks**: NTP sync (lock-free timestamp assignment), clipboard auto-clear timers
 - **Thread Safety**: EventBus dispatches to main thread via `root.after()`
 - **Decryption Snapshots**: `KeyStore.get_decryption_snapshot()` provides thread-safe key material snapshots for background decryption tasks
 - **Deadlock Prevention**: `acquire_friend_locks_ordered()` acquires per-friend ratchet locks in a consistent global order to prevent deadlocks when multiple threads interact with the same friends

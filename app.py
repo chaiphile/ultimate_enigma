@@ -29,6 +29,7 @@ from controllers.auth_controller import AuthController
 from controllers.service_orchestrator import ServiceOrchestrator
 from services.event_bus import event_bus, Events
 from services.totp_persistence import TotpPersistence
+from builders.app_builder import AppBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -36,106 +37,47 @@ logger = logging.getLogger(__name__)
 class EnigmaApp:
     def __init__(self, root):
         self.root = root
-        root.geometry("1400x850")
-        root.minsize(1200, 750)
 
-        icon = tk.PhotoImage(width=1, height=1)
-        root.iconphoto(True, icon)
-
-        # Configure event bus with Tkinter root for thread-safe dispatch
-        event_bus.set_root(root)
-
-        self.style = ttk.Style()
-        self.bg = self.style.colors.bg
-        self.fg = self.style.colors.fg
-        self.accent = self.style.colors.primary
-        self.secondary = self.style.colors.secondary
-        self.dark = self.style.colors.dark
-
-        # Check first-run BEFORE creating KeyStore (which touches the DB)
-        self._first_run = not (Path.home() / ".ultimate_enigma" / "enigma.db").exists()
-
-        # Ensure schema exists before KeyStore reads lockout state from settings
-        database.init_db()
-
-        # 1. Initialize KeyStore
-        self.ks = KeyStore()
-
-        # 2. Initialize Controllers
-        self.app_controller = ApplicationController(root)
-        self.totp_persistence = TotpPersistence(self.ks)
-        self.auth_controller = AuthController(root, self.ks, totp_persistence=self.totp_persistence)
-        
-        # Start task queue processing
-        self.app_controller.start_queue_processing()
-
-        # 3. Authentication & Key Loading
-        if not self.auth_controller.load_keys(self._first_run):
-            root.destroy()
+        builder = AppBuilder(root)
+        built = builder.build()
+        if built is None:
             return
 
-        # Update local reference to KeyStore (may have changed in auth controller)
-        self.ks = self.auth_controller.ks
+        self.ks = built["ks"]
+        self.app_controller = built["app_controller"]
+        self.auth_controller = built["auth_controller"]
+        self.totp_persistence = built["totp_persistence"]
+        self.service_orchestrator = built["service_orchestrator"]
+        self.trust_chain_service = built["trust_chain_service"]
+        self._first_run = built["first_run"]
+        self.style = built["style"]
+        self.bg = built["bg"]
+        self.fg = built["fg"]
+        self.accent = built["accent"]
+        self.secondary = built["secondary"]
+        self.dark = built["dark"]
 
-        # 4. Initialize Service Orchestrator
-        self.service_orchestrator = ServiceOrchestrator(
-            root, self.ks, crypto_queue=self.app_controller.crypto_queue
-        )
-
-        # 4a. Wire up orchestrator to app controller for agent lifecycle
-        self.app_controller.set_service_orchestrator(self.service_orchestrator)
-
-        # 4b. Initialize Trust Chain Service
-        self.trust_chain_service = TrustChainService(self.ks)
-        # Wire trust chain into FriendsService
-        self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
-
-        # 5. Mandatory TOTP setup enforcement
-        if not self.auth_controller.enforce_mandatory_totp_setup():
-            self.ks.wipe()
-            root.destroy()
-            return
-
-        # 6. Startup TOTP verification
-        if not self.auth_controller.verify_startup_totp():
-            self.ks.wipe()
-            root.destroy()
-            return
-
-        # 7. NTP sync – deferred until AFTER GUI renders
-        self.app_controller.start_ntp_sync(
-            self.service_orchestrator.encryption_service,
-            self.service_orchestrator.service_lock
-        )
-
-        # 8. State
         self.last_sent_b64 = ""
         self.vis_enigma = VisualEnigma()
         self.rotor_positions = [0, 0, 0]
         self._is_locked = False
 
-        # 8a. Shared BackupService (created early so AboutTab can use it)
         from services.backup_service import BackupService
         self._backup_service = BackupService(self.ks)
 
-        # 9. UI
         self._setup_header()
         self._setup_tabs()
         self._start_rotor_animation()
 
-        # 10. Lock screen
         self.lock_screen = LockScreen(root, on_unlock_request=self._request_unlock)
 
-        # 11. Subscribe to events for decoupled communication
         self._setup_event_subscriptions()
 
-        # 12. Global hotkeys
         self.app_controller.register_hotkeys(
             lock_callback=self._emergency_lock,
             unlock_callback=self._request_unlock
         )
 
-        # 13. Start background agents (after UI is fully initialized)
         self._start_background_agents()
 
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)

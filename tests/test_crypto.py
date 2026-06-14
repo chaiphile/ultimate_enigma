@@ -389,7 +389,9 @@ class TestPeekFlags:
 class TestEncryptMessageFlags:
     def test_no_flags(self, const_key):
         packet, _ = encrypt_message(b"test", const_key, time.time())
-        assert packet[0] == 0
+        from src.constants import CRYPTO_CONSTANTS
+        KEY_HINT_FLAG = CRYPTO_CONSTANTS["KEY_HINT_FLAG"]
+        assert packet[0] == KEY_HINT_FLAG
 
     def test_sign_flag(self, const_key, rsa_keypair):
         priv, _ = rsa_keypair

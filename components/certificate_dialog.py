@@ -185,12 +185,11 @@ class CertificateDialog:
         cert_tree.column("type", width=90)
         cert_tree.column("expires", width=150)
         cert_tree.column("status", width=90)
-        cert_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
         cert_scroll = ttk.Scrollbar(tab_view, orient=tk.VERTICAL,
                                      command=cert_tree.yview, bootstyle="info-round")
-        cert_tree.configure(yscrollcommand=cert_scroll.set)
         cert_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        cert_tree.configure(yscrollcommand=cert_scroll.set)
+        cert_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         def load_certificates():
             for item in cert_tree.get_children():
@@ -311,12 +310,11 @@ class CertificateDialog:
         trust_tree.column("trust_level", width=120)
         trust_tree.column("cert_count", width=100)
         trust_tree.column("badge", width=160)
-        trust_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
         trust_scroll = ttk.Scrollbar(tab_status, orient=tk.VERTICAL,
                                       command=trust_tree.yview, bootstyle="info-round")
-        trust_tree.configure(yscrollcommand=trust_scroll.set)
         trust_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        trust_tree.configure(yscrollcommand=trust_scroll.set)
+        trust_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
         def load_trust_status():
             for item in trust_tree.get_children():

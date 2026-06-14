@@ -334,6 +334,8 @@ def encrypt_message(plaintext: bytes, const_key: bytes, timestamp: float,
     # Always include the timestamp in the outer packet so the receiver can
     # derive the correct time-based key regardless of clock skew / window.
     packet += outer_ts_bytes
+    if key_hint:
+        packet += key_hint
     if sign or use_hybrid_sig:
         packet += _pack_bytes(signature)
     if encrypt_for_friend_pub:
@@ -358,6 +360,10 @@ def decrypt_message(packet: bytes, const_key: bytes, my_priv=None,
         raise ValueError("Invalid message format")
     outer_ts = struct.unpack(">Q", packet[idx:idx+8])[0]
     idx += 8
+
+    has_key_hint = bool(flags & KEY_HINT_FLAG)
+    if has_key_hint:
+        idx += 2
 
     signature = b""
     if sign or has_hybrid_sig:
@@ -467,3 +473,14 @@ def peek_flags(packet: bytes) -> int:
     if len(packet) < 1:
         raise ValueError("Packet too short")
     return packet[0]
+
+def extract_key_hint(packet: bytes) -> Optional[bytes]:
+    """Extract the 2-byte key hint from a legacy packet, or None if absent."""
+    if len(packet) < 1:
+        return None
+    flags = packet[0]
+    if not (flags & KEY_HINT_FLAG):
+        return None
+    if len(packet) < 11:
+        return None
+    return packet[9:11]

@@ -91,6 +91,7 @@ The application implements defense-in-depth memory protection to prevent key mat
 - Any buffer overread/overflow triggers an immediate access violation (SIGSEGV/SEH)
 - Layout: `[PAGE_NOACCESS][sensitive data][PAGE_NOACCESS]`
 - `GuardedBuffer.write()`, `read()`, `wipe_and_free()` with context manager support
+- Equality comparison uses `hmac.compare_digest` for constant-time semantics (prevents timing side-channels on secret comparison)
 - On Linux: `madvise(MADV_DONTDUMP)` excludes guard-protected regions from core dumps
 
 #### Anti-Dump Protection (`security/anti_dump.py`)
@@ -163,6 +164,7 @@ Message → AES-GCM encrypt → Ciphertext
 - Sliding window: ±3 steps of 30 seconds (±90 second validity)
 - Provides replay protection within window
 - NTP sync ensures clock accuracy
+- **Key hint**: Shared-secret packets embed a 2-byte SHA-256 fingerprint of the key (flag bit 4). On decryption, non-matching candidates are skipped before attempting AES-GCM, reducing brute-force from O(N) to O(1) per candidate (constant-time hash comparison)
 
 ### Self-Destruct Messages
 - Expiration timestamp embedded in envelope
@@ -192,8 +194,9 @@ Message → AES-GCM encrypt → Ciphertext
 ## Network Security
 
 ### NTP Synchronization
-- UDP queries to public NTP servers
+- UDP queries to public NTP servers (up to 5 servers, 2s timeout each)
 - Clock offset calculation for time-based keys
+- NTP queries run entirely outside the service lock — the lock is only held for the brief timestamp assignment (atomic under CPython GIL), eliminating lock contention with encrypt/decrypt operations
 - Multiple server options for redundancy
 - Timeout handling prevents blocking
 

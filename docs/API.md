@@ -577,6 +577,12 @@ class GuardedBuffer:
     def wipe_and_free(self) -> None:
         """Zero the data region, then release the entire allocation."""
     
+    def __eq__(self, other: object) -> bool:
+        """Constant-time comparison using hmac.compare_digest.
+        
+        Prevents timing side-channels when comparing secret material.
+        """
+    
     # Context manager (recommended)
     def __enter__(self) -> GuardedBuffer
     def __exit__(self, *args) -> None
@@ -664,6 +670,48 @@ from src.constants import get_magic_byte, get_kdf_param, KDF_PARAMS, CRYPTO_CONS
 
 magic = get_magic_byte("RATCHET_ENVELOPE")  # 0xD0
 time_cost = get_kdf_param("ARGON2_TIME_COST")  # 3
+```
+
+### AppBuilder (`builders/app_builder.py`)
+
+Step-by-step composition root for `EnigmaApp`. Each step is independently testable with mocked dependencies.
+
+```python
+class AppBuilder:
+    def __init__(self, root: tk.Tk)
+    
+    def step1_init_window(self) -> bool
+        """Configure root window, style, and event bus."""
+    
+    def step2_init_database(self) -> bool
+        """Detect first-run and ensure DB schema exists."""
+    
+    def step3_init_keystore(self) -> bool
+        """Create the KeyStore instance."""
+    
+    def step4_init_controllers(self) -> bool
+        """Create ApplicationController, TotpPersistence, AuthController."""
+    
+    def step5_authenticate(self) -> bool
+        """Load keys, enforce mandatory TOTP, verify startup TOTP."""
+    
+    def step6_init_services(self) -> bool
+        """Create ServiceOrchestrator, TrustChainService, wire them together."""
+    
+    def build(self) -> dict | None
+        """Run all steps in order. Returns component dict or None on failure."""
+```
+
+### Crypto Helpers (`crypto.py`)
+
+```python
+def extract_key_hint(packet: bytes) -> bytes | None
+    """Extract the 2-byte SHA-256 key hint from a legacy packet.
+    
+    Returns the hint bytes if KEY_HINT_FLAG is set, otherwise None.
+    Used by LegacyEncryptionStrategy to skip non-matching shared secrets
+    before attempting full AES-GCM decryption (O(1) filter vs O(N) brute-force).
+    """
 ```
 
 ---

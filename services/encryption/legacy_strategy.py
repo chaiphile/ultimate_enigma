@@ -8,6 +8,7 @@ from crypto import (
     encrypt_message,
     decrypt_message,
     peek_flags,
+    extract_key_hint,
     AES_KEY_SIZE,
     SELF_DESTRUCT_FLAG,
 )
@@ -185,7 +186,12 @@ class LegacyEncryptionStrategy:
         """Attempt decryption with a list of shared secrets; returns plaintext or None."""
         now = int(self._get_ntp_time()) if self._get_ntp_time() else None
         friends_hybrid = self._get_friends_hybrid_list()
+        key_hint = extract_key_hint(packet)
+        import hashlib
         for secret in secrets_to_try:
+            if key_hint is not None:
+                if hashlib.sha256(secret).digest()[:2] != key_hint:
+                    continue
             try:
                 return decrypt_message(
                     packet,
