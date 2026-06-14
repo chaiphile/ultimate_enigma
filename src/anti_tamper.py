@@ -40,63 +40,16 @@ from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Anti-Tamper Log File
-# ---------------------------------------------------------------------------
-# Write to a persistent file so triggers survive process exit.
-# Location: same directory as the executable (or CWD when running from source).
+# Anti-tamper log file removed per request (no disk writes from frozen exe).
+# _log_trigger and _log_info are no-ops; they exist only to satisfy callers.
 
 ANTI_TAMPER_LOG_FILE = None
 
-def _init_log_file():
-    """Initialize the anti-tamper log file path."""
-    global ANTI_TAMPER_LOG_FILE
-    try:
-        log_dir = Path(os.environ.get('APPDATA', '.'))
-        ANTI_TAMPER_LOG_FILE = log_dir / "anti_tamper.log"
-    except Exception:
-        ANTI_TAMPER_LOG_FILE = Path("anti_tamper.log")
+def _log_trigger(check_name, details=""):
+    pass
 
-_init_log_file()
-
-
-def _log_trigger(check_name: str, details: str = "") -> None:
-    """Write a trigger entry to the anti-tamper log file.
-
-    This function writes directly to disk (no buffering) so the entry
-    survives even if the process is killed immediately after.
-    """
-    try:
-        import datetime
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        line = f"[{timestamp}] TRIGGERED: {check_name}"
-        if details:
-            line += f" | {details}"
-        line += "\n"
-
-        if ANTI_TAMPER_LOG_FILE is not None:
-            with open(ANTI_TAMPER_LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(line)
-                f.flush()
-                os.fsync(f.fileno())
-    except Exception:
-        pass
-
-
-def _log_info(message: str) -> None:
-    """Write an informational entry to the anti-tamper log file."""
-    try:
-        import datetime
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        line = f"[{timestamp}] INFO: {message}\n"
-
-        if ANTI_TAMPER_LOG_FILE is not None:
-            with open(ANTI_TAMPER_LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(line)
-                f.flush()
-                os.fsync(f.fileno())
-    except Exception:
-        pass
+def _log_info(message):
+    pass
 
 # ---------------------------------------------------------------------------
 # Configuration

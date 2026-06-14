@@ -316,59 +316,16 @@ class TestBackgroundChecks:
 
 
 class TestLogging:
-    """Test anti-tamper logging functionality."""
+    """Test anti-tamper logging functionality (no-ops after log file removal)."""
 
-    def test_log_trigger_writes_to_file(self, frozen_env, tmp_path):
-        from src.anti_tamper import _log_trigger, ANTI_TAMPER_LOG_FILE
-        log_file = tmp_path / "test_trigger.log"
-        import src.anti_tamper as at_mod
-        original = at_mod.ANTI_TAMPER_LOG_FILE
-        try:
-            at_mod.ANTI_TAMPER_LOG_FILE = log_file
-            _log_trigger("TestCheck", "test details")
-            content = log_file.read_text(encoding="utf-8")
-            assert "TRIGGERED: TestCheck" in content
-            assert "test details" in content
-        finally:
-            at_mod.ANTI_TAMPER_LOG_FILE = original
+    def test_log_trigger_is_noop(self, frozen_env):
+        from src.anti_tamper import _log_trigger
+        # Should not raise, should not write anything
+        _log_trigger("TestCheck", "details")
 
-    def test_log_info_writes_to_file(self, frozen_env, tmp_path):
+    def test_log_info_is_noop(self, frozen_env):
         from src.anti_tamper import _log_info
-        log_file = tmp_path / "test_info.log"
-        import src.anti_tamper as at_mod
-        original = at_mod.ANTI_TAMPER_LOG_FILE
-        try:
-            at_mod.ANTI_TAMPER_LOG_FILE = log_file
-            _log_info("test info message")
-            content = log_file.read_text(encoding="utf-8")
-            assert "INFO: test info message" in content
-        finally:
-            at_mod.ANTI_TAMPER_LOG_FILE = original
-
-    def test_log_trigger_includes_timestamp(self, frozen_env, tmp_path):
-        from src.anti_tamper import _log_trigger
-        log_file = tmp_path / "test_timestamp.log"
-        import src.anti_tamper as at_mod
-        original = at_mod.ANTI_TAMPER_LOG_FILE
-        try:
-            at_mod.ANTI_TAMPER_LOG_FILE = log_file
-            _log_trigger("TestCheck")
-            content = log_file.read_text(encoding="utf-8")
-            # Timestamp format: [2026-06-13 12:34:56.789]
-            assert "[" in content and "]" in content
-        finally:
-            at_mod.ANTI_TAMPER_LOG_FILE = original
-
-    def test_log_trigger_with_none_log_file(self, frozen_env):
-        from src.anti_tamper import _log_trigger
-        import src.anti_tamper as at_mod
-        original = at_mod.ANTI_TAMPER_LOG_FILE
-        try:
-            at_mod.ANTI_TAMPER_LOG_FILE = None
-            # Should not raise
-            _log_trigger("TestCheck", "details")
-        finally:
-            at_mod.ANTI_TAMPER_LOG_FILE = original
+        _log_info("test info message")
 
 
 class TestDebuggerWindows:
