@@ -38,6 +38,7 @@ All sensitive keys are encrypted at rest and stored in a SQLCipher-encrypted SQL
 - [Contributing Guidelines](docs/CONTRIBUTING.md) – Development guidelines and workflows
 - [Database Reference](docs/DATABASE.md) – Database schema and operations
 - [Hybrid Signature Implementation](docs/HYBRID_SIGNATURE_IMPLEMENTATION.md) – Hybrid signature details
+- [Scientific Report](docs/SCIENTIFIC_REPORT.md) – Cryptographic architecture and scientific foundations
 
 ---
 
@@ -298,7 +299,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | `components/` | Reusable UI components (5 files) - add friend, hybrid sig exchange, PQC exchange, TOTP dialogs |
 | `src/` | Core utilities (8 files, ~2014 lines) - constants, exceptions, secure string, crypto helpers, anti-tamper, timeout |
 | `tests/` | Test suite (23 files, 550+ tests) |
-| `docs/` | Documentation (10 reference files) |
+| `docs/` | Documentation (11 reference files) |
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
@@ -354,6 +355,7 @@ For the complete security model, see [docs/SECURITY.md](docs/SECURITY.md).
 | [Contributing](docs/CONTRIBUTING.md) | Code style, testing, PR process |
 | [Database Reference](docs/DATABASE.md) | Database schema and operations |
 | [Hybrid Signature Implementation](docs/HYBRID_SIGNATURE_IMPLEMENTATION.md) | Hybrid signature implementation details |
+| [Scientific Report](docs/SCIENTIFIC_REPORT.md) | Cryptographic architecture and scientific foundations |
 
 ---
 
