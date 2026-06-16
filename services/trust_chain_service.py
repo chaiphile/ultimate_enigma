@@ -566,6 +566,218 @@ class TrustChainService:
             }
 
     # ------------------------------------------------------------------
+    # Single Certificate Export
+    # ------------------------------------------------------------------
+
+    def export_single_certificate(self, cert_id: str) -> Dict[str, Any]:
+        """Export a single certificate by ID as a serializable dict.
+
+        Args:
+            cert_id: UUID string identifying the certificate.
+
+        Returns:
+            Dict suitable for JSON serialization.
+
+        Raises:
+            CertificateError: If the certificate cannot be found.
+        """
+        with self._lock:
+            cert = self._load_certificate(cert_id)
+            return cert.to_dict()
+
+    # ------------------------------------------------------------------
+    # Delegation Powers
+    # ------------------------------------------------------------------
+
+    def get_delegation_certs_held_by_me(self) -> List[TrustCertificate]:
+        """Return valid delegation certs where the local user is the subject.
+
+        These are certs granting the local user authority to act on the
+        issuer's behalf.
+
+        Returns:
+            List of valid, non-expired DELEGATION certificates.
+        """
+        import database
+
+        with self._lock:
+            my_name = self._ks.my_name
+            try:
+                rows = database.get_trust_certificates_for(subject_name=my_name)
+            except Exception as e:
+                logger.error("Failed to load delegation certs for me: %s", e)
+                return []
+            certs = [TrustCertificate.from_dict(row) for row in rows]
+            return [
+                c for c in certs
+                if c.cert_type == CertificateType.DELEGATION
+                and c.status() == RevocationStatus.VALID
+            ]
+
+    def update_delegator_pub_key(
+        self,
+        delegator_name: str,
+        new_combined_pub_b64: str,
+        master_password: str,
+    ) -> None:
+        """Update a delegator's stored hybrid signing public key.
+
+        Requires a valid DELEGATION certificate from delegator_name to the
+        local user. Updates the friend entry's hybrid_sig_pub_b64 while
+        preserving all other stored data.
+
+        Args:
+            delegator_name: Name of the friend who granted delegation.
+            new_combined_pub_b64: Base64-encoded new combined public key.
+            master_password: Required to re-encrypt the friend's shared secret.
+
+        Raises:
+            CertificateError: If no valid delegation cert exists, the friend is
+                not found, or the key is invalid.
+        """
+        with self._lock:
+            delegation_certs = self.get_delegation_certs_held_by_me()
+            if not any(c.issuer_name == delegator_name for c in delegation_certs):
+                raise CertificateError(
+                    f"No valid delegation certificate from '{delegator_name}'. "
+                    "Cannot update their public key."
+                )
+
+            try:
+                import base64 as _b64
+                from services.pqc_signatures import HybridSigner
+                raw = _b64.b64decode(new_combined_pub_b64)
+                HybridSigner.parse_combined_pub(raw)
+            except Exception as e:
+                raise CertificateError(
+                    f"Invalid hybrid signing public key: {e}"
+                ) from e
+
+            import database as _db
+            import json
+            from contextlib import closing
+
+            with closing(_db.get_connection()) as conn:
+                row = conn.execute(
+                    "SELECT public_key_pem, x25519_public_key_b64, "
+                    "capabilities_json, pqc_combined_pub_b64 "
+                    "FROM friends WHERE name=?",
+                    (delegator_name,),
+                ).fetchone()
+
+            if row is None:
+                raise CertificateError(
+                    f"'{delegator_name}' not found in friends list"
+                )
+
+            pem, x_b64, cap_json, pqc_b64 = row
+            caps = json.loads(cap_json) if cap_json else None
+            secret = self._ks.get_friend_secret(delegator_name)
+
+            try:
+                self._ks.save_friend(
+                    name=delegator_name,
+                    pem=pem,
+                    shared_secret=secret,
+                    password=master_password,
+                    x25519_pub_b64=x_b64,
+                    capabilities=caps,
+                    pqc_combined_pub_b64=pqc_b64,
+                    hybrid_sig_pub_b64=new_combined_pub_b64,
+                )
+            except Exception as e:
+                raise CertificateError(
+                    f"Failed to update public key: {e}"
+                ) from e
+
+            logger.info(
+                "Delegate '%s' updated hybrid sig pub key for '%s'",
+                self._ks.my_name, delegator_name,
+            )
+            event_bus.publish(
+                Events.FRIEND_LIST_CHANGED,
+                source="delegation_key_update",
+                friend_name=delegator_name,
+            )
+
+    def revoke_all_certs_for_delegator(self, delegator_name: str) -> int:
+        """Revoke all valid certificates where delegator_name is the subject.
+
+        Requires a valid DELEGATION certificate from delegator_name to the
+        local user. Marks every non-revoked, non-expired certificate for
+        the delegator as revoked in the database.
+
+        Args:
+            delegator_name: Name of the friend who granted delegation.
+
+        Returns:
+            Number of certificates successfully revoked.
+
+        Raises:
+            CertificateError: If no valid delegation cert exists or querying
+                the database fails.
+        """
+        with self._lock:
+            delegation_certs = self.get_delegation_certs_held_by_me()
+            if not any(c.issuer_name == delegator_name for c in delegation_certs):
+                raise CertificateError(
+                    f"No valid delegation certificate from '{delegator_name}'. "
+                    "Cannot revoke their certificates."
+                )
+
+            import database as _db
+
+            try:
+                rows = _db.get_trust_certificates_for(subject_name=delegator_name)
+            except Exception as e:
+                raise CertificateError(
+                    f"Failed to query certificates: {e}"
+                ) from e
+
+            certs = [TrustCertificate.from_dict(row) for row in rows]
+            to_revoke = [c for c in certs if not c.revoked and not c.is_expired()]
+            reason = f"Revoked by delegate {self._ks.my_name}"
+
+            revoked_count = 0
+            for cert in to_revoke:
+                revoked_cert = TrustCertificate(
+                    cert_id=cert.cert_id,
+                    subject_name=cert.subject_name,
+                    subject_pub=cert.subject_pub,
+                    issuer_name=cert.issuer_name,
+                    issuer_pub=cert.issuer_pub,
+                    cert_type=cert.cert_type,
+                    not_before=cert.not_before,
+                    not_after=cert.not_after,
+                    signature=cert.signature,
+                    revoked=True,
+                    revocation_reason=reason,
+                    received_from=cert.received_from,
+                    created_at=cert.created_at,
+                )
+                try:
+                    _db.save_trust_certificate(revoked_cert.to_dict())
+                    revoked_count += 1
+                except Exception as e:
+                    logger.warning(
+                        "Failed to revoke cert %s: %s", cert.cert_id[:8], e
+                    )
+
+            logger.info(
+                "Delegate '%s' revoked %d cert(s) for '%s'",
+                self._ks.my_name, revoked_count, delegator_name,
+            )
+
+            if revoked_count > 0:
+                event_bus.publish(
+                    Events.CERTIFICATE_REVOKED,
+                    cert_id=None,
+                    reason=reason,
+                )
+
+            return revoked_count
+
+    # ------------------------------------------------------------------
     # Bundle Export
     # ------------------------------------------------------------------
 

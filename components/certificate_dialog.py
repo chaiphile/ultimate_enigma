@@ -292,11 +292,7 @@ class CertificateDialog:
                 return
             cert_id = sel[0]
             try:
-                certs = self.trust_chain_service.get_all_certificates()
-                target = next((c for c in certs if c.cert_id == cert_id), None)
-                if not target:
-                    messagebox.showerror("Error", "Certificate not found.", parent=dlg)
-                    return
+                cert_dict = self.trust_chain_service.export_single_certificate(cert_id)
                 path = filedialog.asksaveasfilename(
                     parent=dlg,
                     title="Export Certificate",
@@ -306,7 +302,7 @@ class CertificateDialog:
                 if not path:
                     return
                 with open(path, "w") as f:
-                    json.dump(target.to_dict(), f, indent=2)
+                    json.dump(cert_dict, f, indent=2)
                 messagebox.showinfo("Exported",
                                     f"Certificate exported to:\n{path}",
                                     parent=dlg)
@@ -417,6 +413,215 @@ class CertificateDialog:
             btn_trust_frame, text="🔄 Refresh",
             command=load_trust_status, bootstyle="info-outline",
         ).pack(side=tk.RIGHT)
+
+        # ------------------------------------------------------------------
+        # Tab: Delegation Powers
+        # ------------------------------------------------------------------
+
+        tab_delegation = ttk.Frame(notebook, padding=15)
+        notebook.add(tab_delegation, text="  Delegation Powers  ")
+
+        ttk.Label(
+            tab_delegation,
+            text="Delegation Certificates Held by You",
+            font=("Segoe UI", 11, "bold"),
+        ).pack(anchor="w", pady=(0, 4))
+        ttk.Label(
+            tab_delegation,
+            text="Valid delegation certs others have issued to you, "
+                 "granting authority to update their key or revoke their trust certificates.",
+            font=("Segoe UI", 9),
+            wraplength=620,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 10))
+
+        del_columns = ("delegator", "expires", "cert_id_short")
+        del_tree = ttk.Treeview(
+            tab_delegation, columns=del_columns, show="headings",
+            height=8, bootstyle="info",
+        )
+        del_tree.heading("delegator", text="Delegator (Issuer)")
+        del_tree.heading("expires", text="Expires")
+        del_tree.heading("cert_id_short", text="Cert ID")
+        del_tree.column("delegator", width=200)
+        del_tree.column("expires", width=160)
+        del_tree.column("cert_id_short", width=120)
+        del_scroll = ttk.Scrollbar(tab_delegation, orient=tk.VERTICAL,
+                                    command=del_tree.yview, bootstyle="info-round")
+        del_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        del_tree.configure(yscrollcommand=del_scroll.set)
+        del_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        def load_delegation_certs():
+            for item in del_tree.get_children():
+                del_tree.delete(item)
+            try:
+                certs = self.trust_chain_service.get_delegation_certs_held_by_me()
+            except Exception:
+                certs = []
+            import datetime
+            for cert in certs:
+                expires_str = datetime.datetime.fromtimestamp(
+                    cert.not_after
+                ).strftime("%Y-%m-%d %H:%M")
+                del_tree.insert("", tk.END, iid=cert.cert_id, values=(
+                    cert.issuer_name,
+                    expires_str,
+                    cert.cert_id[:12] + "...",
+                ))
+            if not certs:
+                del_tree.insert("", tk.END, values=(
+                    "No valid delegation certs found", "", "",
+                ))
+
+        load_delegation_certs()
+
+        del_btn_frame = ttk.Frame(tab_delegation)
+        del_btn_frame.pack(fill=tk.X, pady=(0, 0))
+
+        def do_update_delegator_key():
+            sel = del_tree.selection()
+            if not sel:
+                messagebox.showwarning("No Selection",
+                                       "Select a delegation certificate first.",
+                                       parent=dlg)
+                return
+            cert_id = sel[0]
+            vals = del_tree.item(cert_id, "values")
+            if not vals or vals[0].startswith("No valid"):
+                return
+            delegator_name = vals[0]
+
+            # Dialog to accept the new public key (can be long Base64)
+            key_dlg = tk.Toplevel(dlg)
+            key_dlg.title(f"Update Public Key – {delegator_name}")
+            key_dlg.geometry("560x230")
+            key_dlg.resizable(True, False)
+            key_dlg.transient(dlg)
+            key_dlg.grab_set()
+            key_dlg.configure(bg=self.bg)
+
+            ttk.Label(
+                key_dlg,
+                text=f"Paste the new hybrid signing public key (Base64) for '{delegator_name}':",
+                font=("Segoe UI", 10),
+                wraplength=530,
+            ).pack(anchor="w", padx=15, pady=(15, 4))
+
+            key_text = tk.Text(key_dlg, height=5, width=70, wrap=tk.WORD,
+                               font=("Courier New", 9))
+            key_text.pack(padx=15, pady=(0, 8), fill=tk.X)
+
+            result = {"key": None}
+
+            def on_ok():
+                result["key"] = key_text.get("1.0", tk.END).strip()
+                key_dlg.destroy()
+
+            def on_cancel():
+                key_dlg.destroy()
+
+            kbtn = ttk.Frame(key_dlg)
+            kbtn.pack(pady=(0, 15))
+            ttk.Button(kbtn, text="OK", command=on_ok,
+                       bootstyle="info").pack(side=tk.LEFT, padx=5)
+            ttk.Button(kbtn, text="Cancel", command=on_cancel,
+                       bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+            dlg.wait_window(key_dlg)
+
+            new_pub_b64 = result["key"]
+            if not new_pub_b64:
+                return
+
+            pw2 = password_dialog(
+                dlg,
+                f"Enter Master Password to update key for '{delegator_name}'",
+                confirm=False,
+            )
+            if not pw2:
+                return
+            if not self.friends_service.verify_password(pw2):
+                messagebox.showerror("Wrong Password",
+                                     "Master password incorrect.", parent=dlg)
+                return
+            try:
+                self.trust_chain_service.update_delegator_pub_key(
+                    delegator_name, new_pub_b64, pw2
+                )
+                messagebox.showinfo(
+                    "Key Updated",
+                    f"Hybrid signing public key for '{delegator_name}' has been updated.",
+                    parent=dlg,
+                )
+                event_bus.publish(Events.FRIEND_LIST_CHANGED,
+                                  source="certificate_dialog",
+                                  friend_name=delegator_name)
+            except Exception as e:
+                messagebox.showerror("Error", str(e), parent=dlg)
+
+        def do_revoke_all_delegator_certs():
+            sel = del_tree.selection()
+            if not sel:
+                messagebox.showwarning("No Selection",
+                                       "Select a delegation certificate first.",
+                                       parent=dlg)
+                return
+            cert_id = sel[0]
+            vals = del_tree.item(cert_id, "values")
+            if not vals or vals[0].startswith("No valid"):
+                return
+            delegator_name = vals[0]
+
+            confirm = messagebox.askyesno(
+                "Confirm Full Revocation",
+                f"This will revoke ALL trust certificates for '{delegator_name}'.\n\n"
+                "Their trust level will be reset to NONE.\n"
+                "This action cannot be undone.\n\n"
+                "Continue?",
+                parent=dlg,
+            )
+            if not confirm:
+                return
+
+            pw2 = password_dialog(
+                dlg,
+                f"Enter Master Password to revoke certs for '{delegator_name}'",
+                confirm=False,
+            )
+            if not pw2:
+                return
+            if not self.friends_service.verify_password(pw2):
+                messagebox.showerror("Wrong Password",
+                                     "Master password incorrect.", parent=dlg)
+                return
+            try:
+                count = self.trust_chain_service.revoke_all_certs_for_delegator(
+                    delegator_name
+                )
+                messagebox.showinfo(
+                    "Revocation Complete",
+                    f"Revoked {count} certificate(s) for '{delegator_name}'.\n"
+                    "Their trust level is now NONE.",
+                    parent=dlg,
+                )
+                event_bus.publish(Events.TRUST_LEVEL_CHANGED,
+                                  source="certificate_dialog",
+                                  friend_name=delegator_name)
+            except Exception as e:
+                messagebox.showerror("Error", str(e), parent=dlg)
+
+        ttk.Button(
+            del_btn_frame, text="Update Delegator Key",
+            command=do_update_delegator_key, bootstyle="info-outline",
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            del_btn_frame, text="Revoke All Certs",
+            command=do_revoke_all_delegator_certs, bootstyle="danger-outline",
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            del_btn_frame, text="Refresh",
+            command=load_delegation_certs, bootstyle="secondary-outline",
+        ).pack(side=tk.LEFT)
 
         ttk.Button(dlg, text="Close", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))
