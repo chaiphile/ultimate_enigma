@@ -191,7 +191,8 @@ class EnigmaApp:
             notebook,
             self.trust_chain_service,
             self.service_orchestrator.friends_service,
-            style_config
+            style_config,
+            global_secret_service=self.service_orchestrator.global_secret_service,
         )
         notebook.add(self.trust_tab.frame, text="🔗 Trust Chain")
 

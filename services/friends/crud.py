@@ -7,7 +7,7 @@ from typing import List, Dict, Optional
 import base64
 
 from key_manager import KeyStore, pubkey_to_pem
-from crypto import sha256_fingerprint
+from crypto import sha256_fingerprint, rsa_encrypt_key, rsa_decrypt_key
 from services.ecdh_service import ECDHService
 from services.ratchet_service import RatchetService
 
@@ -206,3 +206,27 @@ class FriendCrudService:
     def get_friend_capabilities(self, name: str) -> Dict:
         """Return the capabilities dict for a friend, or empty dict if none."""
         return dict(self._ks.friends_capabilities.get(name, {}))
+
+    # ------------------------------------------------------------------
+    # RSA key helpers for recovery share encryption
+    # ------------------------------------------------------------------
+    def get_friend_rsa_pub(self, name: str):
+        """Return a friend's loaded RSA public key object, or None if not found."""
+        for fname, pub, _ in self._ks.friends:
+            if fname == name:
+                return pub
+        return None
+
+    def get_own_rsa_pub(self):
+        """Return the local user's RSA public key object, or None if not loaded."""
+        return self._ks.my_pub
+
+    def encrypt_share(self, share_bytes: bytes, pub_key) -> bytes:
+        """RSA-OAEP encrypt raw share bytes to a recipient's public key."""
+        return rsa_encrypt_key(share_bytes, pub_key)
+
+    def decrypt_share(self, encrypted_share: bytes) -> bytes:
+        """RSA-OAEP decrypt a share blob using the local private key."""
+        if self._ks.my_priv is None:
+            raise FriendsServiceError("Private key not loaded — unlock the app first")
+        return rsa_decrypt_key(encrypted_share, self._ks.my_priv)

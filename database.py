@@ -377,6 +377,16 @@ def init_db():
                     holder_pub_b64 TEXT NOT NULL,
                     created_at REAL NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS held_shares (
+                    share_id TEXT PRIMARY KEY,
+                    owner_name TEXT NOT NULL,
+                    holder_name TEXT NOT NULL,
+                    share_index INTEGER NOT NULL,
+                    total_shares INTEGER NOT NULL,
+                    threshold INTEGER NOT NULL,
+                    plaintext_share_b64 TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
             """)
             # Ensure columns exist even for older databases (ignore error if already present)
             for col_sql in [
@@ -648,4 +658,45 @@ def delete_recovery_shares_for(owner_name: str) -> None:
             "DELETE FROM recovery_shares WHERE owner_name = ?",
             (owner_name,),
         )
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Held shares – shares this user is holding on behalf of someone else
+# ---------------------------------------------------------------------------
+
+def save_held_share(share_dict: dict) -> None:
+    """Insert or replace a share held on behalf of another user."""
+    with closing(get_connection()) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO held_shares "
+            "(share_id, owner_name, holder_name, share_index, total_shares, "
+            "threshold, plaintext_share_b64, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                share_dict["share_id"],
+                share_dict["owner_name"],
+                share_dict["holder_name"],
+                share_dict["share_index"],
+                share_dict["total_shares"],
+                share_dict["threshold"],
+                share_dict["plaintext_share_b64"],
+                share_dict.get("created_at", 0.0),
+            ),
+        )
+        conn.commit()
+
+
+def get_all_held_shares() -> list:
+    """Return all shares this user is holding for others."""
+    with closing(get_connection()) as conn:
+        rows = conn.execute("SELECT * FROM held_shares").fetchall()
+        cols = [d[0] for d in conn.execute("SELECT * FROM held_shares LIMIT 0").description]
+        return [dict(zip(cols, row)) for row in rows]
+
+
+def delete_held_share(share_id: str) -> None:
+    """Delete a single held share by ID."""
+    with closing(get_connection()) as conn:
+        conn.execute("DELETE FROM held_shares WHERE share_id = ?", (share_id,))
         conn.commit()

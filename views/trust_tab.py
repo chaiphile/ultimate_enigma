@@ -23,16 +23,19 @@ from views.dialogs import password_dialog
 
 
 class TrustTab:
-    def __init__(self, parent: tk.Widget, trust_chain_service, friends_service, style_config=None) -> None:
+    def __init__(self, parent: tk.Widget, trust_chain_service, friends_service,
+                 style_config=None, global_secret_service=None) -> None:
         """
         Args:
             parent: Notebook or parent widget
             trust_chain_service: Injected TrustChainService instance
             friends_service: Injected FriendsService instance
             style_config: Dict with 'bg', 'fg' keys (optional, falls back to ttk.Style)
+            global_secret_service: Injected GlobalSecretService for key replacement after recovery
         """
         self.trust_service = trust_chain_service
         self.friends_service = friends_service
+        self.global_secret_service = global_secret_service
         self.frame = ttk.Frame(parent)
 
         if style_config:
@@ -420,7 +423,8 @@ class TrustTab:
         try:
             from components.key_recovery_dialog import KeyRecoveryDialog
             KeyRecoveryDialog(parent, self.trust_service, self.friends_service,
-                              self._bg, mode="split").show()
+                              self._bg, mode="split",
+                              global_secret_service=self.global_secret_service).show()
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
@@ -434,7 +438,8 @@ class TrustTab:
         try:
             from components.key_recovery_dialog import KeyRecoveryDialog
             KeyRecoveryDialog(parent, self.trust_service, self.friends_service,
-                              self._bg, mode="recover").show()
+                              self._bg, mode="recover",
+                              global_secret_service=self.global_secret_service).show()
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(

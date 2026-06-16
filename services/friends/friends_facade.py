@@ -180,6 +180,25 @@ class FriendsService:
         """Return a SHA-256 fingerprint of a hybrid signing combined public key."""
         return self._hybrid_sig.get_hybrid_sig_key_fingerprint(combined_pub_b64)
 
+    # ------------------------------------------------------------------
+    # RSA key helpers for recovery share encryption
+    # ------------------------------------------------------------------
+    def get_friend_rsa_pub(self, name: str):
+        """Return a friend's loaded RSA public key object, or None."""
+        return self._crud.get_friend_rsa_pub(name)
+
+    def get_own_rsa_pub(self):
+        """Return the local user's RSA public key object, or None."""
+        return self._crud.get_own_rsa_pub()
+
+    def encrypt_share(self, share_bytes: bytes, pub_key) -> bytes:
+        """RSA-OAEP encrypt raw share bytes to a recipient's public key."""
+        return self._crud.encrypt_share(share_bytes, pub_key)
+
+    def decrypt_share(self, encrypted_share: bytes) -> bytes:
+        """RSA-OAEP decrypt a share blob using the local private key."""
+        return self._crud.decrypt_share(encrypted_share)
+
     # ---- Name helpers ----
     def get_my_name(self) -> str:
         """Return the current display name for ratchet envelopes."""
