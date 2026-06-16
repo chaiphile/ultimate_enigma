@@ -44,7 +44,7 @@ Ultimate Enigma Messenger implements defense-in-depth security with multiple lay
 
 ### Master Password
 - Never stored; used only to derive encryption keys
-- Minimum length: 12 characters
+- Minimum length: 16 characters
 - Used with Argon2id to derive database encryption key
 - Loss is unrecoverable - no password reset mechanism
 
@@ -148,14 +148,22 @@ All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
 
 ### TOTP (Time-based One-Time Password)
 - Required for unlock after emergency lock
+- Algorithm: HMAC-SHA1, 6-digit code, 30-second interval
+- Drift tolerance: ±1 step
+- Replay protection: each TOTP value accepted at most once per interval
 - RFC 6238 compliant implementation
 - QR code generation for authenticator app setup
-- Rate limiting on verification attempts
+- Maximum TOTP attempts: 5
+
+### Lock Screen
+- Lock screen timeout: 300 seconds (5 minutes)
 
 ### Lockout Protection
 - Exponential backoff on failed attempts via `LockoutManager` (`security/lockout.py`)
-- Backoff table: [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600] seconds
-- Hard lockout after 15 failures (1 hour duration)
+- Backoff table: [0, 0, 0, 0, 0, 5, 10, 30, 60, 120, 300, 600, 1800, 3600] seconds (14 entries)
+- Hard lockout after 15 failures (3600 second / 1 hour duration)
+- Maximum TOTP attempts: 5
+- Session timeout: 900 seconds (15 minutes)
 - Persistent attempt tracking across restarts via database
 
 ## Message Security
@@ -169,7 +177,7 @@ Message → AES-GCM encrypt → Ciphertext
 
 ### Time-Based Keys
 - Keys derived from shared secret + timestamp
-- Sliding window: ±3 steps of 30 seconds (±90 second validity)
+- Sliding window: ±2 steps of 30 seconds (±60 second validity)
 - Provides replay protection within window
 - NTP sync ensures clock accuracy
 - **Key hint**: Shared-secret packets embed a 2-byte SHA-256 fingerprint of the key (flag bit 4). On decryption, non-matching candidates are skipped before attempting AES-GCM, reducing brute-force from O(N) to O(1) per candidate (constant-time hash comparison)
@@ -234,7 +242,7 @@ Message → AES-GCM encrypt → Ciphertext
 | Limitation | Notes |
 |------------|-------|
 | Self-destruct | Client-side only, not guaranteed |
-| Time window | 90-second replay window exists |
+| Time window | 60-second replay window exists |
 | Physical access | Attacker with runtime access can extract keys |
 | Side channels | No specific side-channel mitigations |
 | Metadata | Message timing/patterns may leak information |
@@ -296,18 +304,19 @@ Source: `src/anti_tamper.py`
 | `sys.gettrace()` | Python runtime | Detects active trace hooks (pydevd, pdb, etc.) |
 | `sys.getprofile()` | Python runtime | Detects active profiling hooks |
 | Window enumeration | Win32 API | Scans for debugger window classes (exact match for short names ≤3 chars to avoid false positives); detects OllyDbg, x64dbg, IDA, WinDbg, Ghidra, etc. |
-| Process enumeration | `tasklist` | Checks running processes against 30+ known debugger names |
-| Timing analysis | `time.perf_counter_ns()` | Detects debugger stepping via RDTSC timing anomalies (threshold: 0.5ms) |
+| Process enumeration | `tasklist` | Checks running processes against 22 known debugger names |
+| Timing analysis | `time.perf_counter_ns()` | Detects debugger stepping via RDTSC timing anomalies (threshold: 500_000ns, 5 samples) |
 | Hardware breakpoint detection | Windows API | Reads Dr0-Dr3 debug registers via `GetThreadContext` |
 
-#### Anti-Tamper (5 methods)
+#### Anti-Tamper (6 methods)
 | Method | Technique | Details |
 |--------|-----------|---------|
 | `_MEIPASS` verification | PyInstaller | Verifies bundle temp directory exists, is valid, and critical file SHA-256 hashes match expected values (when populated by build script) |
 | Import hook detection | `sys.meta_path` | Detects injected import finders (e.g., Frida loaders) |
 | Frida detection | File + env + modules | Checks for Frida files on disk, environment variables, and loaded modules |
-| Module bytecode integrity | `.pyc` verification | Validates Python magic numbers match running interpreter |
+| Module integrity checks | `.pyc` + 7 critical modules | Validates Python magic numbers for 7 critical modules match running interpreter |
 | PE header validation | Binary analysis | Verifies DOS/PE signatures, section count, entry point sanity |
+| Hooking framework detection | Loaded module scan | Checks for 7 known hooking frameworks (Frida, Detours, MinHook, etc.) |
 
 #### Countermeasures
 | Countermeasure | Technique | Details |
@@ -322,17 +331,15 @@ All configuration is centralized in `src/constants.py` under `ANTI_TAMPER_CONSTA
 
 ```python
 ANTI_TAMPER_CONSTANTS = {
-    "BACKGROUND_CHECK_INTERVAL": 30,     # seconds between background checks
-    "TIMING_CHECK_THRESHOLD_NS": 500_000, # 0.5ms timing anomaly threshold
-    "TIMING_SAMPLES": 5,                  # timing samples per check
-    "SILENT_EXIT": True,                  # exit without warning
-    "EXIT_CODE": 1,                       # process exit code
-    "HIDE_THREADS": True,                 # hide threads from debugger
-    "SEEK_MIN_INTERVAL": 5,              # min seconds between seeking scans
-    "SEEK_MAX_INTERVAL": 15,             # max seconds between seeking scans
-    "SEEK_SUSPICION_THRESHOLD": 3,        # consecutive suspicious findings before escalation
-    "SEEK_ESCALATED_MIN_INTERVAL": 1,    # min seconds between escalated scans
-    "SEEK_ESCALATED_MAX_INTERVAL": 3,    # max seconds between escalated scans
+    "BACKGROUND_CHECK_INTERVAL": 30,         # seconds between background checks
+    "TIMING_CHECK_THRESHOLD_NS": 500_000,     # 0.5ms timing anomaly threshold
+    "TIMING_SAMPLES": 5,                      # timing samples per check
+    "CRITICAL_MODULES": 7,                    # number of critical modules integrity-checked
+    "DEBUGGER_PROCESSES": 22,                 # known debugger process names monitored
+    "HOOKING_FRAMEWORKS": 7,                  # known hooking frameworks detected
+    "SILENT_EXIT": True,                      # exit without warning
+    "EXIT_CODE": 1,                           # process exit code
+    "HIDE_THREADS": True,                     # hide threads from debugger
 }
 ```
 

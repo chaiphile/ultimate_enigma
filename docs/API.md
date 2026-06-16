@@ -13,7 +13,7 @@ class ApplicationController:
     def start_queue_processing(self) -> None
         """Start the crypto task queue worker threads."""
     
-    def start_ntp_sync(self, encryption_service, service_lock) -> None
+    def start_ntp_sync(self, encryption_service, delay_ms=2000) -> None
         """Schedule deferred NTP synchronization."""
     
     def register_hotkeys(self, lock_callback, unlock_callback) -> None
@@ -117,7 +117,7 @@ Core cryptographic operations. Decomposed into three strategy classes behind a f
 
 ```python
 class EncryptionService:
-    def __init__(self, key_store: KeyStore, crypto_queue=None)
+    def __init__(self, key_store)
     
     def encrypt(self, plaintext: str, friend_name: str = None,
                 mode: str = 'shared', sign: bool = True,
@@ -151,8 +151,8 @@ class FileService:
     def __init__(self, key_store: KeyStore)
     
     def encrypt_file(self, input_path, output_path,
-                    password=None, friend_name=None,
-                    method='password', sign=False) -> bool
+                    method, password=None, friend_name=None,
+                    sign=False) -> None
         """Encrypt a file using the specified method."""
     
     def decrypt_file(self, input_path, output_path,
@@ -166,7 +166,7 @@ Contact management.
 
 ```python
 class FriendsService:
-    def __init__(self, key_store, encryption_service=None)
+    def __init__(self, key_store: KeyStore)
     
     def add_friend(self, name, public_key_pem, shared_secret=None,
                    master_password="", x25519_pub_b64=None,
@@ -291,12 +291,59 @@ class BackupService:
     def list_backups(self, backup_dir=None) -> List[Path]
         """List all backup files in the backup directory."""
     
-    def get_last_backup_timestamp(self) -> Optional[float]
+    def get_last_backup_timestamp(self) -> Optional[int]
         """Get timestamp of most recent backup, or None if no backups."""
     
     def should_remind_backup(self) -> tuple[bool, Optional[int]]
         """Check if user should be reminded to back up.
         Returns (should_remind, days_since_last_backup)."""
+```
+
+### HybridKEM (`services/pqc_service.py`)
+
+Hybrid X25519 + CRYSTALS-Kyber-768 key encapsulation.
+
+```python
+class HybridKEM:
+    @staticmethod
+    def generate_keys() -> dict
+        """Generate hybrid key pair. Returns dict with keys:
+        x25519_priv, x25519_pub_bytes, kyber_priv, kyber_pub_bytes, combined_pub."""
+
+    @staticmethod
+    def encapsulate(remote_combined_pub: bytes) -> dict
+        """Encapsulate: generate shared secrets. Returns {ciphertext, shared_secret}."""
+
+    @staticmethod
+    def decapsulate(keys: dict, ciphertext: bytes) -> bytes
+        """Decapsulate: recover 32-byte derived key from ciphertext."""
+
+def is_pqc_available() -> bool
+    """Return True if liboqs native library is loaded and Kyber768 is available."""
+```
+
+### HybridSigner (`services/pqc_signatures.py`)
+
+Hybrid Ed25519 + CRYSTALS-Dilithium3 digital signatures.
+
+```python
+class HybridSigner:
+    @staticmethod
+    def generate_keys() -> dict
+        """Generate hybrid signing key pair. Returns dict with keys:
+        ed_priv, ed_pub_bytes, dil_priv, dil_pub_bytes, combined_pub."""
+
+    @staticmethod
+    def sign(message: bytes, ed_priv, dil_priv: bytes) -> bytes
+        """Sign with both Ed25519 and Dilithium3. Returns combined signature."""
+
+    @staticmethod
+    def verify(message: bytes, signature: bytes, ed_pub, dil_pub: bytes) -> bool
+        """Verify hybrid signature. BOTH must pass for success."""
+
+    @staticmethod
+    def parse_combined_pub(combined_pub: bytes) -> tuple
+        """Parse combined public key into (ed_pub_bytes, dil_pub_bytes)."""
 ```
 
 ### TotpPersistence
@@ -353,6 +400,53 @@ class XChaCha20Poly1305:
         """Decrypt ciphertext with associated data. Returns plaintext."""
 ```
 
+### ECDHService (`services/ecdh_service.py`)
+
+X25519 Diffie-Hellman key agreement.
+
+```python
+class ECDHService:
+    @staticmethod
+    def generate_private_key() -> X25519PrivateKey
+        """Generate a new ephemeral X25519 private key."""
+
+    @staticmethod
+    def private_to_public_bytes(private_key) -> bytes
+        """Extract raw 32-byte public key from a private key."""
+
+    @staticmethod
+    def public_bytes_to_key(public_bytes: bytes) -> X25519PublicKey
+        """Convert raw 32-byte public bytes to an X25519PublicKey object."""
+
+    @staticmethod
+    def compute_shared_secret(private_key, peer_public_bytes: bytes) -> bytes
+        """Perform X25519 DH exchange. Returns raw 32-byte shared secret."""
+
+    @staticmethod
+    def derive_key(shared_secret_bytes: bytes) -> bytes
+        """Derive 32-byte symmetric key via HKDF."""
+
+    @staticmethod
+    def encode_public_key(public_bytes: bytes) -> str
+        """Base64-encode a raw public key."""
+
+    @staticmethod
+    def decode_public_key(b64_string: str) -> bytes
+        """Decode a Base64 public key. Raises ValueError on invalid input."""
+
+    @staticmethod
+    def fingerprint(public_bytes: bytes) -> str
+        """SHA-256 fingerprint (first 16 hex chars) of a raw public key."""
+
+    @classmethod
+    def generate_keypair(cls) -> tuple
+        """Return (private_key, raw_public_bytes)."""
+
+    @classmethod
+    def perform_exchange(cls, peer_public_bytes: bytes, own_private=None) -> tuple
+        """High-level ECDH exchange. Returns (derived_32_byte_key, our_public_bytes)."""
+```
+
 ### HotkeyService
 
 Global hotkey registration for emergency lock/unlock.
@@ -397,6 +491,88 @@ class EventBus:
 
 # Global singleton
 event_bus = EventBus()
+```
+
+### CryptoTaskQueue (`services/crypto_task_queue.py`)
+
+Managed thread pool for background cryptographic operations.
+
+```python
+class TaskPriority(IntEnum):
+    CRITICAL = 0   # Authentication, key operations
+    HIGH = 10      # Encryption/decryption of messages
+    NORMAL = 20    # File operations
+    LOW = 30       # Background maintenance, NTP sync
+
+class CryptoTaskQueue:
+    def __init__(self, root, max_workers: int = 4,
+                 default_timeout: Optional[float] = None)
+
+    def start(self) -> None
+        """Start the thread pool executor."""
+
+    def submit(self, func, args=(), kwargs=None,
+               on_success=None, on_error=None,
+               priority=TaskPriority.NORMAL,
+               timeout=None) -> Future
+        """Submit a task with result/error callbacks dispatched to main thread."""
+
+    def submit_priority(self, priority: TaskPriority, func, *args,
+                        on_success=None, on_error=None,
+                        timeout=None, **kwargs) -> Future
+        """Convenience: submit with a specific priority."""
+
+    def shutdown(self, wait: bool = True, timeout: Optional[float] = 30.0) -> None
+        """Shut down the executor."""
+
+    def drain(self, timeout: float = 5.0) -> bool
+        """Wait for pending tasks to complete. Returns True if all completed."""
+
+    @property
+    def is_running(self) -> bool
+    @property
+    def pending_tasks(self) -> int
+```
+
+### Background Agents (`services/background_agents.py`)
+
+Daemon threads for periodic maintenance, monitoring, and diagnostics.
+
+```python
+class BackupReminderAgent:
+    """Periodically checks backup age and publishes BACKUP_REMINDER."""
+    def __init__(self, backup_service)
+    def start(self) -> None
+    def stop(self) -> None
+    def check_now(self) -> Dict[str, Any]
+    @property
+    def is_running(self) -> bool
+
+class RatchetMaintenanceAgent:
+    """Stale lock cleanup and deadlock detection for Double Ratchet."""
+    def __init__(self)
+    def set_friends_service(self, friends_service) -> None
+    def start(self) -> None
+    def stop(self) -> None
+    def get_lock_stats(self) -> Dict[str, int]
+    def detect_deadlock(self, names_a, names_b) -> bool
+
+class SystemMonitorAgent:
+    """Task queue and event bus health monitoring."""
+    def __init__(self, crypto_queue=None)
+    def set_crypto_queue(self, crypto_queue) -> None
+    def start(self) -> None
+    def stop(self) -> None
+    def get_status(self) -> Dict[str, Any]
+
+class KeyInspectorAgent:
+    """On-demand key fingerprint and capability inspection."""
+    def __init__(self, key_store=None)
+    def set_key_store(self, key_store) -> None
+    def set_friends_service(self, friends_service) -> None
+    def get_key_info(self, friend_name=None) -> Dict[str, Any]
+    def get_fingerprint(self, friend_name=None) -> Optional[str]
+    def publish_key_info(self, friend_name=None) -> None
 ```
 
 ### Events Constants
@@ -522,6 +698,46 @@ class FriendProfile:
 
 
 ---
+
+## Components
+
+### RecoveryUnlockDialog (`components/recovery_unlock_dialog.py`)
+
+Recovery key reconstruction without the master password. Launched from lock screen when the user has forgotten their password.
+
+```python
+class RecoveryUnlockDialog:
+    def __init__(self, parent, on_recovered)
+        """Modal dialog for recovery key reconstruction.
+        Args:
+            parent: Parent Tk window.
+            on_recovered: Callback(new_password: str) invoked after successful
+                         reconstruction and password reset.
+        """
+
+    def show(self)
+        """Display the modal dialog. Blocks until user completes or cancels."""
+```
+
+### UpdateFriendKeysDialog (`components/update_friend_keys_dialog.py`)
+
+Update RSA/ECDH/PQC/hybrid signature public keys for an existing friend.
+
+```python
+class UpdateFriendKeysDialog:
+    def __init__(self, parent, friends_service: FriendsService, bg: str,
+                 refresh_list, preselect_name: str = "")
+        """Args:
+            parent: Parent Tk window.
+            friends_service: FriendsService instance.
+            bg: Background color for the dialog.
+            refresh_list: Callable to refresh the friend list after update.
+            preselect_name: Friend name to pre-select in the dropdown.
+        """
+
+    def show(self)
+        """Prompt for master password, then show the key update dialog."""
+```
 
 ## Utilities
 
@@ -730,13 +946,56 @@ class AppBuilder:
 ### Crypto Helpers (`crypto.py`)
 
 ```python
-def extract_key_hint(packet: bytes) -> bytes | None
+def extract_key_hint(packet: bytes) -> Optional[bytes]
     """Extract the 2-byte SHA-256 key hint from a legacy packet.
     
     Returns the hint bytes if KEY_HINT_FLAG is set, otherwise None.
     Used by LegacyEncryptionStrategy to skip non-matching shared secrets
     before attempting full AES-GCM decryption (O(1) filter vs O(N) brute-force).
     """
+```
+
+### Crypto Task Helper (`src/crypto_task_helper.py`)
+
+Fallback-aware crypto task submission for use when `CryptoTaskQueue` may not be available.
+
+```python
+def submit_crypto_task(
+    crypto_queue,
+    do_work: Callable,
+    on_success: Callable,
+    on_error: Callable,
+    task_queue=None,
+    frame=None,
+    fallback_timeout: float = 30.0,
+    error_map: dict = None,
+    error_dialog: Callable = None,
+) -> None
+    """Submit a crypto operation, using CryptoTaskQueue if available or a thread fallback.
+    
+    Args:
+        crypto_queue: The CryptoTaskQueue instance (or None for fallback).
+        do_work: Callable that performs the operation (runs in worker thread).
+        on_success: Callback for success (runs on main thread).
+        on_error: Callback for error (runs on main thread).
+        task_queue: Queue for marshalling callbacks (legacy fallback).
+        frame: Tkinter frame for .after() calls (legacy fallback).
+        fallback_timeout: Timeout for queue submission.
+        error_map: Optional dict mapping exception types to (title, message).
+        error_dialog: Optional callable(exc) to show error dialogs.
+    """
+```
+
+### Key Generation (`src/key_generation.py`)
+
+RSA/PQC/hybrid key generation and database initialization.
+
+```python
+def init_db(password: Union[str, bytes, SecureString]) -> bool
+    """Create database and first keys if missing. Returns True if new keys generated."""
+
+def get_rsa_key_size(pub_key) -> int
+    """Return the bit size of an RSA public key."""
 ```
 
 ---
@@ -778,6 +1037,30 @@ class CryptoTimeoutError(EnigmaError):
 
 class ConcurrencyError(EnigmaError):
     """Lock acquisition or concurrency failure."""
+
+class TrustChainError(EnigmaError):
+    """Base exception for trust chain and certificate operations."""
+
+class CertificateError(TrustChainError):
+    """Certificate issuance, verification, or storage failure."""
+
+class CertificateExpiredError(CertificateError):
+    """Certificate has passed its expiration date."""
+
+class CertificateRevokedError(CertificateError):
+    """Certificate has been revoked by its issuer."""
+
+class CertificateSignatureError(CertificateError):
+    """Certificate hybrid signature verification failed."""
+
+class ShamirError(TrustChainError):
+    """Base exception for Shamir secret sharing operations."""
+
+class InsufficientSharesError(ShamirError):
+    """Fewer than threshold shares provided for reconstruction."""
+
+class InvalidShareError(ShamirError):
+    """Share is malformed, corrupted, or has mismatched parameters."""
 ```
 
 Database-specific exceptions are in `database.py`:

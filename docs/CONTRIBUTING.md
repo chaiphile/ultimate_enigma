@@ -38,13 +38,37 @@ Thank you for your interest in contributing to Ultimate Enigma Messenger! This d
 
 ## Project Structure
 
-Follow the MVC architecture:
+The application follows an MVC architecture with approximately **8 tabs**, **23 service modules**, and **8 reusable components**.
 
-- **Models** (`models/`): Data structures and storage abstractions
-- **Views** (`*_tab.py`): Tkinter UI components
-- **Controllers** (`controllers/`): Business logic coordination
-- **Services** (`services/`): Reusable business logic
-- **Utilities** (`src/`): Constants, exceptions, helpers
+```
+main.py              Entry point, logging, anti-tamper, theme init
+app.py               EnigmaApp composition root (8 tabs, event wiring, emergency lock)
+crypto.py            AES-GCM + RSA-OAEP, time-based keys, constant-time decrypt
+database.py          SQLCipher/SQLite layer, Argon2id KDF, PBKDF2→Argon2id migration
+key_manager.py       KeyStore: RSA 4096, PQC keys, duress mode, password change
+
+builders/
+  app_builder.py     Application composition root builder
+
+models/              Data structures (envelope, friend_profile)
+views/               UI files (tabs, lock_screen, visual_enigma, utils)
+  ecdh.py            ECDH key exchange view
+controllers/         Business logic coordination (3 controllers)
+services/            23 service modules (plus encryption/ and friends/ subpackages)
+  ecdh_service.py    ECDH key exchange service
+  file_ops.py        File operation utilities
+  encryption/        Subpackage: encryption strategies (facade, legacy, pqc, ratchet)
+  friends/           Subpackage: friends management (crud, facade, keys)
+components/          8 reusable dialogs
+  recovery_unlock_dialog.py
+  update_friend_keys_dialog.py
+src/                 Constants, exceptions, helpers
+  crypto_task_helper.py  Async crypto task helpers
+security/            Memory security, anti-dump, guarded buffers, lockout
+tests/               36 test files, 550+ tests
+  encryption/        (empty) – future grouped tests
+  friends/           (empty) – future grouped tests
+```
 
 ## Code Style
 
@@ -113,12 +137,12 @@ pytest tests/ --cov=. --cov-report=html
 - Use fixtures from `conftest.py` for common setup
 - Test both success and failure cases
 
-The test directory structure includes subdirectories for feature areas:
+The test directory contains **36 test files** with **550+ tests**. It includes subdirectories for future grouped tests:
 ```
 tests/
-├── encryption/          # Encryption service tests
-├── friends/             # Friends service tests
-├── test_*.py            # Individual module tests
+├── encryption/          # (empty) – future encryption service tests
+├── friends/             # (empty) – future friends service tests
+├── test_*.py            # Individual module tests (36 files, 550+ tests)
 └── conftest.py          # Shared fixtures
 ```
 

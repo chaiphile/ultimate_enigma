@@ -1,6 +1,6 @@
 # Services Reference
 
-Comprehensive documentation for every service in the `services/` directory.
+Comprehensive documentation for every service in the `services/` directory. Covers 23 service modules (25 directory entries minus `__init__.py` and `__pycache__/`).
 
 ---
 
@@ -307,22 +307,18 @@ ClipboardService(root, clear_delay=30)
 
 Thread-safe publish/subscribe singleton for decoupled cross-component communication.
 
-### Events Constants
+### Events Constants (37 total, `services/event_bus.py:28-82`)
 
-| Event | Description |
-|-------|-------------|
-| `UNLOCK_REQUESTED` | User clicked unlock |
-| `EMERGENCY_LOCK` | Emergency lock triggered |
-| `UNLOCKED` / `LOCKED` | Lock state changed |
-| `KEYS_WIPED` / `KEYS_LOADED` | Key lifecycle events |
-| `PASSWORD_CHANGED` | Master password changed |
-| `DURESS_MODE_ENTERED` | Duress mode activated |
-| `TOTP_SETUP_COMPLETE` / `TOTP_VERIFIED` / `TOTP_CHANGED` | TOTP events |
-| `SERVICES_REBUILT` | Services rebuilt after unlock |
-| `NTP_SYNCED` / `NTP_SYNC_FAILED` | NTP sync results |
-| `FRIEND_LIST_CHANGED` / `FRIEND_ADDED` / `FRIEND_REMOVED` | Friend data events |
-| `RATCHET_INITIALIZED` / `RATCHET_RESET` | Ratchet lifecycle |
-| `APP_STARTING` / `APP_SHUTDOWN` | Application lifecycle |
+| Category | Constants |
+|----------|-----------|
+| Authentication & Lock | `UNLOCK_REQUESTED`, `EMERGENCY_LOCK`, `UNLOCKED`, `LOCKED` |
+| Key & credential | `KEYS_WIPED`, `KEYS_LOADED`, `PASSWORD_CHANGED`, `DURESS_MODE_ENTERED` |
+| TOTP | `TOTP_SETUP_COMPLETE`, `TOTP_VERIFIED`, `TOTP_CHANGED` |
+| Service | `SERVICES_REBUILT`, `NTP_SYNCED`, `NTP_SYNC_FAILED` |
+| Data / Friend | `FRIEND_LIST_CHANGED`, `FRIEND_ADDED`, `FRIEND_REMOVED`, `RATCHET_INITIALIZED`, `RATCHET_RESET` |
+| Trust chain | `CERTIFICATE_ISSUED`, `CERTIFICATE_RECEIVED`, `CERTIFICATE_REVOKED`, `TRUST_LEVEL_CHANGED`, `RECOVERY_SHARE_CREATED`, `RECOVERY_KEY_RECONSTRUCTED` |
+| Application lifecycle | `APP_STARTING`, `APP_SHUTDOWN` |
+| Background agent | `BACKUP_REMINDER`, `BACKUP_COMPLETED`, `RATCHET_LOCKS_CLEANED`, `RATCHET_DEADLOCK_DETECTED`, `RATCHET_LOCK_STATS`, `SYSTEM_STATUS`, `SYSTEM_HEALTH_OK`, `SYSTEM_HEALTH_DEGRADED`, `KEY_INFO`, `KEY_FINGERPRINT` |
 
 ### Methods
 

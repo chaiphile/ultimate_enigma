@@ -8,7 +8,7 @@ The database module (`database.py`) provides:
 
 - **Connection management** with WAL journal mode and foreign keys enabled
 - **Granular exception hierarchy** covering corruption, locking, integrity, and connection errors
-- **Secret encryption** using Argon2id KDF + AES-GCM (with legacy PBKDF2-HMAC-SHA256 backward compatibility)
+- **Secret encryption** using Argon2id KDF + AES-256-GCM (with legacy PBKDF2-HMAC-SHA256 backward compatibility)
 - **Schema migration** via idempotent `ALTER TABLE ADD COLUMN` statements
 - **Encryption at rest** via `sqlcipher3` (transparent AES-256-CBC encryption of the entire database file)
 
@@ -24,6 +24,7 @@ The database module (`database.py`) provides:
   - [friends](#friends-table)
   - [trust_certificates](#trust_certificates-table)
   - [recovery_shares](#recovery_shares-table)
+  - [held_shares](#held_shares-table)
 - [Models Layer](#models-layer)
 - [Secret Encryption Format](#secret-encryption-format)
 - [Usage Patterns](#usage-patterns)
@@ -57,7 +58,17 @@ When `sqlcipher3` is installed and a per-machine DB encryption key has been deri
 | HMAC algorithm | HMAC_SHA512 |
 | KDF algorithm | PBKDF2_HMAC_SHA512 |
 
-On first run, a random 32-byte DB key is generated, encrypted with the user's master password via Argon2id + AES-GCM, and stored in the `settings` table under the key `sqlcipher_db_key`. On subsequent opens, the encrypted key is decrypted and used to unlock the database.
+These parameters are defined as module-level constants in `database.py`:
+
+```python
+SQLCIPHER_CIPHER = "aes-256-cbc"
+SQLCIPHER_PAGE_SIZE = 4096
+SQLCIPHER_KDF_ITER = 256000
+SQLCIPHER_HMAC_ALGORITHM = "HMAC_SHA512"
+SQLCIPHER_KDF_ALGORITHM = "PBKDF2_HMAC_SHA512"
+```
+
+On first run, a random 32-byte DB key is generated, encrypted with the user's master password via Argon2id + AES-256-GCM, and stored in the `settings` table under the key `sqlcipher_db_key`. On subsequent opens, the encrypted key is decrypted and used to unlock the database.
 
 If `sqlcipher3` is not available, the database falls back to plain SQLite (unencrypted) with a warning log.
 
@@ -68,6 +79,16 @@ def get_connection() -> sqlite3.Connection:
 ```
 
 Always call this function wrapped in `contextlib.closing()` or a `with` statement to ensure proper cleanup.
+
+### Database Path
+
+```python
+def set_db_path(path: Path) -> None:
+    """Override the default database path (~/.ultimate_enigma/enigma.db)."""
+
+def get_db_path() -> Path:
+    """Return the current database path."""
+```
 
 ### Integrity Check
 
@@ -212,7 +233,7 @@ CREATE TABLE IF NOT EXISTS friends (
     name                    TEXT    NOT NULL UNIQUE,
     public_key_pem          TEXT    NOT NULL,
     has_shared_secret       INTEGER NOT NULL DEFAULT 0,
-    shared_secret_encrypted TEXT,       -- JSON: {kdf, salt, nonce, ct}
+    shared_secret_encrypted TEXT,       -- JSON: {salt, nonce, ct}
     x25519_public_key_b64   TEXT,       -- ADDED via ALTER TABLE
     ratchet_state_json      TEXT,       -- ADDED via ALTER TABLE (may be encrypted)
     capabilities_json       TEXT,       -- ADDED via ALTER TABLE
@@ -229,7 +250,7 @@ CREATE TABLE IF NOT EXISTS friends (
 | `name` | TEXT UNIQUE | No | Friend's unique display name |
 | `public_key_pem` | TEXT | No | Friend's RSA public key in PEM format |
 | `has_shared_secret` | INTEGER | No | Boolean flag: 1 if shared secret exists |
-| `shared_secret_encrypted` | TEXT | Yes | Encrypted shared secret JSON (`{kdf, salt, nonce, ct}`) |
+| `shared_secret_encrypted` | TEXT | Yes | Encrypted shared secret JSON (`{salt, nonce, ct}`) |
 | `x25519_public_key_b64` | TEXT | Yes | Raw 32-byte X25519 public key, Base64 encoded |
 | `ratchet_state_json` | TEXT | Yes | Serialized Double Ratchet session state (plain JSON or AES-256-GCM encrypted blob) |
 | `capabilities_json` | TEXT | Yes | JSON dictionary of capability flags (e.g., `{"double_ratchet": true, "pqc": false}`) |
@@ -334,9 +355,43 @@ CREATE TABLE IF NOT EXISTS recovery_shares (
 | `share_index` | INTEGER | No | 1-based index within total shares (1..N) |
 | `total_shares` | INTEGER | No | Total number of shares created (N in K-of-N) |
 | `threshold` | INTEGER | No | Minimum shares needed for recovery (K in K-of-N) |
-| `encrypted_share_b64` | TEXT | No | AES-GCM encrypted share data, Base64 encoded |
+| `encrypted_share_b64` | TEXT | No | AES-256-GCM encrypted share data, Base64 encoded |
 | `holder_name` | TEXT | No | The identity currently holding this share |
 | `holder_pub_b64` | TEXT | No | Base64-encoded hybrid sig public key of the holder |
+| `created_at` | REAL | No | Epoch timestamp when this share was created |
+
+---
+
+### `held_shares` Table
+
+Stores shares this user is holding on behalf of others for threshold-based key recovery.
+
+#### Schema
+
+```sql
+CREATE TABLE IF NOT EXISTS held_shares (
+    share_id TEXT PRIMARY KEY,
+    owner_name TEXT NOT NULL,
+    holder_name TEXT NOT NULL,
+    share_index INTEGER NOT NULL,
+    total_shares INTEGER NOT NULL,
+    threshold INTEGER NOT NULL,
+    plaintext_share_b64 TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+```
+
+#### Column Details
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| `share_id` | TEXT PK | No | UUID4 string identifying this share |
+| `owner_name` | TEXT | No | The identity whose key this share can help recover |
+| `holder_name` | TEXT | No | The identity currently holding this share |
+| `share_index` | INTEGER | No | 1-based index within total shares (1..N) |
+| `total_shares` | INTEGER | No | Total number of shares created (N in K-of-N) |
+| `threshold` | INTEGER | No | Minimum shares needed for recovery (K in K-of-N) |
+| `plaintext_share_b64` | TEXT | No | Plaintext share data, Base64 encoded |
 | `created_at` | REAL | No | Epoch timestamp when this share was created |
 
 ---
@@ -395,7 +450,7 @@ All sensitive values stored in the database are encrypted at rest. The encryptio
     "kdf": "argon2id",          // optional; "pbkdf2" implied if absent
     "salt": "<base64-salt>",    // 16 bytes for Argon2id
     "nonce": "<base64-nonce>",  // 12 bytes
-    "ct": "<base64-ciphertext>" // AES-GCM ciphertext + 16-byte tag
+    "ct": "<base64-ciphertext>" // AES-256-GCM ciphertext (tag handled by AESGCM)
 }
 ```
 
@@ -403,7 +458,7 @@ All sensitive values stored in the database are encrypted at rest. The encryptio
 
 ```python
 def encrypt_secret(plain_bytes: bytes, password) -> dict:
-    """Encrypt bytes using AES-GCM with Argon2id-derived key.
+    """Encrypt bytes using AES-256-GCM (nonce=12 bytes, tag handled by AESGCM) with Argon2id-derived key.
     Returns JSON-serializable dict tagged with kdf='argon2id'.
     """
 
@@ -418,16 +473,16 @@ def decrypt_secret(enc_dict: dict, password) -> bytes:
 | Data | Table.Column | Encryption |
 |------|-------------|------------|
 | RSA private key | `settings.private_key_encrypted` | PEM-level (BestAvailableEncryption) |
-| Global secret | `settings.global_secret` | AES-GCM + Argon2id |
+| Global secret | `settings.global_secret` | AES-256-GCM + Argon2id |
 | Legacy RSA private key | `settings.legacy_private_key_encrypted` | PEM-level |
-| Kyber private key | `settings.kyber_priv_encrypted` | AES-GCM + Argon2id |
-| PQC X25519 private key | `settings.pqc_x25519_priv_encrypted` | AES-GCM + Argon2id |
-| Ed25519 private key | `settings.ed25519_priv_encrypted` | AES-GCM + Argon2id |
-| Dilithium3 private key | `settings.dilithium_priv_encrypted` | AES-GCM + Argon2id |
-| TOTP secret | `settings.totp_secret_encrypted` | AES-GCM + Argon2id |
-| Duress verifier | `settings.duress_verifier` | AES-GCM + Argon2id |
-| Friend shared secrets | `friends.shared_secret_encrypted` | AES-GCM + Argon2id |
-| Ratchet state (optional) | `friends.ratchet_state_json` | AES-GCM + HKDF-derived storage key |
+| Kyber private key | `settings.kyber_priv_encrypted` | AES-256-GCM + Argon2id |
+| PQC X25519 private key | `settings.pqc_x25519_priv_encrypted` | AES-256-GCM + Argon2id |
+| Ed25519 private key | `settings.ed25519_priv_encrypted` | AES-256-GCM + Argon2id |
+| Dilithium3 private key | `settings.dilithium_priv_encrypted` | AES-256-GCM + Argon2id |
+| TOTP secret | `settings.totp_secret_encrypted` | AES-256-GCM + Argon2id |
+| Duress verifier | `settings.duress_verifier` | AES-256-GCM + Argon2id |
+| Friend shared secrets | `friends.shared_secret_encrypted` | AES-256-GCM + Argon2id |
+| Ratchet state (optional) | `friends.ratchet_state_json` | AES-256-GCM + HKDF-derived storage key |
 
 ---
 
@@ -543,3 +598,30 @@ from key_manager import KeyStore
 key_store = KeyStore()
 # Re-encrypts all secrets with new password (arg: old_password, new_password)
 key_store.change_password(old_password, new_password)
+```
+
+### Managing Held Shares
+
+```python
+from contextlib import closing
+import database
+
+# Save a share received from someone
+database.save_held_share({
+    "share_id": "uuid-string",
+    "owner_name": "Alice",
+    "holder_name": "Bob",
+    "share_index": 1,
+    "total_shares": 5,
+    "threshold": 3,
+    "plaintext_share_b64": base64_share,
+    "created_at": time.time(),
+})
+
+# Retrieve all shares I'm holding
+for share in database.get_all_held_shares():
+    print(share["owner_name"], share["share_index"])
+
+# Delete a share
+database.delete_held_share(share_id)
+```

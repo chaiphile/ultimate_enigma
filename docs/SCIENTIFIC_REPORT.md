@@ -37,7 +37,7 @@
 
 ## 1. Project Overview
 
-**Ultimate Enigma Messenger** is a Python desktop cryptographic messenger implementing a **hybrid classical–post-quantum cryptosystem**. It combines AES-256-GCM, RSA-4096-OAEP, X25519 ECDH, Ed25519, the Signal Double Ratchet Protocol, and CRYSTALS-Kyber768 / CRYSTALS-Dilithium3 from post-quantum cryptography (PQC) into a single secure messaging application. The system employs a seven-layer MVC architecture (models, views, controllers, services, security, components, src) with an event-driven, thread-safe composition root, encrypted SQLCipher / SQLite persistence using Argon2id KDF, duress mode, anti-tamper protections, and memory-security mechanisms including guarded virtual-memory buffers over 19 services, 12 views, 5 reusable components, and 550+ automated tests.
+**Ultimate Enigma Messenger** is a Python desktop cryptographic messenger implementing a **hybrid classical–post-quantum cryptosystem**. It combines AES-256-GCM, RSA-4096-OAEP, X25519 ECDH, Ed25519, the Signal Double Ratchet Protocol, and CRYSTALS-Kyber768 / CRYSTALS-Dilithium3 from post-quantum cryptography (PQC) into a single secure messaging application. The system employs an eight-layer architecture (builders, models, views, controllers, services, security, components, src) with an event-driven, thread-safe composition root (AppBuilder provides a 6-step composition root), encrypted SQLCipher / SQLite persistence using Argon2id KDF, duress mode, anti-tamper protections, and memory-security mechanisms including guarded virtual-memory buffers over 33 event constants across 7 categories, 23 service modules, 13 view modules, 8 reusable components, and 550+ automated tests across 36 files.
 
 **Platform:** Windows-first (uses Windows-specific APIs for anti-tamper, global hotkeys, memory protection), with partial macOS and Linux support. No external network dependencies for message transport — the application focuses exclusively on the cryptographic layer.
 
@@ -296,7 +296,7 @@ The system also includes **fallback behavior** — if liboqs is unavailable, PQC
 
 ### 4.2 Anti-Tamper and Anti-Debug
 
-The `src/anti_tamper.py` module (1,108 lines) implements **13 detection methods** that activate **only** when running as a PyInstaller frozen executable (`sys.frozen == True`). The system is **fail-closed**: exceptions in checks are treated as tamper and trigger silent exit.
+The `src/anti_tamper.py` module (1,108 lines) implements **13 detection methods** — including IsDebuggerPresent, PEB debug flags, RDTSC timing anomaly checks, Frida detection, and PE header verification — that activate **only** when running as a PyInstaller frozen executable (`sys.frozen == True`). Countermeasures include `ThreadHideFromDebugger` (`hide_threads`), `MiniDumpWriteDump` patching, `SeDebugPrivilege` removal, and silent process exit (`os._exit(1)`) with no error message or event log. The system is **fail-closed**: exceptions in checks are treated as tamper and trigger silent exit.
 
 | # | Check | Detection Method | Literature |
 |---|---|---|---|
@@ -341,15 +341,16 @@ This implements **deniable encryption** (Canetti et al., 1997 [[45]](#ref45)) �
 | Failed Attempts | Lockout Duration |
 |---|---|
 | 0–4 | None |
-| 5 | 5 seconds |
-| 6 | 10 seconds |
-| 7 | 30 seconds |
-| 8 | 60 seconds |
-| 9 | 2 minutes |
-| 10 | 5 minutes |
-| 11 | 10 minutes |
-| 12 | 30 minutes |
-| 13–14 | 1 hour |
+| 5 | None |
+| 6 | 5 seconds |
+| 7 | 10 seconds |
+| 8 | 30 seconds |
+| 9 | 60 seconds |
+| 10 | 2 minutes |
+| 11 | 5 minutes |
+| 12 | 10 minutes |
+| 13 | 30 minutes |
+| 14 | 1 hour |
 | 15+ | **Hard lockout: 3600 seconds (1 hour)** |
 
 State is persisted to the database (`lockout_data` in the `settings` table), surviving process restarts. This follows the persistent denial-of-service resistance guidelines of Bonneau et al. (2015) [[47]](#ref47). The duress password bypasses the lockout counter (if the real password entered under duress causes a lockout, the user simply enters the duress password to proceed).
@@ -449,7 +450,7 @@ Individual field encryption via `encrypt_secret()` / `decrypt_secret()` (`databa
 
 When legacy PBKDF2 entries are detected on read, they are transparently **migrated to Argon2id** via `migrate_secrets_to_argon2id()`.
 
-### Database Schema (7 tables)
+### Database Schema (8 tables)
 
 | Table | Key Columns | Purpose |
 |---|---|---|
@@ -457,6 +458,7 @@ When legacy PBKDF2 entries are detected on read, they are transparently **migrat
 | `friends` | `id INTEGER PK, name TEXT UNIQUE, public_key_pem TEXT, ...` | Contact list with keys, capabilities, ratchet state |
 | `trust_certificates` | `cert_id TEXT PK, subject_name TEXT, ...` | Decentralized trust chain certificates |
 | `recovery_shares` | `share_id TEXT PK, owner_name TEXT, ...` | Shamir secret sharing recovery |
+| `held_shares` | `share_id TEXT PK, holder_name TEXT, ...` | Shares held from other users for cross-recovery |
 
 ### Secret Keys Stored at Rest
 
@@ -592,7 +594,7 @@ Key architectural decisions include:
 - **Exponential backoff lockout** persisting across restarts
 - **Shamir's Secret Sharing** over GF(256) for key recovery
 
-The system is backed by **550+ automated tests** verifying cryptographic correctness against published test vectors from RFCs 4226, 8439, and NIST standard parameters, and implements **18+ distinct cryptographic algorithms** across **49+ published academic standards and research papers**.
+The system is backed by **550+ automated tests across 36 files** verifying cryptographic correctness against published test vectors from RFCs 4226, 8439, and NIST standard parameters, and implements **18+ distinct cryptographic algorithms** across **49+ published academic standards and research papers**.
 
 ---
 

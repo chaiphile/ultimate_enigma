@@ -177,10 +177,10 @@ Tests are automatically skipped if liboqs is not available.
 
 | File | Change Type | Description |
 |------|-------------|-------------|
-| `services/friends/` | Added methods | `generate_hybrid_sig_keys()`, `import_friend_hybrid_sig_pub()`, `get_hybrid_sig_key_fingerprint()` |
+| `services/friends/friends_facade.py` | Added methods | `generate_hybrid_sig_keys()`, `import_friend_hybrid_sig_pub()`, `get_hybrid_sig_key_fingerprint()` (delegates to `services/friends/hybrid_sig_keys.py`) |
 | `components/hybrid_sig_exchange_dialog.py` | New component | Multi-tab hybrid signature exchange dialog with trust chain certificate support |
-| `services/file_service.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |
-| `key_manager.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |
+| `services/file_ops.py` | Extended functions | Added hybrid sig support to `file_encrypt_shared()` and `file_decrypt_shared()` |
+| `key_manager.py` | Extended functions | Hybrid signing key generation, encrypted storage (`ed25519_priv_encrypted`, `dilithium_priv_encrypted`), loading, password change, emergency lock wipe |
 | `tests/test_pqc_signatures.py` | New file | Comprehensive test suite for hybrid signatures |
 
 ## Backward Compatibility

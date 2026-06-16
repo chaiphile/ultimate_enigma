@@ -20,7 +20,10 @@ Comprehensive documentation for all UI views (tabs) and MVC controllers.
   - [TrustTab](#trusttab)
   - [NtpTab](#ntptab)
   - [AboutTab](#abouttab)
+  - [ECDH Dialog](#ecdh-dialog)
 - [Components](#components)
+  - [RecoveryUnlockDialog](#recoveryunlockdialog)
+  - [UpdateFriendKeysDialog](#updatefriendkeysdialog)
   - [TOTPVerifyDialog](#totpverifydialog)
   - [TOTPSetupDialog](#totpsetupdialog)
 - [Supporting Views](#supporting-views)
@@ -50,10 +53,13 @@ Creates `CryptoTaskQueue`, initializes task queue for UI thread marshalling.
 
 | Method | Description |
 |--------|-------------|
+| `set_service_orchestrator(orchestrator)` | Store reference to ServiceOrchestrator for agent lifecycle |
 | `start_queue_processing()` | Begin processing task queue on main thread + start crypto queue |
 | `enqueue(func)` | Thread-safe task submission to UI queue |
-| `start_ntp_sync(encryption_service, service_lock, delay_ms=2000)` | Schedule deferred NTP sync |
+| `start_ntp_sync(encryption_service, delay_ms=2000)` | Schedule deferred NTP sync |
 | `register_hotkeys(lock_callback, unlock_callback)` | Register Ctrl+Shift+L/U hotkeys |
+| `start_agents()` | Start all background agents via ServiceOrchestrator |
+| `stop_agents()` | Stop all background agents |
 | `shutdown()` | Clean up crypto queue, hotkeys, timeout executor |
 
 #### Events Published
@@ -94,6 +100,7 @@ The optional `ui` parameter accepts a UI callback object. If `None`, a default `
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `request_unlock(current_ks)` | `(bool, KeyStore, TOTPService)` | Full unlock sequence |
+| `request_recovery_unlock()` | `(bool, KeyStore, TOTPService)` | Recovery unlock using Shamir shares (no password needed) |
 
 #### TOTP Management
 
@@ -104,7 +111,7 @@ The optional `ui` parameter accepts a UI callback object. If `None`, a default `
 | `init_totp(password)` | `None` | Load existing or generate new |
 | `generate_new_totp(password)` | `None` | Generate and persist new secret |
 | `regenerate_totp()` | `None` | Regenerate from setup dialog |
-| `show_totp_setup()` | `bool` | Show TOTP setup dialog |
+| `show_totp_setup()` | `None` | Show TOTP setup dialog |
 | `is_totp_setup_complete()` | `bool` | Check DB flag |
 | `set_totp_setup_complete(value)` | `None` | Set DB flag |
 | `is_totp_enabled()` | `bool` | Check DB flag |
@@ -116,7 +123,7 @@ The optional `ui` parameter accepts a UI callback object. If `None`, a default `
 |--------|---------|-------------|
 | `change_password()` | `bool` | Orchestrate password change |
 | `set_duress_password()` | `bool` | Orchestrate duress setup |
-| `enter_duress_mode()` | `None` | Load decoy state |
+| `enter_duress_mode(password=None)` | `None` | Load decoy state |
 | `wipe_sensitive_data()` | `None` | Clear all sensitive data |
 
 #### Events Published
@@ -135,7 +142,7 @@ Centralized manager for all business service instances. Handles creation, rebuil
 ServiceOrchestrator(root, key_store, crypto_queue=None)
 ```
 
-Creates: EncryptionService, FileService, FriendsService, ClipboardService, GlobalSecretService, TrustChainService
+Creates: EncryptionService, FileService, FriendsService, ClipboardService, GlobalSecretService
 
 #### Properties
 
@@ -146,15 +153,16 @@ Creates: EncryptionService, FileService, FriendsService, ClipboardService, Globa
 | `friends_service` | FriendsService | Current instance |
 | `clipboard_service` | ClipboardService | Current instance |
 | `global_secret_service` | GlobalSecretService | Current instance |
-| `trust_chain_service` | TrustChainService | Current instance |
+| `crypto_queue` | CryptoTaskQueue | Background crypto task queue |
 | `service_lock` | RLock | Thread-safe service access |
 
 #### Methods
 
 | Method | Description |
 |--------|-------------|
+| `set_backup_agent(backup_service)` | Configure BackupReminderAgent with backup service |
 | `rebuild_services(new_key_store, tab_references)` | Rebuild all services, update tab refs, publish event |
-| `shutdown()` | Clean up clipboard service |
+| `shutdown()` | Flush ratchet states, stop agents, clean up clipboard service |
 | `start_agents()` | Start background agents (BackupReminderAgent, RatchetMaintenanceAgent, SystemMonitorAgent, KeyInspectorAgent) |
 | `stop_agents()` | Stop all background agents |
 
@@ -165,6 +173,8 @@ Creates: EncryptionService, FileService, FriendsService, ClipboardService, Globa
 
 ## Views (Tabs)
 
+13 view modules: about_tab, decrypt_tab, dialogs, ecdh, encrypt_tab, file_tab, friends_tab, lock_screen, ntp_tab, secret_tab, trust_tab, utils, visual_enigma.
+
 ### EnigmaApp (Main Window)
 
 **File:** `app.py`
@@ -172,19 +182,22 @@ Creates: EncryptionService, FileService, FriendsService, ClipboardService, Globa
 Main application window orchestrating header, tabs, lock screen, and event subscriptions.
 
 #### Initialization Sequence
-1. Configure EventBus with Tkinter root
-2. Check first-run status
-3. Initialize KeyStore
-4. Initialize Controllers (Application, Auth, ServiceOrchestrator)
-5. Start task queue processing
-6. Load keys (first-run setup or existing login)
-7. Enforce mandatory TOTP setup
-8. Verify startup TOTP
-9. Start deferred NTP sync
-10. Setup header and tabs
-11. Initialize lock screen
-12. Subscribe to events
-13. Register global hotkeys
+
+The startup sequence is delegated to **`builders/app_builder.py`** (`AppBuilder`), which runs 6 steps:
+
+1. `step1_init_window` — Configure root window, style, and EventBus
+2. `step2_init_database` — Detect first-run status, ensure DB schema exists
+3. `step3_init_keystore` — Create `KeyStore` instance
+4. `step4_init_controllers` — Create `ApplicationController`, `TotpPersistence`, `AuthController`; start task queue
+5. `step5_authenticate` — Load keys (first-run setup or login), enforce mandatory TOTP setup, verify startup TOTP
+6. `step6_init_services` — Create `ServiceOrchestrator` + `TrustChainService`, wire dependencies, start deferred NTP sync
+
+After `build()` returns successfully, `EnigmaApp.__init__` continues with:
+- Setup header and tabs
+- Initialize lock screen
+- Subscribe to event bus
+- Register global hotkeys
+- Start background agents
 
 #### Key Methods
 
@@ -407,6 +420,8 @@ AboutTab(parent, key_store, auth_controller, backup_service=None)
 
 ## Components
 
+8 component dialogs total.
+
 ### AddFriendDialog
 **File:** `components/add_friend_dialog.py` — Full form for adding friends with all key fields.
 
@@ -421,6 +436,12 @@ AboutTab(parent, key_store, auth_controller, backup_service=None)
 
 ### KeyRecoveryDialog
 **File:** `components/key_recovery_dialog.py` — Shamir secret sharing key recovery UI.
+
+### RecoveryUnlockDialog
+**File:** `components/recovery_unlock_dialog.py` (332 lines) — Recovery key reconstruction without master password; used from lock screen or startup login via `AuthController.request_recovery_unlock()`.
+
+### UpdateFriendKeysDialog
+**File:** `components/update_friend_keys_dialog.py` (391 lines) — Update RSA, ECDH, PQC, and hybrid signature keys for a friend; requires master password for authorization.
 
 ### TOTPVerifyDialog / TOTPSetupDialog
 **File:** `components/totp_dialogs.py` — TOTP verification and setup dialogs.

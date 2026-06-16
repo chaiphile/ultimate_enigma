@@ -162,6 +162,8 @@ Full runtime key store with authentication, lockout, PQC key management, and pas
 | `_duress_mode` | `bool` | Whether duress password was used |
 | `_needs_rotation` | `bool` | RSA key below CNSA 2.0 minimum |
 | `_ratchet_storage_key` | `bytearray` | AES-256 key for encrypted ratchet persistence |
+| `_cached_pqc_bundle` | `Optional[dict]` | Cached full PQC bundle (X25519 + Kyber) for decapsulation |
+| `_rsa_key_bytes` | `Optional[GuardedBuffer]` | RSA private key bytes in guarded memory |
 
 ### Key Methods
 
@@ -182,6 +184,13 @@ Full runtime key store with authentication, lockout, PQC key management, and pas
 | `remove_friend(name)` | — | Remove from DB and memory |
 | `set_my_name(name)` | — | Persist display name to settings |
 | `wipe()` | — | Securely erase all keys from memory |
+| `reset_with_recovery_key(new_password)` | `bool` | Reset all crypto material using new password (recovery flow) |
+| `get_friend_secret(name)` | `Optional[bytes]` | Get friend's shared secret by name |
+| `pqc_decryption_bundle` (property) | `Optional[dict]` | Return cached PQC key bundle for decapsulation |
+| `needs_key_rotation` (property) | `bool` | True if RSA key is below CNSA 2.0 minimum |
+| `is_duress_mode` (property) | `bool` | True if last auth used duress password |
+| `failed_attempts` (property) | `int` | Number of consecutive failed auth attempts |
+| `locked_until` (property) | `float` | Epoch timestamp until account is locked |
 
 > Note: File encryption functions (`file_encrypt`, `file_encrypt_shared`, etc.) are defined in `services/file_ops.py`, not in `key_manager.py`. The `key_manager.py` may import them but does not define them.
 
@@ -311,13 +320,13 @@ Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_priv
 
 ### Exception Hierarchy
 
-| Exception | Description |
-|-----------|-------------|
-| `DatabaseError` | Base exception |
-| `DatabaseCorruptedError` | DB file corrupted |
-| `DatabaseLockedError` | DB locked by another process |
-| `DatabaseIntegrityError` | Constraint violation |
-| `DatabaseConnectionError` | Cannot establish connection |
+```
+DatabaseError
+├── DatabaseCorruptedError
+├── DatabaseLockedError
+├── DatabaseIntegrityError
+└── DatabaseConnectionError
+```
 
 ---
 
@@ -378,7 +387,7 @@ finally:
 **File:** `src/exceptions.py`
 
 ```
-EnigmaError (base)
+EnigmaError
 ├── KeyStoreError
 ├── EncryptionError
 ├── DecryptionError
@@ -388,7 +397,15 @@ EnigmaError (base)
 │   └── RatchetServiceError
 ├── TOTPValidationError
 ├── CryptoTimeoutError
-└── ConcurrencyError
+├── ConcurrencyError
+├── TrustChainError
+│   ├── CertificateError
+│   │   ├── CertificateExpiredError
+│   │   ├── CertificateRevokedError
+│   │   └── CertificateSignatureError
+│   └── ShamirError
+│       ├── InsufficientSharesError
+│       └── InvalidShareError
 ```
 
 ---
@@ -405,6 +422,7 @@ EnigmaError (base)
 | `PQC_ENVELOPE` | `0x50` | PQC Hybrid KEM envelope |
 | `FILE_SHARED_SECRET` | `b'ENIGMA\x01'` | Shared-secret file header |
 | `FILE_KDF_ARGON2ID` | `b'A2ID'` | Argon2id file KDF tag |
+| `TRUST_CERT_BUNDLE` | `0x74` | Trust certificate bundle envelope |
 
 ### KDF Parameters
 
@@ -416,6 +434,49 @@ EnigmaError (base)
 | `ARGON2_HASH_LEN` | 32 | Output length |
 | `ARGON2_SALT_LEN` | 16 | Salt length |
 | `PBKDF2_LEGACY_ITERATIONS` | 300,000 | Legacy iteration count |
+
+### Crypto Constants
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `AES_KEY_SIZE` | 32 | AES-256 key size |
+| `RSA_MIN_KEY_SIZE` | 4096 | Minimum RSA key size (CNSA 2.0) |
+| `LEGACY_KEY_RETENTION_DAYS` | 30 | Days to retain old RSA key |
+| `AES_GCM_NONCE_SIZE` | 12 | AES-GCM nonce length |
+| `AES_GCM_TAG_SIZE` | 16 | AES-GCM authentication tag length |
+| `WINDOW_SIZE` | 2 | TOTP window size |
+| `SELF_DESTRUCT_FLAG` | 4 | Self-destruct message flag bit |
+| `HYBRID_SIG_FLAG` | 8 | Hybrid signature flag bit |
+| `KEY_HINT_FLAG` | 16 | Key hint flag bit |
+
+### Security & Lockout Constants
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `BACKOFF_TABLE` | `[0,0,0,0,0,5,10,30,60,120,300,600,1800,3600]` | 14-entry exponential backoff (seconds) |
+| `HARD_LOCKOUT_THRESHOLD` | 15 | Consecutive failures before hard lockout |
+| `HARD_LOCKOUT_DURATION` | 3600 | Hard lockout duration (1 hour) |
+| `MAX_TOTP_ATTEMPTS` | 5 | Maximum TOTP attempts before lockout |
+| `SESSION_TIMEOUT` | 900 | Session timeout (15 minutes) |
+
+### Database Constants
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `SQLCIPHER_PAGE_SIZE` | 4096 | SQLCipher page size |
+| `SQLCIPHER_KDF_ITER` | 256000 | SQLCipher KDF iterations |
+
+### Trust Chain Constants
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `TRUST_LEVEL_BASIC` | 1 | One or more certs (basic verification) |
+| `TRUST_LEVEL_VERIFIED` | 2 | Multiple confirming certs |
+| `TRUST_LEVEL_TRUSTED` | 3 | Mutually attested (highest level) |
+| `CERT_TYPE_IDENTITY` | `"identity"` | Binds name to public key |
+| `CERT_TYPE_RECOVERY` | `"recovery"` | Recovery authority certificate |
+| `CERT_TYPE_DELEGATION` | `"delegation"` | Delegated signing authority |
+| `RECOVERY_SHARE_EXPIRY_DAYS` | 365 | Recovery share validity period |
 
 ### Concurrency Constants
 

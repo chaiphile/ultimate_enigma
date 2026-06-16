@@ -110,7 +110,9 @@ ultimate_enigma/
 │   ├── hybrid_sig_exchange_dialog.py # Hybrid signature key exchange (multi-tab)
 │   ├── add_friend_dialog.py      # Add friend form with all fields
 │   ├── certificate_dialog.py     # Trust certificate viewer/management
-│   └── key_recovery_dialog.py    # Shamir secret sharing key recovery UI
+│   ├── key_recovery_dialog.py    # Shamir secret sharing key recovery UI
+│   ├── recovery_unlock_dialog.py # Emergency recovery unlock flow
+│   └── update_friend_keys_dialog.py # Update friend's public keys
 ├── src/                    # Core Utilities
 │   ├── constants.py              # Centralized constants (frozen dataclasses with dict aliases)
 │   ├── exceptions.py             # Custom exception classes
@@ -129,12 +131,27 @@ ultimate_enigma/
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
 ├── key_manager.py          # KeyStore thin orchestrator (lockout → security/lockout.py, keygen → src/key_generation.py)
-└── tests/                  # Test suite
+├── tests/                  # Test suite (36 test files)
+│   ├── encryption/               # Encryption service tests
+│   └── friends/                  # Friends service tests
 ```
 
 ### View Layer Organization
 
 All View components (Tkinter UI tabs, dialogs, and widgets) are organized under the `views/` package. This enforces a clean separation between the UI layer and business logic. Views receive dependencies via constructor injection and communicate with controllers/services through the EventBus or direct method calls — never by reaching into internal state.
+
+## Builders Layer
+
+### AppBuilder
+
+The `builders/app_builder.py` file is the composition root. It constructs the application in a 6-step pipeline:
+
+1. **Step 1**: Initialize core (database, key store)
+2. **Step 2**: Create security layer (memory guards, lockout manager)
+3. **Step 3**: Build controllers (ApplicationCtrl, AuthCtrl, ServiceOrchestrator)
+4. **Step 4**: Register services via ServiceOrchestrator
+5. **Step 5**: Create views and wire event subscriptions
+6. **Step 6**: Start background agents (NTP sync, backup reminders, ratchet maintenance)
 
 ## Controllers
 
@@ -210,7 +227,43 @@ Post-quantum cryptography:
 Decoupled communication system:
 - Thread-safe publish/subscribe pattern
 - Tkinter-aware main thread dispatch
-- Event types defined in `Events` class
+- Event types defined in `Events` class (37 events across 8 categories)
+
+### ECDHService
+Elliptic Curve Diffie-Hellman key exchange:
+- X25519 key pair generation
+- Shared secret derivation (HKDF-sha256)
+- Secure key material handling
+
+### CryptoTaskQueue
+Async cryptographic task execution:
+- ThreadPoolExecutor for offloading crypto operations
+- Non-blocking UI during heavy computation
+- Graceful cancellation on shutdown
+
+### FriendRepository
+Low-level friend data persistence:
+- Direct database queries for friend records
+- Key material accessors (X25519, PQC, hybrid sig)
+- No business logic — pure data access layer
+
+### TotpPersistence
+Encrypted TOTP secret storage:
+- AES-GCM encrypted secrets at rest
+- Derives encryption key from master key
+- Atomic read/update operations
+
+### XChaCha20Poly1305
+ChaCha20-based AEAD implementation:
+- Extended nonce (192-bit) for random IVs
+- Constant-time operation (no data-dependent lookups)
+- Used as the symmetric cipher inside the Double Ratchet
+
+### HybridSigner / PQCSignatures
+Post-quantum digital signatures via liboqs:
+- CRYSTALS-Dilithium3 key generation, sign, verify
+- Hybrid classical (Ed25519) + PQC (Dilithium3) signing
+- Cross-version algorithm resolution (Dilithium3 ↔ ML-DSA-65)
 
 ## Event Flow
 
@@ -226,26 +279,26 @@ The EventBus enables loose coupling between components:
 [AuthController] --SERVICES_REBUILT-> [EventBus] --> [All Tabs]
 ```
 
-### Available Events (32 total)
+### Available Events (37 total)
 
 | Event | Category | Description |
 |-------|----------|-------------|
-| `UNLOCK_REQUESTED` | Auth | User initiated unlock |
-| `EMERGENCY_LOCK` | Auth | Emergency lock triggered |
-| `UNLOCKED` | Auth | App successfully unlocked |
-| `LOCKED` | Auth | App locked |
-| `DURESS_MODE_ENTERED` | Auth | Duress mode activated (coerced unlock) |
-| `KEYS_WIPED` | Key | Keys cleared from memory |
-| `KEYS_LOADED` | Key | Keys loaded from database |
-| `PASSWORD_CHANGED` | Key | Master password changed |
+| `UNLOCK_REQUESTED` | Auth & Lock | User initiated unlock |
+| `EMERGENCY_LOCK` | Auth & Lock | Emergency lock triggered |
+| `UNLOCKED` | Auth & Lock | App successfully unlocked |
+| `LOCKED` | Auth & Lock | App locked |
+| `KEYS_WIPED` | Key & credential | Keys cleared from memory |
+| `KEYS_LOADED` | Key & credential | Keys loaded from database |
+| `PASSWORD_CHANGED` | Key & credential | Master password changed |
+| `DURESS_MODE_ENTERED` | Key & credential | Duress mode activated (coerced unlock) |
 | `TOTP_SETUP_COMPLETE` | TOTP | TOTP configured |
 | `TOTP_VERIFIED` | TOTP | TOTP code validated |
 | `TOTP_CHANGED` | TOTP | TOTP secret updated |
 | `SERVICES_REBUILT` | Service | Services recreated after unlock |
 | `NTP_SYNCED` | Service | Time synchronized successfully |
 | `NTP_SYNC_FAILED` | Service | All NTP servers unreachable |
-| `RATCHET_INITIALIZED` | Ratchet | New ratchet session established |
-| `RATCHET_RESET` | Ratchet | Ratchet session reset |
+| `RATCHET_INITIALIZED` | Data | New ratchet session established |
+| `RATCHET_RESET` | Data | Ratchet session reset |
 | `FRIEND_LIST_CHANGED` | Data | Contacts modified |
 | `FRIEND_ADDED` | Data | New friend added |
 | `FRIEND_REMOVED` | Data | Friend removed |
@@ -255,16 +308,16 @@ The EventBus enables loose coupling between components:
 | `TRUST_LEVEL_CHANGED` | Trust Chain | Friend trust level updated |
 | `RECOVERY_SHARE_CREATED` | Trust Chain | Recovery share generated |
 | `RECOVERY_KEY_RECONSTRUCTED` | Trust Chain | Secret reconstructed from shares |
-| `BACKUP_REMINDER` | Agent | Backup reminder triggered |
-| `BACKUP_COMPLETED` | Agent | Backup export finished |
-| `RATCHET_LOCKS_CLEANED` | Agent | Stale ratchet locks cleaned |
-| `RATCHET_DEADLOCK_DETECTED` | Agent | Potential deadlock in ratchet locks detected |
-| `RATCHET_LOCK_STATS` | Agent | Ratchet lock contention statistics |
-| `SYSTEM_STATUS` | Agent | General system status update |
-| `SYSTEM_HEALTH_OK` | Agent | All health checks passed |
-| `SYSTEM_HEALTH_DEGRADED` | Agent | One or more health checks degraded |
-| `KEY_INFO` | Agent | Key metadata info event |
-| `KEY_FINGERPRINT` | Agent | Key fingerprint verification event |
+| `BACKUP_REMINDER` | Background Agent | Backup reminder triggered |
+| `BACKUP_COMPLETED` | Background Agent | Backup export finished |
+| `RATCHET_LOCKS_CLEANED` | Background Agent | Stale ratchet locks cleaned |
+| `RATCHET_DEADLOCK_DETECTED` | Background Agent | Potential deadlock in ratchet locks detected |
+| `RATCHET_LOCK_STATS` | Background Agent | Ratchet lock contention statistics |
+| `SYSTEM_STATUS` | Background Agent | General system status update |
+| `SYSTEM_HEALTH_OK` | Background Agent | All health checks passed |
+| `SYSTEM_HEALTH_DEGRADED` | Background Agent | One or more health checks degraded |
+| `KEY_INFO` | Background Agent | Key metadata info event |
+| `KEY_FINGERPRINT` | Background Agent | Key fingerprint verification event |
 | `APP_STARTING` | Lifecycle | Application starting up |
 | `APP_SHUTDOWN` | Lifecycle | Application closing |
 

@@ -30,7 +30,7 @@ Comprehensive installation and setup instructions for **Windows**, **macOS**, an
 | Windows 11 SDK | Required | Required for MSVC compilation on Windows 11
 | CMake | Optional | Only needed if building liboqs from source |
 
-**Note:** The application also requires `qrcode` and `Pillow` (included in requirements.txt) for rendering TOTP QR codes during setup.
+**Note:** The application depends on packages in `requirements.txt`: `ttkbootstrap` (UI), `cryptography` (AES-GCM/RSA-OAEP), `argon2-cffi` (KDF), `qrcode[pil]` (TOTP QR codes), `liboqs-python` (post-quantum crypto), `pytest` (optional, for tests), and `sqlcipher3` (optional, encrypted database).
 
 ---
 
@@ -105,7 +105,9 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-> **Note:** `requirements.txt` includes `sqlcipher3>=1.2.0` for encrypted database support. See [Troubleshooting](#troubleshooting) if `sqlcipher3` import fails.
+> **Note:** `sqlcipher3>=1.2.0` provides optional encrypted database support. If `sqlcipher3` is unavailable, the app falls back to plain SQLite. See [Troubleshooting](#troubleshooting) to install SQLCipher.
+
+> **Note:** `pytest>=7.0.0` in `requirements.txt` is optional — only needed for running tests.
 
 > **Note:** On Windows, `liboqs-python` requires the `liboqs.dll` native library. See [Post-Quantum Cryptography](#post-quantum-cryptography-liboqs) below.
 
@@ -126,7 +128,7 @@ pip install pyinstaller
 pyinstaller UltimateEnigma.spec
 ```
 
-> **Note:** `build_app.bat` uses the `--hidden-import=src.anti_tamper` flag to ensure the anti-tamper module is included in the frozen executable.
+> **Note:** `build_app.bat` bundles the `liboqs` native library (`--add-data`, `--add-binary`, `--hidden-import=oqs`) and includes the anti-tamper module (`--hidden-import=src.anti_tamper`).
 
 The executable will be created at `dist/UltimateEnigma.exe`.
 
@@ -348,7 +350,7 @@ pyinstaller UltimateEnigma.spec
 
 The `UltimateEnigma.spec` file configures PyInstaller to:
 - Bundle all Python dependencies
-- Include the `liboqs` native library (if present)
+- Bundle the `liboqs` native library
 - Include the `src.anti_tamper` module for anti-debugger/anti-tamper protections
 - Set the application icon (`enigma.ico`)
 - Create a single-file executable
@@ -409,6 +411,11 @@ See `docs/SECURITY.md` for full details.
    - Split your master secret into shares distributed to trusted contacts
    - A threshold number of shares can reconstruct access if the master password is lost
 
+4c. **Duress Mode Setup (Optional)**
+   - In the "About" tab, you can configure a duress password
+   - Entering the duress password loads decoy data instead of real keys
+   - Useful if you are coerced into unlocking the app — the attacker sees only decoy content
+
 5. **Ready to Use**
    - Add friends via the Friends tab
    - Perform ECDH key exchange for per-friend secrets
@@ -442,7 +449,7 @@ See `docs/SECURITY.md` for full details.
 
 1. Check the log file for error details
 2. Verify Python version: `python --version` (must be 3.10+)
-3. Verify all dependencies: `pip list | grep -E "ttkbootstrap|cryptography|argon2|qrcode|liboqs"`
+3. Verify all dependencies: `pip list | grep -E "ttkbootstrap|cryptography|argon2|qrcode|liboqs|sqlcipher3|pytest"`
 4. Try deleting `~/.ultimate_enigma/enigma.db` and restarting (fresh setup)
 
 ---
