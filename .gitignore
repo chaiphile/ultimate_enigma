@@ -96,4 +96,6 @@ Thumbs.db
 .mimocode/
 
 # Demo directory databases
-.demo-alice/engima.db
+**/enigma.db
+.demo-alice/
+.demo-bob/
