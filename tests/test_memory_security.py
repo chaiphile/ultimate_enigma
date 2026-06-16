@@ -2,6 +2,7 @@
 Tests for security/memory_security.py, security/guarded_buffer.py, security/anti_dump.py
 """
 import sys
+import runpy
 import secrets
 import gc
 import pytest
@@ -95,3 +96,29 @@ class TestAntiDump:
         import resource
         soft, hard = resource.getrlimit(resource.RLIMIT_CORE)
         assert soft == 0
+
+
+class TestMainStartupSecurity:
+    def test_source_run_skips_startup_hardening(self, monkeypatch):
+        if hasattr(sys, "frozen"):
+            monkeypatch.delattr(sys, "frozen", raising=False)
+
+        calls = {"mlock": 0, "anti_dump": 0}
+
+        import security.memory_security
+        import security.anti_dump
+
+        monkeypatch.setattr(
+            security.memory_security,
+            "raise_mlock_limit",
+            lambda target_bytes=0: calls.__setitem__("mlock", calls["mlock"] + 1),
+        )
+        monkeypatch.setattr(
+            security.anti_dump,
+            "apply_anti_dump_protections",
+            lambda: calls.__setitem__("anti_dump", calls["anti_dump"] + 1),
+        )
+
+        runpy.run_module("main", run_name="__test__")
+
+        assert calls == {"mlock": 0, "anti_dump": 0}

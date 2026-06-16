@@ -21,7 +21,7 @@ PAGE_SIZE = 4096
 
 def _win32_error_str() -> str:
     """Format the last Windows error as a human-readable string."""
-    err = ctypes.get_last_error()
+    err = windll.kernel32.GetLastError()
     if not err:
         return "Unknown error"
     buf = ctypes.create_string_buffer(256)

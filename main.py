@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Launch the application with logging configured."""
 
-# Memory security initialization
-try:
-    from security.memory_security import raise_mlock_limit
-    from security.anti_dump import apply_anti_dump_protections
-    raise_mlock_limit(target_bytes=64 * 1024 * 1024)
-    apply_anti_dump_protections()
-except Exception:
-    pass  # Security services unavailable (non-Windows or missing deps)
-
 import sys
 import os
+
+# Memory security initialization for packaged builds.
+if getattr(sys, 'frozen', False):
+    try:
+        from security.memory_security import raise_mlock_limit
+        from security.anti_dump import apply_anti_dump_protections
+        raise_mlock_limit(target_bytes=64 * 1024 * 1024)
+        apply_anti_dump_protections()
+    except Exception:
+        pass  # Security services unavailable in this runtime
 
 # PyInstaller DLL path resolution for liboqs
 if getattr(sys, 'frozen', False):

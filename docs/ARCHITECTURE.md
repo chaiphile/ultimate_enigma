@@ -7,33 +7,33 @@ Ultimate Enigma Messenger follows a **Model-View-Controller (MVC)** architecture
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                         EnigmaApp (main)                        │
-│  ┌─────────────┐  ┌──────────────────┐  ┌───────────────────┐  │
-│  │ApplicationCtrl│  │  AuthController  │  │ServiceOrchestrator│  │
-│  └──────┬──────┘  └────────┬─────────┘  └────────┬──────────┘  │
+│  ┌─────────────┐  ┌──────────────────┐  ┌───────────────────┐   │
+│  │ApplicationCtrl│  │  AuthController  │  │ServiceOrchestrator│ │
+│  └──────┬──────┘  └────────┬─────────┘  └────────┬──────────┘   │
 │         │                  │                      │             │
 │         ▼                  ▼                      ▼             │
-│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐ │
-│  │ CryptoQueue │    │  KeyStore   │    │     Services        │ │
-│  │  Hotkeys    │    │  TOTP       │    │  ├─ EncryptionSvc   │ │
-│  │  NTP Sync   │    │  TotpPersist│    │  ├─ FileService     │ │
-│  └─────────────┘    │  LockScreen │    │  ├─ FriendsService  │ │
-│                     └─────────────┘    │  ├─ BackupService   │ │
-│                                        │  ├─ ClipboardSvc    │ │
-│  ┌─────────────────────────────────┐   │  ├─ GlobalSecretSvc │ │
-│  │           Views (Tabs)          │   │  └─ ...             │ │
-│  │  EncryptTab | DecryptTab | ...  │   └─────────────────────┘ │
-│  └─────────────────────────────────┘                           │
+│  ┌─────────────┐    ┌─────────────┐    ┌─────────────────────┐  │
+│  │ CryptoQueue │    │  KeyStore   │    │     Services        │  │
+│  │  Hotkeys    │    │  TOTP       │    │  ├─ EncryptionSvc   │  │
+│  │  NTP Sync   │    │  TotpPersist│    │  ├─ FileService     │  │
+│  └─────────────┘    │  LockScreen │    │  ├─ FriendsService  │  │
+│                     └─────────────┘    │  ├─ BackupService   │  │
+│                                        │  ├─ ClipboardSvc    │  │
+│  ┌─────────────────────────────────┐   │  ├─ GlobalSecretSvc │  │
+│  │           Views (Tabs)          │   │  └─ ...             │  │
+│  │  EncryptTab | DecryptTab | ...  │   └─────────────────────┘  │
+│  └─────────────────────────────────┘                            │
 │                              ▲                                  │
 │                              │                                  │
-│                    ┌─────────┴─────────┐                       │
-│                    │      EventBus     │                       │
-│                    │  (Pub/Sub System) │                       │
-│                    └───────────────────┘                       │
-│                                                                │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │              SQLCipher3 Encryption Layer                │   │
-│  │     (AES-256 encrypted SQLite database)                 │   │
-│  └─────────────────────────────────────────────────────────┘   │
+│                    ┌─────────┴─────────┐                        │
+│                    │      EventBus     │                        │
+│                    │  (Pub/Sub System) │                        │
+│                    └───────────────────┘                        │
+│                                                                 │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │              SQLCipher3 Encryption Layer                │    │
+│  │     (AES-256 encrypted SQLite database)                 │    │
+│  └─────────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────────┘
 ```
 

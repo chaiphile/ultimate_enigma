@@ -49,10 +49,10 @@
 
 ### 2.1 Symmetric Encryption
 
-| Algorithm | Specification | Key Size | Nonce | Tag | Application |
-|---|---|---|---|---|---|
-| **AES-256-GCM** | NIST SP 800-38D (Dworkin, 2007) [[1]](#ref1) | 256-bit (32 B) | 96-bit (12 B) | 128-bit (16 B) | Message encryption (legacy), file encryption, at-rest database secrets, ratchet state encryption |
-| **XChaCha20-Poly1305** | draft-irtf-cfrg-xchacha (Arciszewski, 2018) [[2]](#ref2); ChaCha20: Bernstein (2008) [[3]](#ref3); Poly1305: Bernstein (2005) [[4]](#ref4); IETF ChaCha20-Poly1305: RFC 8439 (Nir & Langley, 2018) [[5]](#ref5) | 256-bit (32 B) | 192-bit (24 B) | 128-bit (16 B) | Double Ratchet message encryption (AEAD) |
+| Algorithm              | Specification                                                                                                                                                                                                   | Key Size       | Nonce          | Tag            | Application                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- | -------------- | -------------- | ------------------------------------------------------------------------------------------------ |
+| **AES-256-GCM**        | NIST SP 800-38D (Dworkin, 2007) [[1]](#ref1)                                                                                                                                                                    | 256-bit (32 B) | 96-bit (12 B)  | 128-bit (16 B) | Message encryption (legacy), file encryption, at-rest database secrets, ratchet state encryption |
+| **XChaCha20-Poly1305** | draft-irtf-cfrg-xchacha (Arciszewski, 2018) [[2]](#ref2); ChaCha20: Bernstein (2008) [[3]](#ref3); Poly1305: Bernstein (2005) [[4]](#ref4); IETF ChaCha20-Poly1305: RFC 8439 (Nir & Langley, 2018) [[5]](#ref5) | 256-bit (32 B) | 192-bit (24 B) | 128-bit (16 B) | Double Ratchet message encryption (AEAD)                                                         |
 
 **Design rationale for XChaCha20-Poly1305 in the ratchet** (`services/xchacha20_poly1305.py:1-15`):
 

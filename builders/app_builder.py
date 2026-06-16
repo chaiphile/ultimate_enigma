@@ -5,7 +5,6 @@ The build() method orchestrates all steps in order.
 """
 
 import tkinter as tk
-from pathlib import Path
 import logging
 import ttkbootstrap as ttk
 
@@ -54,7 +53,7 @@ class AppBuilder:
 
     def step2_init_database(self) -> bool:
         """Detect first-run and ensure DB schema exists."""
-        self.first_run = not (Path.home() / ".ultimate_enigma" / "enigma.db").exists()
+        self.first_run = not database.DB_PATH.exists()
         database.init_db()
         return True
 

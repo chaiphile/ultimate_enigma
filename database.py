@@ -152,7 +152,7 @@ def _classify_sqlite_error(exc: sqlite3.Error) -> DatabaseError:
 
 
 
-def _derive_db_key() -> bytes:
+def _derive_db_key() -> Optional[bytes]:
     """Derive a unique per-machine database encryption key.
 
     On first run a random 32-byte key is generated and stored encrypted
@@ -169,6 +169,12 @@ def _derive_db_key() -> bytes:
     """
     try:
         conn = sqlite3.connect(str(DB_PATH))
+        table_row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
+        ).fetchone()
+        if not table_row:
+            conn.close()
+            return None
         row = conn.execute(
             "SELECT value FROM settings WHERE key=?",
             (_DB_KEY_SETTING_KEY,)
