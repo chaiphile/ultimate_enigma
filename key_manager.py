@@ -1099,6 +1099,127 @@ class KeyStore:
 
         return True
 
+    def reset_with_recovery_key(self, new_password: Union[str, bytes, SecureString]) -> bool:
+        """Reset all crypto material using a new password (recovery flow.
+
+        Generates fresh RSA, global secret, and hybrid signing keys encrypted
+        with new_password. Clears friend shared secrets (cannot be decrypted
+        without the old password). Preserves friend public keys, trust
+        certificates, and held shares (stored as plaintext).
+
+        Args:
+            new_password: New master password as str, bytes, or SecureString.
+
+        Raises:
+            KeyStoreError: If key generation or DB update fails.
+        """
+        with self._lock:
+            try:
+                conn = database.get_connection()
+
+                # --- 1. Generate new RSA key pair ---
+                priv = rsa.generate_private_key(65537, 4096, default_backend())
+                pub = priv.public_key()
+                encrypted_priv = _privkey_to_encrypted_pem(priv, new_password)
+
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='public_key'",
+                    (pubkey_to_pem(pub),)
+                )
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='private_key_encrypted'",
+                    (encrypted_priv,)
+                )
+
+                # Remove any legacy key
+                conn.execute("DELETE FROM settings WHERE key='legacy_private_key_encrypted'")
+                conn.execute("DELETE FROM settings WHERE key='legacy_key_expiry'")
+
+                # --- 2. Generate new global secret ---
+                new_gs = secrets.token_bytes(32)
+                enc_gs = database.encrypt_secret(new_gs, new_password)
+                conn.execute(
+                    "UPDATE settings SET value=? WHERE key='global_secret'",
+                    (json.dumps(enc_gs),)
+                )
+
+                # --- 3. Generate new hybrid signing keys if available ---
+                if _HYBRID_SIG_AVAILABLE:
+                    try:
+                        hybrid_keys = HybridSigner.generate_keys()
+                        ed_priv_bytes = hybrid_keys['ed_priv'].private_bytes_raw()
+                        ed_priv_enc = database.encrypt_secret(ed_priv_bytes, new_password)
+                        conn.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                            ("ed25519_priv_encrypted", json.dumps(ed_priv_enc))
+                        )
+                        dil_priv_enc = database.encrypt_secret(hybrid_keys['dil_priv'], new_password)
+                        conn.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                            ("dilithium_priv_encrypted", json.dumps(dil_priv_enc))
+                        )
+                        combined_pub_b64 = base64.b64encode(hybrid_keys['combined_pub']).decode()
+                        conn.execute(
+                            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                            ("hybrid_sig_combined_pub_b64", combined_pub_b64)
+                        )
+                        logger.info("New hybrid signing keys generated")
+                    except Exception as e:
+                        logger.warning("Failed to generate hybrid signing keys: %s", e)
+
+                # --- 4. Clear friend shared secrets (can't decrypt without old password) ---
+                conn.execute(
+                    "UPDATE friends SET has_shared_secret=0, shared_secret_encrypted=NULL"
+                )
+
+                # --- 5. Clear TOTP (can't decrypt without old password) ---
+                conn.execute("DELETE FROM settings WHERE key='totp_secret_encrypted'")
+                conn.execute("DELETE FROM settings WHERE key='totp_setup_complete'")
+                conn.execute("DELETE FROM settings WHERE key='totp_enabled'")
+
+                # --- 6. Clear duress verifier ---
+                conn.execute("DELETE FROM settings WHERE key='duress_verifier'")
+
+                conn.commit()
+                conn.close()
+
+                # --- 7. Load new keys into memory ---
+                self.wipe()
+                self.my_pub = pub
+                self.my_priv = priv
+                self.legacy_priv = None
+                gs_gb = GuardedBuffer(len(new_gs))
+                gs_gb.write(new_gs)
+                self.global_secret = gs_gb
+                self._duress_mode = False
+                self._needs_rotation = False
+
+                # Reload hybrid signing keys into memory
+                if _HYBRID_SIG_AVAILABLE:
+                    try:
+                        self.my_ed_priv = hybrid_keys['ed_priv']
+                        self.my_dil_priv = GuardedBuffer(len(hybrid_keys['dil_priv']))
+                        self.my_dil_priv.write(hybrid_keys['dil_priv'])
+                        self.my_hybrid_sig_combined_pub = hybrid_keys['combined_pub']
+                    except Exception:
+                        pass
+
+                # Clear friend secrets from memory
+                self.friends = [(name, pub_key, None) for name, pub_key, _ in self.friends]
+
+                # Set master password in database module
+                database.set_master_password(new_password)
+
+                logger.info("KeyStore reset with new password (recovery flow)")
+                return True
+
+            except (ValueError, TypeError) as e:
+                logger.error("reset_with_recovery_key failed: %s", e)
+                raise KeyStoreError(f"Recovery reset failed: {e}") from e
+            except Exception as e:
+                logger.error("reset_with_recovery_key failed: %s", e)
+                raise KeyStoreError(f"Recovery reset failed: {e}") from e
+
     def wipe(self):
         """Securely erase all sensitive keys from memory."""
         with self._lock:

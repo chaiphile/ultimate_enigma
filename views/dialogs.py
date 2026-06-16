@@ -8,7 +8,7 @@ from src.secure_string import SecureString
 
 
 def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=None,
-                    enforce_strength=True) -> SecureString | None:
+                    enforce_strength=True, on_recover=None) -> SecureString | None:
     """
     Show a modal password entry dialog.
     
@@ -24,6 +24,8 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         bg: Override background color
         fg: Override foreground color
         enforce_strength: If True, enforce password strength requirements
+        on_recover: Optional callback invoked when "Recover" button is clicked.
+            The dialog closes and returns None. Caller should handle recovery.
         
     Returns:
         SecureString containing the password, or None if cancelled/failed.
@@ -139,6 +141,13 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
                bootstyle="success").pack(side=tk.LEFT, padx=5)
     ttk.Button(btn_frame, text="Cancel", command=cancel,
                bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+
+    if on_recover is not None:
+        def do_recover():
+            dlg.destroy()
+            on_recover()
+        ttk.Button(btn_frame, text="🔑 Recover", command=do_recover,
+                   bootstyle="warning-outline").pack(side=tk.LEFT, padx=(15, 0))
 
     dlg.bind("<Return>", lambda e: ok())
     dlg.bind("<Escape>", lambda e: cancel())

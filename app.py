@@ -67,7 +67,8 @@ class EnigmaApp:
         self._setup_tabs()
         self._start_rotor_animation()
 
-        self.lock_screen = LockScreen(root, on_unlock_request=self._request_unlock)
+        self.lock_screen = LockScreen(root, on_unlock_request=self._request_unlock,
+                                       on_recovery_request=self._request_recovery_unlock)
 
         self._setup_event_subscriptions()
 
@@ -290,6 +291,57 @@ class EnigmaApp:
 
         messagebox.showinfo("Unlocked", "Application unlocked successfully.\nAll keys restored.")
         logger.info("Application unlocked successfully")
+
+
+    # ------------------------------------------------------------------
+    # Recovery Unlock
+    # ------------------------------------------------------------------
+    def _request_recovery_unlock(self) -> None:
+        """Handle recovery unlock from lock screen (forgotten password)."""
+        if not self._is_locked:
+            return
+
+        success, new_ks, new_totp = self.auth_controller.request_recovery_unlock()
+
+        if not success or new_ks is None:
+            return
+
+        # Restore keys and services
+        self.ks = new_ks
+        self.auth_controller.ks = new_ks
+        self.auth_controller.totp_service = new_totp
+        self.totp_persistence.ks = new_ks
+
+        # Rebuild services with restored keys
+        tab_refs = {
+            "encrypt": self.encrypt_tab,
+            "decrypt": self.decrypt_tab,
+            "file": self.file_tab,
+            "secret": self.secret_tab,
+            "friends": self.friends_tab,
+            "trust": self.trust_tab,
+            "ntp": self.ntp_tab
+        }
+        self.service_orchestrator.rebuild_services(new_ks, tab_refs)
+
+        # Rebuild trust chain service with restored keys
+        self.trust_chain_service = TrustChainService(new_ks)
+        self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
+
+        # Update trust tab with fresh services
+        self.trust_tab.trust_service = self.trust_chain_service
+        self.trust_tab.friends_service = self.service_orchestrator.friends_service
+
+        self._is_locked = False
+        self.lock_screen.unlock()
+
+        messagebox.showinfo(
+            "Recovery Complete",
+            "Application recovered successfully.\n\n"
+            "New cryptographic keys have been generated.\n"
+            "You will need to re-exchange keys with friends."
+        )
+        logger.info("Application recovered via recovery key")
 
 
     # ------------------------------------------------------------------

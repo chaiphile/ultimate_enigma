@@ -56,7 +56,7 @@ class TrustTab:
         top_bar.pack(fill=tk.X)
 
         btn_specs = [
-            ("➕ Issue Certificate", self.issue_cert_dialog, "success"),
+            ("🎛 Certificate Control Panel", self.issue_cert_dialog, "success"),
             ("📥 Import (Paste)", self.import_cert_dialog, "info"),
             ("📂 Import from File", self.import_cert_file_dialog, "info"),
             ("📤 Export Bundle", self.export_cert_bundle_dialog, "info"),
@@ -124,7 +124,7 @@ class TrustTab:
         self.tree.bind('<Motion>', self._on_motion)
 
         self.ctx_menu = tk.Menu(self.frame, tearoff=0)
-        self.ctx_menu.add_command(label="➕ Issue Certificate to Friend",
+        self.ctx_menu.add_command(label="🎛 Certificate Control Panel",
                                   command=self.issue_cert_dialog)
         self.ctx_menu.add_separator()
         self.ctx_menu.add_command(label="👁 View Certificate Details",

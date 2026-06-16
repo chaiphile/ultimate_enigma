@@ -63,6 +63,7 @@ class AuthController:
         self._ph = PasswordHasher()
         self._master_password_hash = None
         self._ui = ui or _DefaultUI(root)
+        self._recovery_requested = False
 
     @property
     def master_password_hash(self):
@@ -113,7 +114,19 @@ class AuthController:
 
     def _existing_user_login(self) -> bool:
         for attempt in range(3):
-            pw = self._ui.password_dialog("Unlock Private Key", confirm=False)
+            self._recovery_requested = False
+            pw = self._ui.password_dialog(
+                "Unlock Private Key", confirm=False,
+                on_recover=self._on_startup_recover,
+            )
+            if self._recovery_requested:
+                self._recovery_requested = False
+                success, new_ks, new_totp = self.request_recovery_unlock()
+                if success and new_ks is not None:
+                    self.ks = new_ks
+                    self._ks = new_ks
+                    return True
+                continue
             if not pw:
                 logger.warning("User cancelled password dialog (attempt %d)", attempt + 1)
                 return False
@@ -146,6 +159,10 @@ class AuthController:
                 
         self._ui.show_error("Access Denied", "Too many attempts.")
         return False
+
+    def _on_startup_recover(self) -> None:
+        """Callback for recovery button in startup password dialog."""
+        self._recovery_requested = True
 
     # ------------------------------------------------------------------
     # Unlock Flow
@@ -216,6 +233,47 @@ class AuthController:
                 pw.wipe()
             pw = None
             gc.collect()
+
+    def request_recovery_unlock(self) -> tuple[bool, KeyStore | None, TOTPService | None]:
+        """Execute recovery unlock using Shamir shares (no old password needed).
+
+        Shows the RecoveryUnlockDialog which lets the user reconstruct shares
+        and set a new password. Calls KeyStore.reset_with_recovery_key() to
+        regenerate all crypto material.
+
+        Returns:
+            (success, new_key_store, new_totp_service)
+        """
+        from components.recovery_unlock_dialog import RecoveryUnlockDialog
+        from src.secure_string import SecureString
+
+        result_state = {"success": False, "ks": None, "totp": None}
+
+        def on_recovered(new_password_str):
+            try:
+                new_pw = SecureString(new_password_str)
+
+                # Reset the keystore with the new password
+                temp_ks = KeyStore()
+                temp_ks.reset_with_recovery_key(new_pw)
+
+                result_state["success"] = True
+                result_state["ks"] = temp_ks
+                result_state["totp"] = TOTPService()
+
+                self._master_password_hash = self._ph.hash(
+                    new_pw.to_str() if isinstance(new_pw, SecureString) else new_pw
+                )
+
+                new_pw.wipe()
+            except Exception as e:
+                logger.error("Recovery unlock failed: %s", e)
+                self._ui.show_error("Recovery Failed", f"Failed to complete recovery:\n{e}")
+
+        dlg = RecoveryUnlockDialog(self.root, on_recovered=on_recovered)
+        dlg.show()
+
+        return result_state["success"], result_state["ks"], result_state["totp"]
 
     def _recover_password_hash(self) -> bool:
         logger.warning("Password hash is None, attempting recovery")

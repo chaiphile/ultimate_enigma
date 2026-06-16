@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class LockScreen:
     """Full-window overlay that blocks interaction with the underlying app."""
 
-    def __init__(self, root: tk.Tk, on_unlock_request):
+    def __init__(self, root: tk.Tk, on_unlock_request, on_recovery_request=None):
         """
         Parameters
         ----------
@@ -23,9 +23,12 @@ class LockScreen:
             The main application root window.
         on_unlock_request : callable
             Callback invoked when the user clicks "Unlock" or presses the unlock hotkey.
+        on_recovery_request : callable, optional
+            Callback invoked when the user clicks "Recover with Recovery Key".
         """
         self.root = root
         self._on_unlock_request = on_unlock_request
+        self._on_recovery_request = on_recovery_request
         self._overlay: tk.Frame | None = None
         self._status_var = tk.StringVar(value="🔒 LOCKED")
 
@@ -87,6 +90,25 @@ class LockScreen:
         )
         unlock_btn.pack()
 
+        # Recovery button (for forgotten password)
+        if self._on_recovery_request is not None:
+            recovery_btn = tk.Button(
+                center, text="🔑  Recover with Recovery Key",
+                font=("Segoe UI", 10),
+                bg="#555555", fg="#cccccc", activebackground="#666666",
+                activeforeground="#ffffff", bd=0, padx=20, pady=6,
+                cursor="hand2", command=self._handle_recovery_request
+            )
+            recovery_btn.pack(pady=(12, 0))
+
+            # Hover effects
+            def on_enter(e):
+                recovery_btn.config(bg="#666666", fg="#ffffff")
+            def on_leave(e):
+                recovery_btn.config(bg="#555555", fg="#cccccc")
+            recovery_btn.bind("<Enter>", on_enter)
+            recovery_btn.bind("<Leave>", on_leave)
+
         # Give focus to the unlock button so Enter works immediately
         unlock_btn.focus_set()
 
@@ -105,6 +127,11 @@ class LockScreen:
     def _handle_unlock_request(self) -> None:
         """Publish unlock event and invoke the registered callback."""
         self._on_unlock_request()
+
+    def _handle_recovery_request(self) -> None:
+        """Invoke the recovery callback if registered."""
+        if self._on_recovery_request is not None:
+            self._on_recovery_request()
 
     def unlock(self) -> None:
         """Remove the lock overlay."""

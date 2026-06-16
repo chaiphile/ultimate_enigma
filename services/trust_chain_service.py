@@ -620,76 +620,21 @@ class TrustChainService:
         new_combined_pub_b64: str,
         master_password: str,
     ) -> None:
-        """Update a delegator's stored hybrid signing public key.
-
-        Requires a valid DELEGATION certificate from delegator_name to the
-        local user. Updates the friend entry's hybrid_sig_pub_b64 while
-        preserving all other stored data.
-
-        Args:
-            delegator_name: Name of the friend who granted delegation.
-            new_combined_pub_b64: Base64-encoded new combined public key.
-            master_password: Required to re-encrypt the friend's shared secret.
-
-        Raises:
-            CertificateError: If no valid delegation cert exists, the friend is
-                not found, or the key is invalid.
-        """
+        """Update a delegator's stored hybrid signing public key."""
         with self._lock:
-            delegation_certs = self.get_delegation_certs_held_by_me()
-            if not any(c.issuer_name == delegator_name for c in delegation_certs):
-                raise CertificateError(
-                    f"No valid delegation certificate from '{delegator_name}'. "
-                    "Cannot update their public key."
-                )
-
+            self._assert_delegation(delegator_name)
             try:
-                import base64 as _b64
                 from services.pqc_signatures import HybridSigner
-                raw = _b64.b64decode(new_combined_pub_b64)
+                raw = base64.b64decode(new_combined_pub_b64)
                 HybridSigner.parse_combined_pub(raw)
             except Exception as e:
                 raise CertificateError(
                     f"Invalid hybrid signing public key: {e}"
                 ) from e
-
-            import database as _db
-            import json
-            from contextlib import closing
-
-            with closing(_db.get_connection()) as conn:
-                row = conn.execute(
-                    "SELECT public_key_pem, x25519_public_key_b64, "
-                    "capabilities_json, pqc_combined_pub_b64 "
-                    "FROM friends WHERE name=?",
-                    (delegator_name,),
-                ).fetchone()
-
-            if row is None:
-                raise CertificateError(
-                    f"'{delegator_name}' not found in friends list"
-                )
-
-            pem, x_b64, cap_json, pqc_b64 = row
-            caps = json.loads(cap_json) if cap_json else None
-            secret = self._ks.get_friend_secret(delegator_name)
-
-            try:
-                self._ks.save_friend(
-                    name=delegator_name,
-                    pem=pem,
-                    shared_secret=secret,
-                    password=master_password,
-                    x25519_pub_b64=x_b64,
-                    capabilities=caps,
-                    pqc_combined_pub_b64=pqc_b64,
-                    hybrid_sig_pub_b64=new_combined_pub_b64,
-                )
-            except Exception as e:
-                raise CertificateError(
-                    f"Failed to update public key: {e}"
-                ) from e
-
+            self._delegated_save(
+                delegator_name, master_password,
+                hybrid_sig_pub_b64=new_combined_pub_b64,
+            )
             logger.info(
                 "Delegate '%s' updated hybrid sig pub key for '%s'",
                 self._ks.my_name, delegator_name,
@@ -699,6 +644,166 @@ class TrustChainService:
                 source="delegation_key_update",
                 friend_name=delegator_name,
             )
+
+    def update_delegator_x25519_key(
+        self,
+        delegator_name: str,
+        new_x25519_b64: str,
+        master_password: str,
+    ) -> None:
+        """Update a delegator's stored X25519 public key."""
+        with self._lock:
+            self._assert_delegation(delegator_name)
+            try:
+                raw = base64.b64decode(new_x25519_b64)
+                if len(raw) != 32:
+                    raise ValueError(
+                        f"X25519 key must be 32 bytes, got {len(raw)}"
+                    )
+            except Exception as e:
+                raise CertificateError(
+                    f"Invalid X25519 public key: {e}"
+                ) from e
+            self._delegated_save(
+                delegator_name, master_password,
+                x25519_pub_b64=new_x25519_b64,
+            )
+            logger.info(
+                "Delegate '%s' updated X25519 key for '%s'",
+                self._ks.my_name, delegator_name,
+            )
+            event_bus.publish(
+                Events.FRIEND_LIST_CHANGED,
+                source="delegation_key_update",
+                friend_name=delegator_name,
+            )
+
+    def update_delegator_pem(
+        self,
+        delegator_name: str,
+        new_pem: str,
+        master_password: str,
+    ) -> None:
+        """Update a delegator's stored RSA public key (PEM)."""
+        with self._lock:
+            self._assert_delegation(delegator_name)
+            try:
+                from src.crypto_utils import pem_to_pubkey as _pem_to_pubkey
+                _pem_to_pubkey(new_pem)
+            except Exception as e:
+                raise CertificateError(
+                    f"Invalid RSA public key PEM: {e}"
+                ) from e
+            self._delegated_save(
+                delegator_name, master_password,
+                pem=new_pem,
+            )
+            logger.info(
+                "Delegate '%s' updated RSA PEM for '%s'",
+                self._ks.my_name, delegator_name,
+            )
+            event_bus.publish(
+                Events.FRIEND_LIST_CHANGED,
+                source="delegation_key_update",
+                friend_name=delegator_name,
+            )
+
+    def update_delegator_pqc_key(
+        self,
+        delegator_name: str,
+        new_pqc_b64: str,
+        master_password: str,
+    ) -> None:
+        """Update a delegator's stored PQC combined public key."""
+        with self._lock:
+            self._assert_delegation(delegator_name)
+            try:
+                raw = base64.b64decode(new_pqc_b64)
+                if len(raw) < 32:
+                    raise ValueError("PQC combined key is too short")
+            except Exception as e:
+                raise CertificateError(
+                    f"Invalid PQC combined public key: {e}"
+                ) from e
+            self._delegated_save(
+                delegator_name, master_password,
+                pqc_combined_pub_b64=new_pqc_b64,
+            )
+            logger.info(
+                "Delegate '%s' updated PQC key for '%s'",
+                self._ks.my_name, delegator_name,
+            )
+            event_bus.publish(
+                Events.FRIEND_LIST_CHANGED,
+                source="delegation_key_update",
+                friend_name=delegator_name,
+            )
+
+    def remove_all_delegator_optional_keys(
+        self,
+        delegator_name: str,
+        master_password: str,
+    ) -> None:
+        """Clear all optional public keys for a delegator.
+
+        Clears X25519, PQC combined, and hybrid signing keys.
+        Preserves the RSA PEM (core identity key).
+        """
+        with self._lock:
+            self._assert_delegation(delegator_name)
+            self._delegated_save(
+                delegator_name, master_password,
+                x25519_pub_b64=None,
+                pqc_combined_pub_b64=None,
+                hybrid_sig_pub_b64=None,
+            )
+            logger.info(
+                "Delegate '%s' cleared all optional keys for '%s'",
+                self._ks.my_name, delegator_name,
+            )
+            event_bus.publish(
+                Events.FRIEND_LIST_CHANGED,
+                source="delegation_key_update",
+                friend_name=delegator_name,
+            )
+
+    def revoke_delegator_recovery_shares(self, delegator_name: str) -> int:
+        """Delete all local recovery share records for a delegator.
+
+        Requires a valid DELEGATION certificate. Removes records from
+        the recovery_shares table (distributed shares the delegator
+        sent to others) and from held_shares (any copy held locally
+        on behalf of the delegator).
+
+        Returns:
+            Total number of records deleted.
+
+        Raises:
+            CertificateError: If no valid delegation cert exists.
+        """
+        with self._lock:
+            self._assert_delegation(delegator_name)
+
+            import database as _db
+
+            distributed = _db.get_recovery_shares_for(delegator_name)
+            distributed_count = len(distributed)
+            _db.delete_recovery_shares_for(delegator_name)
+
+            held_count = 0
+            for row in _db.get_all_held_shares():
+                if row.get("owner_name") == delegator_name:
+                    _db.delete_held_share(row["share_id"])
+                    held_count += 1
+
+            total = distributed_count + held_count
+            logger.info(
+                "Delegate '%s' revoked %d recovery share record(s) for '%s' "
+                "(%d distributed + %d held)",
+                self._ks.my_name, total, delegator_name,
+                distributed_count, held_count,
+            )
+            return total
 
     def revoke_all_certs_for_delegator(self, delegator_name: str) -> int:
         """Revoke all valid certificates where delegator_name is the subject.
@@ -782,26 +887,128 @@ class TrustChainService:
     # ------------------------------------------------------------------
 
     def export_trust_bundle(self) -> Dict[str, Any]:
-        """Export all self-issued certificates as a bundle.
+        """Export all certificates from the local store as a bundle.
 
-        The bundle can be shared with peers to bootstrap trust.
+        Includes both self-issued and received certificates for full backup.
 
         Returns:
             Dict with keys: bundle_id, issuer_name, exported_at,
             certificates (list of serialized cert dicts).
         """
         with self._lock:
-            my_certs = self.get_certs_issued_by_me()
+            all_certs = self.get_all_certificates()
             return {
                 "bundle_id": str(uuid.uuid4()),
                 "issuer_name": self._ks.my_name,
                 "exported_at": time.time(),
-                "certificates": [c.to_dict() for c in my_certs],
+                "certificates": [c.to_dict() for c in all_certs],
+            }
+
+    def export_delegation_certificates(self) -> Dict[str, Any]:
+        """Export all delegation-type certificates from the local store.
+
+        Includes both self-issued and received delegation certs so the
+        holder can share proof of their granted authority.
+
+        Returns:
+            Dict with keys: bundle_id, issuer_name, exported_at,
+            cert_type_filter, certificates.
+        """
+        with self._lock:
+            all_certs = self.get_all_certificates()
+            delegation_certs = [
+                c for c in all_certs
+                if c.cert_type == CertificateType.DELEGATION
+            ]
+            return {
+                "bundle_id": str(uuid.uuid4()),
+                "issuer_name": self._ks.my_name,
+                "exported_at": time.time(),
+                "cert_type_filter": "delegation",
+                "certificates": [c.to_dict() for c in delegation_certs],
             }
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    def _assert_delegation(self, delegator_name: str) -> None:
+        """Raise CertificateError if no valid delegation cert exists from delegator_name.
+
+        Must be called inside self._lock.
+        """
+        certs = self.get_delegation_certs_held_by_me()
+        if not any(c.issuer_name == delegator_name for c in certs):
+            raise CertificateError(
+                f"No valid delegation certificate from '{delegator_name}'."
+            )
+
+    def _delegated_save(
+        self,
+        delegator_name: str,
+        master_password: str,
+        **overrides,
+    ) -> None:
+        """Load the current friend record and re-save with field overrides.
+
+        Reads public_key_pem, x25519, capabilities, pqc_combined_pub, and
+        reconstructs hybrid_sig_pub_b64 from in-memory state, then applies
+        any caller-supplied overrides before calling KeyStore.save_friend.
+
+        Must be called inside self._lock.
+        """
+        import database as _db
+        import json
+        import struct
+        from contextlib import closing
+
+        with closing(_db.get_connection()) as conn:
+            row = conn.execute(
+                "SELECT public_key_pem, x25519_public_key_b64, "
+                "capabilities_json, pqc_combined_pub_b64 "
+                "FROM friends WHERE name=?",
+                (delegator_name,),
+            ).fetchone()
+
+        if row is None:
+            raise CertificateError(
+                f"'{delegator_name}' not found in friends list"
+            )
+
+        pem, x_b64, cap_json, pqc_b64 = row
+        caps = json.loads(cap_json) if cap_json else None
+
+        hybrid_b64 = None
+        if delegator_name in self._ks.friends_hybrid_sig_pubs:
+            ed_pub, dil_pub = self._ks.friends_hybrid_sig_pubs[delegator_name]
+            combined = (
+                struct.pack(">H", len(ed_pub)) + ed_pub
+                + struct.pack(">H", len(dil_pub)) + dil_pub
+            )
+            hybrid_b64 = base64.b64encode(combined).decode()
+
+        kwargs = {
+            "x25519_pub_b64": x_b64,
+            "capabilities": caps,
+            "pqc_combined_pub_b64": pqc_b64,
+            "hybrid_sig_pub_b64": hybrid_b64,
+        }
+        kwargs.update(overrides)
+        final_pem = kwargs.pop("pem", pem)
+
+        secret = self._ks.get_friend_secret(delegator_name)
+        try:
+            self._ks.save_friend(
+                name=delegator_name,
+                pem=final_pem,
+                shared_secret=secret,
+                password=master_password,
+                **kwargs,
+            )
+        except Exception as e:
+            raise CertificateError(
+                f"Failed to update friend record: {e}"
+            ) from e
 
     def _load_certificate(self, cert_id: str) -> TrustCertificate:
         """Load a single certificate by ID.
