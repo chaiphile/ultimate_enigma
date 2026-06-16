@@ -131,8 +131,8 @@ class HybridSigExchangeDialog:
             pending = self.trust_chain_service.get_pending_certs_for_exchange()
             if not pending:
                 # Just copy the key
-                parent.clipboard_clear()
-                parent.clipboard_append(content)
+                self.parent.clipboard_clear()
+                self.parent.clipboard_append(content)
                 messagebox.showinfo("Copied", "No pending certificates. Public key copied.", parent=dlg)
                 return
             import json
@@ -141,8 +141,8 @@ class HybridSigExchangeDialog:
                 "certificates": [c for c in pending]
             }
             bundle_b64 = __import__('base64').b64encode(json.dumps(bundle).encode()).decode()
-            parent.clipboard_clear()
-            parent.clipboard_append(bundle_b64)
+            self.parent.clipboard_clear()
+            self.parent.clipboard_append(bundle_b64)
             messagebox.showinfo("Copied",
                 f"Public key + {len(pending)} certificate(s) copied to clipboard.\n\n"
                 "Share this with friends to propagate trust.",
