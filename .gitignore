@@ -94,3 +94,6 @@ Thumbs.db
 
 # AI coding assistant artifacts
 .mimocode/
+
+# Demo directory databases
+.demo-alice/engima.db
