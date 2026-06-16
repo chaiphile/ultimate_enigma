@@ -106,7 +106,12 @@ class HotkeyService:
     def _listen(self) -> None:
         """Message loop that listens for WM_HOTKEY messages.
         Hotkeys are registered from within this thread to ensure correct message delivery."""
-        
+
+        msg = wintypes.MSG()
+        # PeekMessageW creates a Windows message queue for this thread.
+        # RegisterHotKey requires a message queue when hWnd is NULL, otherwise it fails.
+        user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 0)
+
         # Register all hotkeys from within this thread
         for hid, mod, vk, callback in self._hotkey_defs:
             result = user32.RegisterHotKey(None, hid, mod, vk)
@@ -115,8 +120,6 @@ class HotkeyService:
                 logger.info("Hotkey registered: id=%d, mod=%d, vk=%d", hid, mod, vk)
             else:
                 logger.warning("Failed to register hotkey: id=%d (may already be in use)", hid)
-
-        msg = wintypes.MSG()
         while self._running:
             # GetMessageW blocks until a message arrives
             # Use MsgWaitForMultipleObjects with timeout to allow periodic checking
