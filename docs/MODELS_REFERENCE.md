@@ -152,10 +152,10 @@ Full runtime key store with authentication, lockout, PQC key management, and pas
 | `friends_capabilities` | `Dict[str, dict]` | Name → capabilities dict |
 | `friends_pqc_combined_pub` | `Dict[str, bytes]` | Name → raw PQC combined pub bytes |
 | `friends_hybrid_sig_pubs` | `Dict[str, tuple]` | Name → `(ed_pub, dil_pub)` |
-| `my_kyber_priv` | `Optional[bytes]` | Own Kyber768 secret key |
+| `my_kyber_priv` | `Optional[GuardedBuffer]` | Own Kyber768 secret key (guarded memory for wipe-on-lock) |
 | `my_pqc_combined_pub` | `Optional[bytes]` | Own hybrid combined PQC public key |
 | `my_ed_priv` | `Ed25519PrivateKey` | Own hybrid signing Ed25519 key |
-| `my_dil_priv` | `Optional[bytes]` | Own hybrid signing Dilithium3 secret key |
+| `my_dil_priv` | `Optional[GuardedBuffer]` | Own hybrid signing Dilithium3 secret key (guarded memory for wipe-on-lock) |
 | `my_hybrid_sig_combined_pub` | `Optional[bytes]` | Own hybrid signing combined public key |
 | `my_name` (property) | `str` | Display name for ratchet envelope sender |
 | `_lockout` | `LockoutManager` | Delegated lockout state machine |

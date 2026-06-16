@@ -30,8 +30,26 @@ class TOTPService:
         self._secret_buf: Optional[GuardedBuffer] = None
         # Highest time-step counter already accepted. Codes at this counter or
         # earlier are rejected to prevent replay of a captured code within its
-        # validity window.
+        # validity window. Persisted via _persist_counter so replay protection
+        # survives application restarts.
         self._last_counter: int = -1
+        # Optional callback(counter:int) -> None used to persist _last_counter
+        # to durable storage. Set via set_counter_persistence().
+        self._persist_counter = None
+
+    def set_counter_persistence(self, save_callback, initial_counter: int = -1) -> None:
+        """Wire durable replay-counter storage.
+
+        Args:
+            save_callback: Callable invoked with the newest accepted counter
+                whenever it advances, to persist it.
+            initial_counter: The last accepted counter loaded from storage.
+                The in-memory counter is raised to this value so previously
+                consumed codes stay rejected across restarts.
+        """
+        self._persist_counter = save_callback
+        if initial_counter > self._last_counter:
+            self._last_counter = initial_counter
 
     # ------------------------------------------------------------------
     # Secret management
@@ -126,8 +144,16 @@ class TOTPService:
         counter = int(timestamp) // TOTP_INTERVAL
         return f"{self._hotp(secret_bytes, counter):0{TOTP_DIGITS}d}"
 
-    def verify(self, code: str, timestamp: Optional[float] = None) -> bool:
+    def verify(self, code: str, timestamp: Optional[float] = None,
+               track_replay: bool = True) -> bool:
         """Verify a TOTP code with ±1 step drift tolerance.
+
+        Args:
+            code: The 6-digit code to check.
+            timestamp: Optional override for the current time (testing).
+            track_replay: When True (default), enforce and advance the
+                single-use replay counter and persist it. Set False for
+                non-authenticating self-tests that must not consume a code.
 
         Raises:
             TOTPValidationError: If no secret has been configured.
@@ -145,15 +171,23 @@ class TOTPService:
             candidate_counter = base_counter + offset
             expected = f"{self._hotp(secret_bytes, candidate_counter):0{TOTP_DIGITS}d}"
             if hmac.compare_digest(code, expected):
+                if not track_replay:
+                    return True
                 # Replay protection: never accept a counter at or below one we
                 # have already accepted, even though the code is still inside
-                # its drift window.
+                # its drift window. The counter is persisted so a code consumed
+                # in a previous session cannot be replayed after a restart.
                 if candidate_counter <= self._last_counter:
                     logger.warning(
                         "TOTP code rejected: replay of counter %d", candidate_counter
                     )
                     return False
                 self._last_counter = candidate_counter
+                if self._persist_counter is not None:
+                    try:
+                        self._persist_counter(candidate_counter)
+                    except Exception as e:
+                        logger.error("Failed to persist TOTP counter: %s", e)
                 return True
         return False
 

@@ -202,22 +202,22 @@ def _constant_time_decrypt_with_window(
     ]
 
     for candidate_timestamp in timestamps:
+        # Every candidate runs the same derive+decrypt work and the loop never
+        # early-returns, so the dominant cost is uniform across candidates.
+        # The residual timing signal (the branch below and AES-GCM's internal
+        # success/failure path) is NOT eliminated — see the best-effort note in
+        # the docstring; true constant-time needs a native extension.
         try:
             candidate_key = derive_time_key(const_key, candidate_timestamp)
             candidate_inner = aes_gcm_decrypt(candidate_key, ciphertext, aad=aad)
-            # Constant-time selection: XOR accumulates without branching
-            # on whether result_inner is already set. We only write the
-            # first successful result by relying on the fact that once
-            # result_inner is set, we no longer replace it -- but we still
-            # run the _same_ operations for every candidate.
+            # Keep only the first success; later successes cannot occur for
+            # distinct keys, but we still visit every remaining candidate.
             if result_inner is None:
                 result_inner = candidate_inner
                 result_key = candidate_key
         except (ValueError, InvalidTag):
-            # Dummy constant-time operation to mask decryption failure
-            _ = hmac_module.compare_digest(
-                b'\x00' * 32, b'\x00' * 32
-            )
+            # Mirror the compare cost of the success path on failure.
+            _ = hmac_module.compare_digest(b'\x00' * 32, b'\x00' * 32)
 
     if result_inner is None:
         raise ValueError("Decryption failed – wrong key or stale message")

@@ -223,8 +223,17 @@ class HybridSigExchangeDialog:
                     key_b64 = bundle_data.get("public_key", "")
                     # Import certificates if present
                     if self.trust_chain_service and bundle_data.get("certificates"):
-                        count = self.trust_chain_service.import_received_certs(bundle_data["certificates"])
-                        bundle_status_var.set(f"✅ Imported {count} certificate(s)")
+                        certs = bundle_data["certificates"]
+                        total = len(certs)
+                        count = self.trust_chain_service.import_received_certs(certs)
+                        rejected = total - count
+                        if rejected > 0:
+                            bundle_status_var.set(
+                                f"⚠️ Imported {count}/{total} cert(s); "
+                                f"{rejected} unverified/unknown-issuer rejected"
+                            )
+                        else:
+                            bundle_status_var.set(f"✅ Imported {count} certificate(s)")
                 except Exception as e:
                     messagebox.showerror("Invalid Bundle", f"Could not parse key bundle: {e}", parent=dlg)
                     return

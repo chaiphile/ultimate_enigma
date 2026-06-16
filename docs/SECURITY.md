@@ -150,7 +150,8 @@ All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
 - Required for unlock after emergency lock
 - Algorithm: HMAC-SHA1, 6-digit code, 30-second interval
 - Drift tolerance: ±1 step
-- Replay protection: each TOTP value accepted at most once per interval
+- Replay protection: each TOTP value accepted at most once per interval; highest accepted counter is persisted to the database so replay protection survives application restarts
+- Self-test verification uses `track_replay=False` to avoid consuming codes during startup
 - RFC 6238 compliant implementation
 - QR code generation for authenticator app setup
 - Maximum TOTP attempts: 5
@@ -206,6 +207,14 @@ Message → AES-GCM encrypt → Ciphertext
 ### Friend-Specific
 - Uses friend's public key or shared secret
 - Same security properties as message encryption
+
+## Trust Chain
+
+### Certificate Verification on Import
+- `import_received_certs()` cryptographically verifies each certificate's hybrid signature (Ed25519 + Dilithium3) before importing
+- The issuer's embedded public key must match the locally pinned key for that issuer (defeats forged-issuer attacks)
+- Certificates with invalid signatures or unknown issuers are rejected and counted separately in the UI
+- `get_trust_level()` only counts certificates that have been verified against pinned issuer keys
 
 ## Network Security
 

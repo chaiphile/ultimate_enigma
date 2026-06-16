@@ -421,7 +421,8 @@ RFC 6238 compliant TOTP with HMAC-SHA1, 30-second intervals, 6-digit codes, ±1 
 | `get_b32_secret()` | Base32-encoded secret for display |
 | `get_raw_secret()` | Raw 20-byte secret for persistence |
 | `generate(timestamp=None)` | Generate current 6-digit code |
-| `verify(code, timestamp=None)` | Verify code with drift tolerance |
+| `verify(code, timestamp=None, track_replay=True)` | Verify code with drift tolerance. `track_replay=False` skips replay counter advancement (used for self-tests) |
+| `set_counter_persistence(save_callback, initial_counter=-1)` | Wire durable replay-counter storage. `save_callback` is invoked with the newest accepted counter whenever it advances. `initial_counter` raises the in-memory counter so previously consumed codes stay rejected across restarts |
 | `time_remaining()` | Seconds until current code expires |
 | `provisioning_uri(account, issuer)` | `otpauth://` URI for authenticator apps |
 | `generate_random_secret(length=32)` | Static: generate random secret |
@@ -625,9 +626,9 @@ Hybrid digital signatures combining Ed25519 with CRYSTALS-Dilithium3 (or ML-DSA-
 
 ### TrustChainService
 
-**File:** `services/trust_chain_service.py` (540+ lines)
+**File:** `services/trust_chain_service.py` (1000+ lines)
 
-Decentralized trust chain management for certificate-based identity verification.
+Decentralized trust chain management for certificate-based identity verification. Certificates are cryptographically verified against pinned issuer keys before being trusted.
 
 ```python
 class TrustChainService:
@@ -643,11 +644,19 @@ class TrustChainService:
 | `get_certificates_for_subject(name)` | `List[TrustCertificate]` | All certificates for a subject |
 | `get_certificates_by_type(cert_type)` | `List[TrustCertificate]` | Filter by certificate type |
 | `get_all_certificates()` | `List[TrustCertificate]` | All stored certificates |
-| `get_trust_level(subject_name)` | `TrustLevel` | Compute aggregate trust level |
-| `verify_certificate_chain(cert)` | `bool` | Verify chain of trust up to trusted root |
+| `get_trust_level(subject_name)` | `TrustLevel` | Compute aggregate trust level (only verified certs count) |
+| `verify_certificate(cert_id)` | `bool` | Verify a certificate's full validity chain including issuer identity and hybrid signature |
+| `import_received_certs(cert_dicts)` | `int` | Import certificates from a peer; cryptographically verifies each before trusting. Returns count of imported certs (rejected certs have invalid signatures or unknown issuers) |
 | `export_certificate(cert_id)` | `Optional[str]` | Export as Base64 string |
 | `import_certificate(b64_data)` | `Optional[TrustCertificate]` | Import from Base64 string |
 | `clean_expired()` | `int` | Remove expired certificates |
+
+**Internal verification methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `_expected_issuer_pub(issuer_name)` | `Optional[bytes]` | Return the pinned hybrid signing public key for an issuer (self or known friend) |
+| `_verify_cert_object(cert)` | `None` | Verify a certificate's hybrid signature against the issuer's pinned key. Raises `CertificateSignatureError` if issuer is unknown, key mismatches, or signature is invalid |
 
 Trust levels: NONE (0), BASIC (1), VERIFIED (2), TRUSTED (3+).
 
@@ -733,7 +742,7 @@ Data access layer for `FriendProfile` persistence. Centralises all database quer
 
 **File:** `services/totp_persistence.py`
 
-Handles persistence of TOTP secrets, setup status, and enabled state to/from the database. Uses multiple decryption strategies for backward compatibility.
+Handles persistence of TOTP secrets, setup status, enabled state, and replay counter to/from the database. Uses multiple decryption strategies for backward compatibility.
 
 ### Constants
 
@@ -742,13 +751,16 @@ Handles persistence of TOTP secrets, setup status, and enabled state to/from the
 | `TOTP_SECRET_KEY` | `'totp_secret_encrypted'` | DB key for encrypted TOTP secret |
 | `TOTP_SETUP_KEY` | `'totp_setup_complete'` | DB key for setup flag |
 | `TOTP_ENABLED_KEY` | `'totp_enabled'` | DB key for enabled flag |
+| `TOTP_LAST_COUNTER_KEY` | `'totp_last_counter'` | DB key for highest accepted TOTP counter (cross-restart replay protection) |
 
 ### Methods
 
 | Method | Description |
 |--------|-------------|
-| `load_totp_secret(totp_service, password, ks)` | Load with multiple decryption strategies |
-| `persist_totp_secret(secret_bytes, password)` | Encrypt and store TOTP secret |
+| `load_totp_secret(totp_service, password, ks)` | Load with multiple decryption strategies; wires replay counter after secret is installed |
+| `persist_totp_secret(secret_bytes, password)` | Encrypt and store TOTP secret; resets replay counter to -1 |
+| `load_last_counter()` | Return the highest TOTP time-step counter accepted so far, or -1 |
+| `save_last_counter(counter)` | Persist the highest accepted TOTP counter for cross-restart replay protection |
 | `is_totp_setup_complete()` | Check DB flag |
 | `set_totp_setup_complete(value)` | Set DB flag |
 | `is_totp_enabled()` | Check DB flag (falls back to setup status) |

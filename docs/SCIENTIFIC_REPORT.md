@@ -225,12 +225,13 @@ All candidates are iterated without early return, using XOR-based result selecti
 
 ### 2.7 Time-Based One-Time Password (TOTP)
 
-The authentication system (`services/totp_service.py:1-155`) implements **RFC 6238** (M'Raihi et al., 2011) [[28]](#ref28):
+The authentication system (`services/totp_service.py:1-175`) implements **RFC 6238** (M'Raihi et al., 2011) [[28]](#ref28):
 
 - **Algorithm:** HOTP (RFC 4226: M'Raihi et al., 2005) [[29]](#ref29) with time-based counter: $\text{counter} = \lfloor \text{timestamp} / 30 \rfloor$
 - **Parameters:** HMAC-SHA1, 6-digit codes, 30-second time steps, $\pm 1$ step drift tolerance (90-second window)
 - **Truncation:** `offset = h[-1] & 0x0F; code = struct.unpack(">I", h[offset:offset+4])[0] & 0x7FFFFFFF; code % 10^6`
 - **Secret:** 20+ random bytes (first 20 used as TOTP key), encrypted at rest via Argon2id + AES-GCM
+- **Replay protection:** Highest accepted counter persisted to the database via `set_counter_persistence()`, ensuring a code consumed in a previous session cannot be replayed after a restart. Self-test verification uses `track_replay=False` to avoid consuming codes during startup.
 - **Integration:** Generates `otpauth://` provisioning URIs for Google Authenticator; mandatory on first run (app exits if declined)
 
 Test vectors are verified against RFC 4226 Appendix D known-answer tests (secret `12345678901234567890`).
@@ -387,7 +388,7 @@ The codebase implements **timing-attack countermeasures** across multiple layers
 
 **Countermeasures implemented:**
 
-1. **AES-GCM decryption windowing** (`crypto.py:176-222`): All time-window candidates are iterated regardless of success. Dummy `hmac.compare_digest` operations mask decryption failures. Result selection uses first-success semantics rather than timing-based branching.
+1. **AES-GCM decryption windowing** (`crypto.py:178-224`): All time-window candidates are iterated regardless of success. Dummy `hmac.compare_digest` operations mask decryption failures. Result selection uses first-success semantics rather than timing-based branching. The implementation notes that true constant-time execution is impossible in Python due to language semantics (branching, bytecode, GC) — a production-grade implementation would require a C or Rust extension.
 
 2. **HMAC-based comparison** (`hmac.compare_digest`): All sensitive comparisons use this constant-time HMAC-based function (TOTP verification (`totp_service.py:122`), password verification, key comparisons). The Python standard library implementation of `hmac.compare_digest` performs an XOR-accumulation of all bytes without short-circuiting.
 

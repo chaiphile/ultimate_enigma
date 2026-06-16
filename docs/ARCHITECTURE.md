@@ -84,7 +84,7 @@ ultimate_enigma/
 │   ├── xchacha20_poly1305.py      # XChaCha20-Poly1305 AEAD encryption
 │   ├── hotkey_service.py          # Global hotkey registration
 │   ├── crypto_task_queue.py       # Async crypto operations
-│   ├── trust_chain_service.py     # Certificate issuance, verification, revocation
+│   ├── trust_chain_service.py     # Certificate issuance, verification, revocation; issuer identity + signature verification on import
 │   ├── shamir_service.py          # Shamir's Secret Sharing over GF(256)
 │   ├── background_agents.py       # Background agent framework (backup, ratchet maintenance, monitoring)
 │   ├── ntp_client.py              # Multi-server NTP sync with outlier rejection

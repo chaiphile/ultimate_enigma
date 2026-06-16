@@ -151,11 +151,12 @@ class HybridSigner:
         # Ed25519 signature (always 64 bytes)
         ed_sig = ed_priv.sign(message)
 
-        # Dilithium3 / ML-DSA-65 signature
+        # Dilithium3 / ML-DSA-65 signature. The secret key may be stored as a
+        # GuardedBuffer; coerce to bytes for the liboqs C binding.
         alg = _resolve_sig_algorithm()
         if alg is None:
             raise RuntimeError("No supported PQC signature algorithm available")
-        with oqs.Signature(alg, dil_priv) as signer:
+        with oqs.Signature(alg, bytes(dil_priv)) as signer:
             dil_sig = signer.sign(message)
 
         # Combined format: [ed_sig_len(2) | ed_sig | dil_sig]

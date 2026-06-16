@@ -353,10 +353,24 @@ class TrustTab:
                     cert_dicts = parsed
                 else:
                     cert_dicts = [parsed]
+                total = len(cert_dicts)
                 count = self.trust_service.import_received_certs(cert_dicts)
                 self.refresh_list()
                 dlg.destroy()
-                messagebox.showinfo("Imported", f"Imported {count} certificate(s).", parent=parent)
+                rejected = total - count
+                if rejected > 0:
+                    messagebox.showwarning(
+                        "Imported with rejections",
+                        f"Imported {count} of {total} certificate(s).\n\n"
+                        f"{rejected} were rejected because their signature could "
+                        f"not be verified or the issuer is not a known, added "
+                        f"contact. Add the issuer first, then re-import.",
+                        parent=parent,
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Imported", f"Imported {count} certificate(s).", parent=parent
+                    )
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
 
             except Exception as e:
@@ -407,13 +421,25 @@ class TrustTab:
                 cert_dicts = data
             else:
                 cert_dicts = [data]
+            total = len(cert_dicts)
             count = self.trust_service.import_received_certs(cert_dicts)
             self.refresh_list()
-            messagebox.showinfo(
-                "Imported",
-                f"Imported {count} certificate(s) from file.",
-                parent=parent,
-            )
+            rejected = total - count
+            if rejected > 0:
+                messagebox.showwarning(
+                    "Imported with rejections",
+                    f"Imported {count} of {total} certificate(s) from file.\n\n"
+                    f"{rejected} were rejected because their signature could not "
+                    f"be verified or the issuer is not a known, added contact. "
+                    f"Add the issuer first, then re-import.",
+                    parent=parent,
+                )
+            else:
+                messagebox.showinfo(
+                    "Imported",
+                    f"Imported {count} certificate(s) from file.",
+                    parent=parent,
+                )
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
         except Exception as e:
             messagebox.showerror("Import Error", str(e), parent=parent)

@@ -170,12 +170,85 @@ class TrustChainService:
     # Verification
     # ------------------------------------------------------------------
 
+    def _expected_issuer_pub(self, issuer_name: str) -> Optional[bytes]:
+        """Return the known combined hybrid-sig public key for an issuer.
+
+        Looks up the issuer's pinned hybrid signing key. The issuer may be
+        the local user (``my_name``) or a known friend. Returns ``None`` if
+        the issuer is unknown or has no hybrid signing key on file.
+        """
+        if issuer_name == self._ks.my_name and self._ks.my_hybrid_sig_combined_pub:
+            return bytes(self._ks.my_hybrid_sig_combined_pub)
+
+        pair = self._ks.friends_hybrid_sig_pubs.get(issuer_name)
+        if not pair:
+            return None
+        ed_pub_bytes, dil_pub_bytes = pair
+        return (
+            struct.pack(">H", len(ed_pub_bytes)) + ed_pub_bytes
+            + struct.pack(">H", len(dil_pub_bytes)) + dil_pub_bytes
+        )
+
+    def _verify_cert_object(self, cert: TrustCertificate) -> None:
+        """Verify a certificate's signature against its issuer's pinned key.
+
+        Confirms the embedded ``issuer_pub`` matches the locally pinned key
+        for ``issuer_name`` (defeating forged-issuer attacks), then verifies
+        the hybrid signature over the canonical signed data.
+
+        Raises:
+            CertificateSignatureError: If the issuer is unknown, the embedded
+                key does not match the pinned key, or the signature is invalid.
+        """
+        import hmac as _hmac
+
+        expected_pub = self._expected_issuer_pub(cert.issuer_name)
+        if expected_pub is None:
+            raise CertificateSignatureError(
+                f"Unknown issuer '{cert.issuer_name}' — no pinned hybrid "
+                f"signing key to validate against"
+            )
+        if not _hmac.compare_digest(bytes(cert.issuer_pub), expected_pub):
+            raise CertificateSignatureError(
+                f"Issuer key mismatch for '{cert.issuer_name}': embedded "
+                f"public key does not match the pinned key"
+            )
+
+        ct = cert.cert_type
+        data = (
+            cert.subject_pub
+            + ct.value.encode()
+            + struct.pack(">d", cert.not_before)
+            + struct.pack(">d", cert.not_after)
+        )
+
+        try:
+            from services.pqc_signatures import HybridSigner
+
+            ed_pub_bytes, dil_pub_bytes = HybridSigner.parse_combined_pub(
+                cert.issuer_pub
+            )
+            ed_pub = HybridSigner.load_ed_public_key(ed_pub_bytes)
+            valid = HybridSigner.verify(
+                data, cert.signature, ed_pub, dil_pub_bytes
+            )
+        except (RuntimeError, OSError) as e:
+            raise CertificateSignatureError(
+                f"Hybrid verification failed: {e}"
+            ) from e
+
+        if not valid:
+            raise CertificateSignatureError(
+                f"Certificate {cert.cert_id} signature is invalid"
+            )
+
     def verify_certificate(self, cert_id: str) -> bool:
         """Verify a trust certificate's full validity chain.
 
-        Checks revocation, expiration, and hybrid signature integrity.
-        The issuer's combined public key is parsed from the certificate
-        to rebuild the signed data and verify the hybrid signature.
+        Checks revocation, expiration, issuer identity, and hybrid signature
+        integrity. The issuer's combined public key embedded in the
+        certificate must match the locally pinned key for the issuer before
+        the signature is checked.
 
         Args:
             cert_id: UUID string identifying the certificate.
@@ -186,7 +259,8 @@ class TrustChainService:
         Raises:
             CertificateRevokedError: If the certificate has been revoked.
             CertificateExpiredError: If the certificate has expired.
-            CertificateSignatureError: If the hybrid signature is invalid.
+            CertificateSignatureError: If the issuer is unknown/mismatched or
+                the hybrid signature is invalid.
             CertificateError: If the certificate cannot be found.
         """
         with self._lock:
@@ -203,33 +277,7 @@ class TrustChainService:
                     f"Certificate {cert_id} expired at {cert.not_after}"
                 )
 
-            ct = cert.cert_type
-            data = (
-                cert.subject_pub
-                + ct.value.encode()
-                + struct.pack(">d", cert.not_before)
-                + struct.pack(">d", cert.not_after)
-            )
-
-            try:
-                from services.pqc_signatures import HybridSigner
-
-                ed_pub_bytes, dil_pub_bytes = HybridSigner.parse_combined_pub(
-                    cert.issuer_pub
-                )
-                ed_pub = HybridSigner.load_ed_public_key(ed_pub_bytes)
-                valid = HybridSigner.verify(
-                    data, cert.signature, ed_pub, dil_pub_bytes
-                )
-            except (RuntimeError, OSError) as e:
-                raise CertificateSignatureError(
-                    f"Hybrid verification failed: {e}"
-                ) from e
-
-            if not valid:
-                raise CertificateSignatureError(
-                    f"Certificate {cert_id} signature is invalid"
-                )
+            self._verify_cert_object(cert)
 
             logger.debug("Certificate %s verified successfully", cert_id[:8])
             return True
@@ -493,6 +541,19 @@ class TrustChainService:
                         logger.warning(
                             "Skipping cert %s with empty signature",
                             cert.cert_id[:8],
+                        )
+                        continue
+
+                    # Cryptographically verify the certificate before trusting
+                    # it. This confirms the issuer is a pinned identity and the
+                    # hybrid signature is valid, preventing forged certificates
+                    # from inflating a subject's computed trust level.
+                    try:
+                        self._verify_cert_object(cert)
+                    except CertificateSignatureError as e:
+                        logger.warning(
+                            "Rejecting unverifiable cert %s: %s",
+                            cert.cert_id[:8], e,
                         )
                         continue
 

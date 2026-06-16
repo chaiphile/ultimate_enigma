@@ -84,9 +84,13 @@ class FriendHybridSigKeyService:
         except Exception as e:
             raise FriendsServiceError(f"Failed to store hybrid signing keys: {e}") from e
 
-        # Update in-memory state
+        # Update in-memory state. Wrap the Dilithium secret in a GuardedBuffer
+        # so KeyStore.wipe() can zeroize it (raw bytes are not wipeable).
+        from security.guarded_buffer import GuardedBuffer
         self._ks.my_ed_priv = keys['ed_priv']
-        self._ks.my_dil_priv = keys['dil_priv']
+        dil_priv = keys['dil_priv']
+        self._ks.my_dil_priv = GuardedBuffer(len(dil_priv))
+        self._ks.my_dil_priv.write(bytes(dil_priv))
         self._ks.my_hybrid_sig_combined_pub = keys['combined_pub']
 
         return combined_pub_b64

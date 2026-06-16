@@ -278,5 +278,116 @@ class TestRecoveryShareModel:
         assert share1.share_index != share2.share_index
 
 
+# ---------------------------------------------------------------------------
+# Tests: import_received_certs signature/issuer verification
+# ---------------------------------------------------------------------------
+
+try:
+    import oqs  # noqa: F401
+    _OQS_AVAILABLE = True
+except Exception:
+    _OQS_AVAILABLE = False
+
+
+class _FakeKeyStore:
+    """Minimal KeyStore stand-in exposing only what TrustChainService reads."""
+
+    def __init__(self, my_name="Me"):
+        self.my_name = my_name
+        self.my_hybrid_sig_combined_pub = None
+        self.friends_hybrid_sig_pubs = {}
+        self.friends = []
+        self.my_ed_priv = None
+        self.my_dil_priv = None
+
+
+@pytest.mark.skipif(
+    not _OQS_AVAILABLE,
+    reason="liboqs required to forge/verify real hybrid certificate signatures",
+)
+class TestImportReceivedCertsVerification:
+    """import_received_certs must cryptographically verify before trusting."""
+
+    def _issuer_setup(self):
+        """Create a hybrid keypair and a service whose only friend is the
+        issuer, with the issuer's combined pub pinned. Returns (service, keys)."""
+        import struct
+        from services.pqc_signatures import HybridSigner
+        from services.trust_chain_service import TrustChainService
+
+        keys = HybridSigner.generate_keys()
+        ed_pub = keys["ed_pub_bytes"]
+        dil_pub = keys["dil_pub_bytes"]
+
+        ks = _FakeKeyStore(my_name="Me")
+        # Pin issuer "Bob" with his real hybrid signing public key.
+        ks.friends_hybrid_sig_pubs["Bob"] = (ed_pub, dil_pub)
+        svc = TrustChainService(ks)
+        return svc, keys
+
+    def _signed_cert_dict(self, keys, subject_name="Alice"):
+        import struct
+        from services.pqc_signatures import HybridSigner
+
+        not_before = time.time() - 1
+        not_after = time.time() + 86400
+        subject_pub = b"\x11" * 32
+        ct = CertificateType.IDENTITY
+        data = (
+            subject_pub
+            + ct.value.encode()
+            + struct.pack(">d", not_before)
+            + struct.pack(">d", not_after)
+        )
+        signature = HybridSigner.sign(data, keys["ed_priv"], keys["dil_priv"])
+        combined_pub = keys["combined_pub"]
+        cert = TrustCertificate(
+            cert_id=str(uuid.uuid4()),
+            subject_name=subject_name,
+            subject_pub=subject_pub,
+            issuer_name="Bob",
+            issuer_pub=combined_pub,
+            cert_type=ct,
+            not_before=not_before,
+            not_after=not_after,
+            signature=signature,
+            received_from="",
+        )
+        return cert.to_dict()
+
+    def test_valid_cert_is_imported(self):
+        svc, keys = self._issuer_setup()
+        imported = svc.import_received_certs([self._signed_cert_dict(keys)])
+        assert imported == 1
+
+    def test_forged_signature_is_rejected(self):
+        svc, keys = self._issuer_setup()
+        cert_dict = self._signed_cert_dict(keys)
+        # Tamper with the signature.
+        cert_dict["signature_b64"] = base64.b64encode(b"\x00" * 100).decode()
+        imported = svc.import_received_certs([cert_dict])
+        assert imported == 0
+
+    def test_unknown_issuer_is_rejected(self):
+        svc, keys = self._issuer_setup()
+        # Remove the pinned issuer key so the issuer is unknown.
+        svc._ks.friends_hybrid_sig_pubs.clear()
+        imported = svc.import_received_certs([self._signed_cert_dict(keys)])
+        assert imported == 0
+
+    def test_issuer_key_substitution_is_rejected(self):
+        """A valid signature under an attacker key whose name impersonates a
+        pinned issuer must fail the embedded-vs-pinned key match."""
+        from services.pqc_signatures import HybridSigner
+
+        svc, keys = self._issuer_setup()
+        attacker = HybridSigner.generate_keys()
+        # Attacker signs a cert claiming issuer "Bob" but with their own key.
+        cert_dict = self._signed_cert_dict(attacker)  # signed correctly...
+        # ...but issuer_pub now embeds the attacker's key, not Bob's pinned key.
+        imported = svc.import_received_certs([cert_dict])
+        assert imported == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

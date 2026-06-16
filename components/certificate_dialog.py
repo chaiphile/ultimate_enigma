@@ -373,11 +373,22 @@ class CertificateDialog:
                 with open(path, "r") as f:
                     data = json.load(f)
                 cert_dicts = data if isinstance(data, list) else [data]
+                total = len(cert_dicts)
                 count = self.trust_chain_service.import_received_certs(cert_dicts)
                 load_certificates()
-                messagebox.showinfo("Imported",
-                                    f"Imported {count} certificate(s).",
-                                    parent=dlg)
+                rejected = total - count
+                if rejected > 0:
+                    messagebox.showwarning(
+                        "Imported with rejections",
+                        f"Imported {count} of {total} certificate(s).\n\n"
+                        f"{rejected} were rejected because their signature could "
+                        f"not be verified or the issuer is not a known, added "
+                        f"contact. Add the issuer first, then re-import.",
+                        parent=dlg)
+                else:
+                    messagebox.showinfo("Imported",
+                                        f"Imported {count} certificate(s).",
+                                        parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
             except Exception as e:
                 messagebox.showerror("Import Error", str(e), parent=dlg)

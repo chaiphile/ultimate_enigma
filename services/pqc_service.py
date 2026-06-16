@@ -246,8 +246,10 @@ class HybridKEM:
             X25519PublicKey.from_public_bytes(remote_x_pub_bytes)
         )
 
-        # PQ KEM decapsulation
-        with oqs.KeyEncapsulation(KEM_ALGORITHM, keys['kyber_priv']) as kem:
+        # PQ KEM decapsulation. The Kyber secret may be stored as a
+        # GuardedBuffer; coerce to bytes for the liboqs C binding.
+        kyber_priv = bytes(keys['kyber_priv'])
+        with oqs.KeyEncapsulation(KEM_ALGORITHM, kyber_priv) as kem:
             pq_shared = kem.decap_secret(kyber_ct)
 
         # Combine

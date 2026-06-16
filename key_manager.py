@@ -216,7 +216,13 @@ class KeyStore:
             if row_kyber:
                 try:
                     kyber_enc_dict = json.loads(row_kyber[0])
-                    self.my_kyber_priv = database.decrypt_secret(kyber_enc_dict, password)
+                    kyber_plain = database.decrypt_secret(kyber_enc_dict, password)
+                    # Store in a GuardedBuffer so wipe() can overwrite it; raw
+                    # bytes are immutable and cannot be zeroized on lock.
+                    self.my_kyber_priv = GuardedBuffer(len(kyber_plain))
+                    self.my_kyber_priv.write(kyber_plain)
+                    if isinstance(kyber_plain, bytearray):
+                        kyber_plain[:] = b'\x00' * len(kyber_plain)
                     logger.debug("Local Kyber private key loaded (%d bytes)", len(self.my_kyber_priv))
                 except (ValueError, TypeError, json.JSONDecodeError) as e:
                     logger.warning("Could not decrypt local Kyber private key: %s", e)
@@ -278,9 +284,17 @@ class KeyStore:
                             Ed25519PrivateKey,
                         )
                         self.my_ed_priv = Ed25519PrivateKey.from_private_bytes(ed_priv_bytes)
-                        self.my_dil_priv = database.decrypt_secret(
+                        if isinstance(ed_priv_bytes, bytearray):
+                            ed_priv_bytes[:] = b'\x00' * len(ed_priv_bytes)
+                        dil_plain = database.decrypt_secret(
                             json.loads(row_dil[0]), password
                         )
+                        # GuardedBuffer so wipe() can zeroize the Dilithium
+                        # secret key; raw bytes cannot be overwritten in place.
+                        self.my_dil_priv = GuardedBuffer(len(dil_plain))
+                        self.my_dil_priv.write(dil_plain)
+                        if isinstance(dil_plain, bytearray):
+                            dil_plain[:] = b'\x00' * len(dil_plain)
                         logger.debug("Hybrid signing private keys loaded")
                     except (ValueError, TypeError, json.JSONDecodeError) as e:
                         logger.warning("Could not load hybrid signing private keys: %s", e)
@@ -633,6 +647,17 @@ class KeyStore:
 
     # ---------- PQC Hybrid KEM key management ----------
 
+    @staticmethod
+    def _guard(secret) -> GuardedBuffer:
+        """Wrap a secret in a GuardedBuffer so it can be zeroized on wipe().
+
+        Raw ``bytes`` are immutable and cannot be overwritten in place, so
+        long-lived private keys are stored guarded instead.
+        """
+        buf = GuardedBuffer(len(secret))
+        buf.write(bytes(secret))
+        return buf
+
     def ensure_pqc_keys(self, password: Union[str, bytes, SecureString]) -> None:
         """Generate and persist hybrid PQC keys if they don't already exist.
 
@@ -671,7 +696,7 @@ class KeyStore:
                 )
                 conn.commit()
 
-            self.my_kyber_priv = kyber_priv
+            self.my_kyber_priv = self._guard(kyber_priv)
             self.my_pqc_combined_pub = combined_pub
             logger.info("PQC hybrid keys generated and stored successfully")
         except KeyStoreError:
@@ -741,7 +766,7 @@ class KeyStore:
                 )
                 conn.commit()
 
-            self.my_kyber_priv = keys['kyber_priv']
+            self.my_kyber_priv = self._guard(keys['kyber_priv'])
             self.my_pqc_combined_pub = keys['combined_pub']
             logger.info("Full PQC hybrid key bundle generated and stored")
             return keys
@@ -780,7 +805,7 @@ class KeyStore:
             from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
             x_priv = X25519PrivateKey.from_private_bytes(x25519_priv_bytes)
 
-            self.my_kyber_priv = kyber_priv
+            self.my_kyber_priv = self._guard(kyber_priv)
             self.my_pqc_combined_pub = combined_pub
 
             return {
