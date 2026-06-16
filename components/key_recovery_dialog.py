@@ -72,7 +72,7 @@ class KeyRecoveryDialog:
         notebook.add(tab_status, text="  Share Status  ")
 
         self._build_split_tab(tab_split, master_pw, dlg)
-        self._build_recover_tab(tab_recover, dlg)
+        self._build_recover_tab(tab_recover, master_pw, dlg)
         self._build_held_shares_tab(tab_held, dlg)
         self._build_status_tab(tab_status)
 
@@ -187,15 +187,6 @@ class KeyRecoveryDialog:
                 )
                 return
 
-            pw = password_dialog(parent, "Enter Master Password to generate recovery key",
-                                 confirm=False)
-            if not pw:
-                return
-            if not self.friends_service.verify_password(pw):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
-                return
-
             selected_names = [friend_names[i] for i in selected_indices]
 
             # Check that all selected friends have RSA public keys loaded
@@ -307,7 +298,7 @@ class KeyRecoveryDialog:
     # Recover tab
     # ------------------------------------------------------------------
 
-    def _build_recover_tab(self, parent, dlg):
+    def _build_recover_tab(self, parent, master_pw, dlg):
         ttk.Label(
             parent,
             text="Collect shares from trusted friends to reconstruct your recovery key",
@@ -516,13 +507,6 @@ class KeyRecoveryDialog:
                         parent=dlg,
                     )
                     if not confirmed:
-                        return
-                    master_pw = password_dialog(
-                        dlg,
-                        "Enter Master Password to Apply Recovered Key",
-                        confirm=False,
-                    )
-                    if not master_pw:
                         return
                     try:
                         self.global_secret_service.update_secret(key_bytes, master_pw)
