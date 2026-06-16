@@ -19,9 +19,9 @@ class AddFriendDialog:
     def show(self):
         dlg = tk.Toplevel(self.parent)
         dlg.title("Add Friend")
-        dlg.geometry("580x720")
+        dlg.geometry("580x850")
         dlg.resizable(True, True)
-        dlg.minsize(580, 680)
+        dlg.minsize(580, 800)
         dlg.transient(self.parent)
         dlg.grab_set()
         dlg.configure(bg=self.bg)
