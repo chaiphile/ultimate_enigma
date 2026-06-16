@@ -173,20 +173,28 @@ class RatchetService:
         
         Uses AES-256-GCM. Returns a Base64-encoded blob containing
         nonce (12 bytes) + ciphertext + tag (16 bytes).
-        
-        Falls back to plain JSON if no storage key is set (backward compatibility).
-        
+
+        Fails closed: if no storage key is set, this raises rather than
+        writing the serialized ratchet state (which contains the X25519
+        private key and chain keys) to disk in plaintext.
+
         Args:
             plaintext_json: The JSON string of the serialized ratchet state.
-            
+
         Returns:
-            Base64-encoded encrypted blob, or the original JSON if no key set.
+            Base64-encoded encrypted blob.
+
+        Raises:
+            RatchetServiceError: If no storage key has been configured.
         """
         key = RatchetService._storage_key
         if key is None:
-            # No encryption key configured — store as plaintext (backward compat)
-            return plaintext_json
-        
+            raise RatchetServiceError(
+                "Refusing to persist ratchet state without a storage key — "
+                "this would write private keys and chain keys to disk in "
+                "plaintext. Ensure the ratchet storage key is initialized."
+            )
+
         plaintext = plaintext_json.encode('utf-8')
         nonce = secrets.token_bytes(12)
         aesgcm = AESGCM(key)

@@ -78,6 +78,25 @@ class FriendsService:
             x25519_pub_b64=x25519_pub_b64,
         )
 
+    def update_friend_pub_keys(
+        self,
+        name: str,
+        master_password: str,
+        new_rsa_pem: Optional[str] = None,
+        new_x25519_b64: Optional[str] = None,
+        new_pqc_b64: Optional[str] = None,
+        new_hybrid_sig_b64: Optional[str] = None,
+    ) -> None:
+        """Update one or more public keys for an existing friend, preserving all others."""
+        self._crud.update_friend_pub_keys(
+            name=name,
+            master_password=master_password,
+            new_rsa_pem=new_rsa_pem,
+            new_x25519_b64=new_x25519_b64,
+            new_pqc_b64=new_pqc_b64,
+            new_hybrid_sig_b64=new_hybrid_sig_b64,
+        )
+
     def get_my_public_info(self) -> Dict:
         """Return my own RSA public key info (fingerprint and PEM)."""
         return self._crud.get_my_public_info()

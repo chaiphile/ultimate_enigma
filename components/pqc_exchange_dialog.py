@@ -308,16 +308,8 @@ class PqcExchangeDialog:
                                      f"Invalid PQC combined public key: {e}",
                                      parent=dlg)
                 return
-            details = self.friends_service.get_friend_details(fname)
-            if not details:
-                messagebox.showerror("Error", f"Friend '{fname}' not found.",
-                                     parent=dlg)
-                return
             try:
                 secret = self.friends_service.get_friend_secret(fname)
-                x_b64 = self.friends_service.get_friend_x25519_key(fname)
-                caps = self.friends_service.get_friend_capabilities(fname)
-
                 pw = ""
                 if secret:
                     pw = password_dialog(
@@ -332,15 +324,10 @@ class PqcExchangeDialog:
                                              "Master password incorrect.",
                                              parent=dlg)
                         return
-
-                self.friends_service.add_friend(
+                self.friends_service.update_friend_pub_keys(
                     name=fname,
-                    public_key_pem=details["public_key_pem"],
-                    shared_secret=secret,
                     master_password=pw,
-                    x25519_pub_b64=x_b64,
-                    capabilities=caps if caps else None,
-                    pqc_combined_pub_b64=key_b64,
+                    new_pqc_b64=key_b64,
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ PQC key imported for '{fname}'")

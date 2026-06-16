@@ -3,7 +3,7 @@ Friend CRUD, queries, and auth – extracted from FriendsService.
 """
 
 from typing import List, Dict, Optional
-
+import struct
 import base64
 
 from key_manager import KeyStore, pubkey_to_pem
@@ -141,6 +141,34 @@ class FriendCrudService:
             raise FriendsServiceError(f"Friend '{name}' not found")
         self._ks.remove_friend(name)
 
+    def _get_friend_existing_keys(self, name: str) -> Dict:
+        """Return all current public keys for a friend for preservation during partial updates."""
+        current_pem = None
+        for fname, pub, _ in self._ks.friends:
+            if fname == name:
+                current_pem = pubkey_to_pem(pub)
+                break
+        x25519 = self._ks.friends_x25519.get(name)
+        caps = dict(self._ks.friends_capabilities.get(name, {})) or None
+        pqc_b64 = None
+        if name in self._ks.friends_pqc_combined_pub:
+            pqc_b64 = base64.b64encode(self._ks.friends_pqc_combined_pub[name]).decode()
+        hybrid_sig_b64 = None
+        if name in self._ks.friends_hybrid_sig_pubs:
+            ed_pub, dil_pub = self._ks.friends_hybrid_sig_pubs[name]
+            combined = (
+                struct.pack(">H", len(ed_pub)) + ed_pub
+                + struct.pack(">H", len(dil_pub)) + dil_pub
+            )
+            hybrid_sig_b64 = base64.b64encode(combined).decode()
+        return {
+            "pem": current_pem,
+            "x25519": x25519,
+            "caps": caps,
+            "pqc_b64": pqc_b64,
+            "hybrid_sig_b64": hybrid_sig_b64,
+        }
+
     def update_shared_secret(
         self,
         name: str,
@@ -148,29 +176,94 @@ class FriendCrudService:
         master_password: str,
         x25519_pub_b64: Optional[str] = None,
     ) -> None:
-        """
-        Replace the shared secret (and optionally the ECDH key) for an existing friend.
-        `master_password` is required to encrypt the new secret.
+        """Replace the shared secret (and optionally the ECDH key) for an existing friend.
+
+        Preserves all existing public keys (PQC, hybrid sig, capabilities).
         """
         if not self.friend_exists(name):
             raise FriendsServiceError(f"Friend '{name}' not found")
         if not master_password:
             raise FriendsServiceError("Master password required")
-        # Retrieve current public key PEM (needed for save_friend which replaces the row)
-        current_pub_pem = None
-        for fname, pub, _ in self._ks.friends:
-            if fname == name:
-                current_pub_pem = pubkey_to_pem(pub)
-                break
-        if not current_pub_pem:
+        existing = self._get_friend_existing_keys(name)
+        if not existing["pem"]:
             raise FriendsServiceError("Friend record corrupted – no public key")
+        self._ks.save_friend(
+            name=name,
+            pem=existing["pem"],
+            shared_secret=new_secret,
+            password=master_password,
+            x25519_pub_b64=x25519_pub_b64 if x25519_pub_b64 is not None else existing["x25519"],
+            capabilities=existing["caps"],
+            pqc_combined_pub_b64=existing["pqc_b64"],
+            hybrid_sig_pub_b64=existing["hybrid_sig_b64"],
+        )
+
+    def update_friend_pub_keys(
+        self,
+        name: str,
+        master_password: str,
+        new_rsa_pem: Optional[str] = None,
+        new_x25519_b64: Optional[str] = None,
+        new_pqc_b64: Optional[str] = None,
+        new_hybrid_sig_b64: Optional[str] = None,
+    ) -> None:
+        """Update one or more public keys for an existing friend, preserving all others.
+
+        At least one of the new_* parameters must be provided.
+        master_password is required when the friend has a shared secret.
+        """
+        if not self.friend_exists(name):
+            raise FriendsServiceError(f"Friend '{name}' not found")
+        if not any([new_rsa_pem, new_x25519_b64, new_pqc_b64, new_hybrid_sig_b64]):
+            raise FriendsServiceError("No keys provided to update")
+        secret = self.get_friend_secret(name)
+        if secret and not master_password:
+            raise FriendsServiceError("Master password required to preserve shared secret")
+
+        existing = self._get_friend_existing_keys(name)
+
+        pem = new_rsa_pem or existing["pem"]
+        if not pem:
+            raise FriendsServiceError("Friend record corrupted – no public key")
+
+        if new_rsa_pem:
+            from src.crypto_utils import pem_to_pubkey as _check_pem
+            try:
+                _check_pem(new_rsa_pem)
+            except Exception as e:
+                raise FriendsServiceError(f"Invalid RSA public key: {e}") from e
+
+        if new_x25519_b64:
+            try:
+                ECDHService.decode_public_key(new_x25519_b64)
+            except ValueError as e:
+                raise FriendsServiceError(f"Invalid X25519 public key: {e}") from e
+
+        if new_pqc_b64:
+            try:
+                raw = base64.b64decode(new_pqc_b64)
+                if len(raw) < 36:
+                    raise ValueError("Key too short")
+            except Exception as e:
+                raise FriendsServiceError(f"Invalid PQC combined public key: {e}") from e
+
+        if new_hybrid_sig_b64:
+            try:
+                raw = base64.b64decode(new_hybrid_sig_b64)
+                if len(raw) < 36:
+                    raise ValueError("Key too short")
+            except Exception as e:
+                raise FriendsServiceError(f"Invalid hybrid signing combined public key: {e}") from e
 
         self._ks.save_friend(
             name=name,
-            pem=current_pub_pem,
-            shared_secret=new_secret,
-            password=master_password,
-            x25519_pub_b64=x25519_pub_b64,
+            pem=pem,
+            shared_secret=secret,
+            password=master_password if secret else "",
+            x25519_pub_b64=new_x25519_b64 if new_x25519_b64 is not None else existing["x25519"],
+            capabilities=existing["caps"],
+            pqc_combined_pub_b64=new_pqc_b64 if new_pqc_b64 is not None else existing["pqc_b64"],
+            hybrid_sig_pub_b64=new_hybrid_sig_b64 if new_hybrid_sig_b64 is not None else existing["hybrid_sig_b64"],
         )
 
     def get_my_public_info(self) -> Dict:

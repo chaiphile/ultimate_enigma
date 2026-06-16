@@ -202,17 +202,12 @@ class RatchetState:
         # Step the send chain to get a new message key
         new_ck, message_key = self._hkdf_ck(bytes(self.send_chain_key.read()))
         self._update_chain_key('send_chain_key', new_ck)
-        
-        # Encrypt with message key using XChaCha20-Poly1305
-        # 192-bit nonce makes random collisions negligible — a major upgrade
-        # over AES-GCM's 96-bit nonce where birthday attacks are realistic.
-        nonce = _xchacha_nonce()
-        # Convert message_key to mutable bytearray for secure zeroing after use
-        mk_bytes = bytearray(message_key)
-        with XChaCha20Poly1305(mk_bytes) as aead:
-            ct = aead.encrypt(nonce, plaintext, None)
-        
-        # Build header
+
+        # Build the header BEFORE encrypting so it can be bound as AEAD
+        # associated data. This authenticates msg_num, prev_chain_len and the
+        # DH public key — all of which drive the receiver's ratchet/skip logic
+        # — against tampering. (Previously AD was None and the header was
+        # unauthenticated.)
         dh_pub_bytes = self.dh_priv.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw
@@ -220,12 +215,21 @@ class RatchetState:
         header = struct.pack(">I", self.send_msg_num)  # msg_num (4 bytes)
         header += struct.pack(">I", self.prev_send_chain_len)  # prev_chain_len (4 bytes)
         header += dh_pub_bytes  # DH public key (32 bytes)
-        
+
+        # Encrypt with message key using XChaCha20-Poly1305, binding the header.
+        # 192-bit nonce makes random collisions negligible — a major upgrade
+        # over AES-GCM's 96-bit nonce where birthday attacks are realistic.
+        nonce = _xchacha_nonce()
+        # Convert message_key to mutable bytearray for secure zeroing after use
+        mk_bytes = bytearray(message_key)
+        with XChaCha20Poly1305(mk_bytes) as aead:
+            ct = aead.encrypt(nonce, plaintext, header)
+
         self.send_msg_num += 1
-        
+
         # Immediately zero the message key for security
         wipe_bytes(mk_bytes)
-        
+
         return header, nonce + ct
 
     def decrypt(self, header: bytes, ciphertext: bytes) -> bytes:
@@ -255,15 +259,19 @@ class RatchetState:
             ) if self.dh_pub_remote else b''
         )
         if remote_dh_pub_bytes != current_remote_pub_bytes:
+            # Before ratcheting, store the remaining message keys of the
+            # current receiving chain (up to the sender's prev_chain_len) so
+            # that delayed messages from the previous chain remain decryptable.
+            self._skip_recv_chain(current_remote_pub_bytes, prev_chain_len)
             self.dh_ratchet_step(remote_dh_pub)
-        
+
         # Try skipped message keys first (for out-of-order delivery)
         skip_key = self.skipped_keys.pop(
             (remote_dh_pub_bytes, msg_num), None
         )
-        if skip_key:
-            return self._decrypt_with_key(skip_key, ciphertext)
-        
+        if skip_key is not None:
+            return self._decrypt_with_key(skip_key, ciphertext, header)
+
         # Skip ahead if needed (store skipped message keys for later)
         if msg_num - self.recv_msg_num > self.MAX_SKIP_DISTANCE:
             raise ValueError(
@@ -277,12 +285,12 @@ class RatchetState:
                 (remote_dh_pub_bytes, self.recv_msg_num), mk
             )
             self.recv_msg_num += 1
-        
+
         # Decrypt current message
         new_ck, message_key = self._hkdf_ck(bytes(self.recv_chain_key.read()))
         self._update_chain_key('recv_chain_key', new_ck)
         self.recv_msg_num += 1
-        plaintext = self._decrypt_with_key(message_key, ciphertext)
+        plaintext = self._decrypt_with_key(message_key, ciphertext, header)
         
         # Zero the message key for security
         mk_bytes = bytearray(message_key)
@@ -292,24 +300,58 @@ class RatchetState:
         
         return plaintext
 
+    def _skip_recv_chain(self, remote_pub_bytes: bytes, until: int) -> None:
+        """Store the remaining message keys of the current receiving chain up
+        to ``until`` (the sender's prev_chain_len), keyed under the OLD remote
+        DH public key, before performing a DH ratchet step.
+
+        Without this, messages from the previous sending chain that arrive
+        after the ratchet are permanently undecryptable.
+        """
+        if self.recv_chain_key is None or not remote_pub_bytes:
+            return
+        if until - self.recv_msg_num > self.MAX_SKIP_DISTANCE:
+            raise ValueError(
+                f"prev_chain_len skip distance {until - self.recv_msg_num} "
+                f"exceeds maximum {self.MAX_SKIP_DISTANCE}"
+            )
+        while self.recv_msg_num < until:
+            new_ck, mk = self._hkdf_ck(bytes(self.recv_chain_key.read()))
+            self._update_chain_key('recv_chain_key', new_ck)
+            self._store_skipped_key((remote_pub_bytes, self.recv_msg_num), mk)
+            self.recv_msg_num += 1
+
     def _store_skipped_key(self, key: tuple, mk: bytes) -> None:
-        """Store a skipped message key with FIFO eviction when over limit."""
+        """Store a skipped message key with FIFO eviction when over limit.
+
+        The key is wrapped in a GuardedBuffer so it lives in guarded memory and
+        can be wiped on teardown (wipe() only zeroes GuardedBuffer entries).
+        """
         if len(self.skipped_keys) >= self.MAX_SKIPPED_KEYS:
             # Evict oldest skipped key to prevent memory exhaustion
             oldest = self._skipped_key_order.pop(0)
-            self.skipped_keys.pop(oldest, None)
-        self.skipped_keys[key] = mk
+            evicted = self.skipped_keys.pop(oldest, None)
+            if isinstance(evicted, GuardedBuffer):
+                evicted.wipe_and_free()
+        gb = GuardedBuffer(len(mk))
+        gb.write(bytes(mk))
+        self.skipped_keys[key] = gb
         self._skipped_key_order.append(key)
 
     @staticmethod
-    def _decrypt_with_key(key: bytes, data: bytes) -> bytes:
-        """Decrypt data with a given message key using XChaCha20-Poly1305."""
+    def _decrypt_with_key(key, data: bytes, header: bytes = b'') -> bytes:
+        """Decrypt data with a given message key using XChaCha20-Poly1305.
+
+        ``key`` may be raw bytes or a GuardedBuffer. ``header`` is bound as
+        associated data and must match the header used at encryption time.
+        """
         if len(data) < XCHACHA20_NONCE_SIZE:
             raise ValueError("Ciphertext too short")
         nonce = data[:XCHACHA20_NONCE_SIZE]
         ct = data[XCHACHA20_NONCE_SIZE:]
-        with XChaCha20Poly1305(key) as aead:
-            return aead.decrypt(nonce, ct, None)
+        key_bytes = bytes(key.read()) if isinstance(key, GuardedBuffer) else bytes(key)
+        with XChaCha20Poly1305(key_bytes) as aead:
+            return aead.decrypt(nonce, ct, header)
 
     def get_local_dh_public_key(self) -> bytes:
         """Get our current DH public key as raw bytes."""
@@ -355,7 +397,9 @@ class RatchetState:
                 format=serialization.PublicFormat.Raw
             ).hex() if self.dh_pub_remote else None,
             'skipped_keys': {
-                f"{k[0].hex()}:{k[1]}": v.hex() 
+                f"{k[0].hex()}:{k[1]}": (
+                    bytes(v.read()) if isinstance(v, GuardedBuffer) else bytes(v)
+                ).hex()
                 for k, v in self.skipped_keys.items()
             }
         }

@@ -20,6 +20,7 @@ from views.dialogs import password_dialog
 from components.add_friend_dialog import AddFriendDialog
 from components.pqc_exchange_dialog import PqcExchangeDialog
 from components.hybrid_sig_exchange_dialog import HybridSigExchangeDialog
+from components.update_friend_keys_dialog import UpdateFriendKeysDialog
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +65,7 @@ class FriendsTab:
             ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline"),
             ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info"),
             ("✍️ Hybrid Sig Exchange", self.hybrid_sig_exchange_dialog, "success"),
+            ("🔄 Update Keys", self.update_friend_keys_dialog, "warning"),
             ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline"),
         ]
         for text, cmd, style in btn_specs:
@@ -142,6 +144,8 @@ class FriendsTab:
         self.ctx_menu.add_separator()
         self.ctx_menu.add_command(label="🔁 Perform ECDH Exchange",
                                   command=self.ecdh_with_selected)
+        self.ctx_menu.add_command(label="🔄 Update Friend Keys",
+                                  command=self.update_friend_keys_dialog)
         self.ctx_menu.add_command(label="🔐 Initialize Ratchet",
                                   command=self.init_ratchet_dialog)
         self.ctx_menu.add_command(label="🔄 Reset Ratchet",
@@ -648,6 +652,17 @@ class FriendsTab:
                 return
             self.service.set_my_name(new_name)
             messagebox.showinfo("Success", f"Display name set to '{new_name}'.", parent=parent)
+
+    def update_friend_keys_dialog(self) -> None:
+        """Open the unified Update Friend Keys dialog for the selected friend."""
+        preselect = self._get_selected_name() or ""
+        parent = self.frame.winfo_toplevel()
+        if not self.service.get_friend_names():
+            messagebox.showinfo("No Friends", "Add a friend first before updating keys.")
+            return
+        UpdateFriendKeysDialog(
+            parent, self.service, self._bg, self.refresh_list, preselect
+        ).show()
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self) -> None:

@@ -162,41 +162,56 @@ class AuthManager:
             )
             time.sleep(delay)
 
-        # Check master password
+        # Load both verifiers up front so the DB access pattern is identical
+        # regardless of which password (if any) matches.
+        master_enc = None
+        duress_enc = None
         try:
             conn = database.get_connection()
-            row = conn.execute(
+            row_master = conn.execute(
                 "SELECT value FROM settings WHERE key='global_secret'"
             ).fetchone()
-            conn.close()
-            if row:
-                enc_dict = json.loads(row[0])
-                database.decrypt_secret(enc_dict, password)
-                self._ks.failed_attempts = 0
-                self._ks.locked_until = 0.0
-                self._ks._duress_mode = False
-                self.save_lockout_state()
-                return True, False
-        except Exception as e:
-            logger.debug("Password verification exception: %s", e)
-
-        # Check duress password
-        try:
-            conn = database.get_connection()
-            row = conn.execute(
+            row_duress = conn.execute(
                 "SELECT value FROM settings WHERE key='duress_verifier'"
             ).fetchone()
             conn.close()
-            if row:
-                duress_data = json.loads(row[0])
-                database.decrypt_secret(duress_data, password)
-                self._ks.failed_attempts = 0
-                self._ks.locked_until = 0.0
-                self._ks._duress_mode = True
-                self.save_lockout_state()
-                return True, True
+            if row_master:
+                master_enc = json.loads(row_master[0])
+            if row_duress:
+                duress_enc = json.loads(row_duress[0])
         except Exception as e:
-            logger.debug("Duress verification exception: %s", e)
+            logger.debug("Password verifier load failed: %s", e)
+
+        # Always attempt BOTH derivations (no early return) so a duress login
+        # and a real login cost the same. Otherwise an adversary timing the
+        # unlock could distinguish the decoy password from the real one.
+        master_ok = False
+        duress_ok = False
+        if master_enc is not None:
+            try:
+                database.decrypt_secret(master_enc, password)
+                master_ok = True
+            except Exception as e:
+                logger.debug("Master password verification failed: %s", e)
+        if duress_enc is not None:
+            try:
+                database.decrypt_secret(duress_enc, password)
+                duress_ok = True
+            except Exception as e:
+                logger.debug("Duress verification failed: %s", e)
+
+        if master_ok:
+            self._ks.failed_attempts = 0
+            self._ks.locked_until = 0.0
+            self._ks._duress_mode = False
+            self.save_lockout_state()
+            return True, False
+        if duress_ok:
+            self._ks.failed_attempts = 0
+            self._ks.locked_until = 0.0
+            self._ks._duress_mode = True
+            self.save_lockout_state()
+            return True, True
 
         # Failed attempt: escalate lockout
         self._ks.failed_attempts += 1
@@ -239,6 +254,9 @@ class AuthManager:
             KeyStoreError: If verification fails or re-encryption encounters an error.
         """
         conn = database.get_connection()
+        gs_plain = None
+        totp_plain = None
+        friend_secrets = None
         try:
             # 1. Verify old password
             row = conn.execute(
@@ -350,6 +368,20 @@ class AuthManager:
             logger.error("change_password failed (rolled back): %s", e)
             raise KeyStoreError(f"change_password failed: {e}") from e
         finally:
+            # Wipe plaintext secrets from memory
+            if gs_plain is not None:
+                if isinstance(gs_plain, bytearray):
+                    gs_plain[:] = b'\x00' * len(gs_plain)
+                del gs_plain
+            if totp_plain is not None:
+                if isinstance(totp_plain, bytearray):
+                    totp_plain[:] = b'\x00' * len(totp_plain)
+                del totp_plain
+            if friend_secrets is not None:
+                for sec_plain in friend_secrets.values():
+                    if isinstance(sec_plain, bytearray):
+                        sec_plain[:] = b'\x00' * len(sec_plain)
+                del friend_secrets
             conn.close()
 
     # ------------------------------------------------------------------
@@ -358,33 +390,23 @@ class AuthManager:
 
     def set_duress_password(self, duress_password: Union[str, bytes, SecureString]) -> None:
         """Set up a duress password that triggers decoy mode.
-        
+
+        Delegates to KeyStore so the decoy RSA key is pre-generated at the
+        full key size (avoiding both a keygen timing tell and a key-size tell
+        at duress login).
+
         Args:
             duress_password: Duress password as str, bytes, or SecureString.
         """
-        dummy_secret = secrets.token_bytes(32)
-        enc = database.encrypt_secret(dummy_secret, duress_password)
-        with closing(database.get_connection()) as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                ("duress_verifier", json.dumps(enc))
-            )
-            conn.commit()
-        logger.info("Duress password configured")
+        self._ks.set_duress_password(duress_password)
 
-    def load_duress_decoy(self) -> bool:
+    def load_duress_decoy(self, password: Union[str, bytes, SecureString, None] = None) -> bool:
         """Load decoy/empty state for duress mode.
 
-        Wipes all real keys and populates the store with empty/fake data.
+        Delegates to KeyStore, which loads the pre-generated decoy key when the
+        duress password is supplied so duress login matches real-login latency.
         Returns True on success.
         """
-        self._ks.wipe()
-
-        decoy_priv = rsa.generate_private_key(65537, 2048, default_backend())
-        self._ks.my_priv = decoy_priv
-        self._ks.my_pub = decoy_priv.public_key()
-        self._ks.global_secret = bytearray(secrets.token_bytes(32))
-        self._ks._duress_mode = True
-
+        result = self._ks.load_duress_decoy(password)
         logger.warning("Duress decoy state loaded - no real data accessible")
-        return True
+        return result

@@ -138,7 +138,7 @@ class AuthController:
                     continue
 
                 if is_duress:
-                    self.enter_duress_mode()
+                    self.enter_duress_mode(pw)
                     return True
 
                 if self.ks.load(pw):
@@ -190,7 +190,7 @@ class AuthController:
                 is_valid, is_duress = self.auth_manager.verify_password(pw)
                 if is_valid and is_duress:
                     temp_ks = KeyStore()
-                    temp_ks.load_duress_decoy()
+                    temp_ks.load_duress_decoy(pw)
                     self._master_password_hash = self._ph.hash(_DURESS_PLACEHOLDER)
                     temp_totp = TOTPService()
                     return True, temp_ks, temp_totp
@@ -523,9 +523,9 @@ class AuthController:
             master_pw = None
             gc.collect()
 
-    def enter_duress_mode(self) -> None:
+    def enter_duress_mode(self, password=None) -> None:
         """Enter decoy mode with fake data."""
-        self.ks.load_duress_decoy()
+        self.ks.load_duress_decoy(password)
         self._master_password_hash = self._ph.hash(_DURESS_PLACEHOLDER)
         self.totp_service.clear_secret()
         event_bus.publish(Events.DURESS_MODE_ENTERED, source="auth_controller")

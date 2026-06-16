@@ -14,6 +14,7 @@ import logging
 from typing import Optional
 
 from src.exceptions import TOTPValidationError
+from security.guarded_buffer import GuardedBuffer
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +27,24 @@ class TOTPService:
     """Generates and verifies TOTP codes based on a 20-byte secret."""
 
     def __init__(self):
-        self._secret: Optional[bytes] = None
+        self._secret_buf: Optional[GuardedBuffer] = None
+        # Highest time-step counter already accepted. Codes at this counter or
+        # earlier are rejected to prevent replay of a captured code within its
+        # validity window.
+        self._last_counter: int = -1
 
     # ------------------------------------------------------------------
     # Secret management
     # ------------------------------------------------------------------
+    def _secret_bytes(self) -> Optional[bytes]:
+        """Return a transient bytes copy of the secret, or None if not set."""
+        if self._secret_buf is None:
+            return None
+        return bytes(self._secret_buf.read())
+
     def set_secret(self, secret: bytes) -> None:
         """Set the TOTP secret (must be at least 20 bytes).
-        
+
         Uses the first 20 bytes directly as the TOTP key.
         The secret should be cryptographically random (from secrets.token_bytes).
 
@@ -42,12 +53,17 @@ class TOTPService:
         """
         if len(secret) < 20:
             raise TOTPValidationError("TOTP secret must be at least 20 bytes")
+        # Clear any existing buffer first
+        if self._secret_buf is not None:
+            self._secret_buf.wipe_and_free()
         # Use first 20 bytes directly – secret is already cryptographically random
-        self._secret = bytes(secret[:20])
+        self._secret_buf = GuardedBuffer(20)
+        self._secret_buf.write(bytes(secret[:20]))
+        self._last_counter = -1
 
     def set_raw_secret(self, secret: bytes) -> None:
         """Set an exact 20-byte TOTP secret without any transformation.
-        
+
         Used when loading a previously-stored derived secret from the database.
 
         Raises:
@@ -57,26 +73,32 @@ class TOTPService:
             raise TOTPValidationError(
                 f"Raw TOTP secret must be exactly 20 bytes, got {len(secret)}"
             )
-        self._secret = bytes(secret)
+        # Clear any existing buffer first
+        if self._secret_buf is not None:
+            self._secret_buf.wipe_and_free()
+        self._secret_buf = GuardedBuffer(20)
+        self._secret_buf.write(bytes(secret))
+        self._last_counter = -1
 
     def clear_secret(self) -> None:
         """Wipe the secret from memory."""
-        if self._secret is not None:
-            self._secret = b"\x00" * len(self._secret)
-            self._secret = None
+        if self._secret_buf is not None:
+            self._secret_buf.wipe_and_free()
+            self._secret_buf = None
 
     def has_secret(self) -> bool:
-        return self._secret is not None
+        return self._secret_buf is not None
 
     def get_b32_secret(self) -> str:
         """Return the Base32-encoded secret (for display in setup dialogs)."""
-        if self._secret is None:
+        secret_bytes = self._secret_bytes()
+        if secret_bytes is None:
             return "N/A"
-        return base64.b32encode(self._secret).decode().rstrip("=")
+        return base64.b32encode(secret_bytes).decode().rstrip("=")
 
     def get_raw_secret(self) -> Optional[bytes]:
         """Return the raw 20-byte secret (for persistence to database)."""
-        return self._secret
+        return self._secret_bytes()
 
     # ------------------------------------------------------------------
     # TOTP generation / verification
@@ -96,12 +118,13 @@ class TOTPService:
         Raises:
             TOTPValidationError: If no secret has been configured.
         """
-        if self._secret is None:
+        secret_bytes = self._secret_bytes()
+        if secret_bytes is None:
             raise TOTPValidationError("TOTP secret not set")
         if timestamp is None:
             timestamp = time.time()
         counter = int(timestamp) // TOTP_INTERVAL
-        return f"{self._hotp(self._secret, counter):0{TOTP_DIGITS}d}"
+        return f"{self._hotp(secret_bytes, counter):0{TOTP_DIGITS}d}"
 
     def verify(self, code: str, timestamp: Optional[float] = None) -> bool:
         """Verify a TOTP code with ±1 step drift tolerance.
@@ -109,7 +132,8 @@ class TOTPService:
         Raises:
             TOTPValidationError: If no secret has been configured.
         """
-        if self._secret is None:
+        secret_bytes = self._secret_bytes()
+        if secret_bytes is None:
             raise TOTPValidationError("TOTP secret not set")
         code = code.strip()
         if len(code) != TOTP_DIGITS or not code.isdigit():
@@ -118,8 +142,18 @@ class TOTPService:
             timestamp = time.time()
         base_counter = int(timestamp) // TOTP_INTERVAL
         for offset in range(-TOTP_DRIFT, TOTP_DRIFT + 1):
-            expected = f"{self._hotp(self._secret, base_counter + offset):0{TOTP_DIGITS}d}"
+            candidate_counter = base_counter + offset
+            expected = f"{self._hotp(secret_bytes, candidate_counter):0{TOTP_DIGITS}d}"
             if hmac.compare_digest(code, expected):
+                # Replay protection: never accept a counter at or below one we
+                # have already accepted, even though the code is still inside
+                # its drift window.
+                if candidate_counter <= self._last_counter:
+                    logger.warning(
+                        "TOTP code rejected: replay of counter %d", candidate_counter
+                    )
+                    return False
+                self._last_counter = candidate_counter
                 return True
         return False
 
@@ -137,9 +171,10 @@ class TOTPService:
         Raises:
             TOTPValidationError: If no secret has been configured.
         """
-        if self._secret is None:
+        secret_bytes = self._secret_bytes()
+        if secret_bytes is None:
             raise TOTPValidationError("TOTP secret not set")
-        b32_secret = base64.b32encode(self._secret).decode().rstrip("=")
+        b32_secret = base64.b32encode(secret_bytes).decode().rstrip("=")
         return (
             f"otpauth://totp/{issuer}:{account}"
             f"?secret={b32_secret}&issuer={issuer}"

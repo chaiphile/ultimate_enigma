@@ -64,19 +64,21 @@ def derive_time_key(shared_secret: bytes, timestamp: int) -> bytes:
 
 def _derive_msg_key(base_key: bytes, nonce: bytes) -> bytes:
     """Derive a per-message AES-256 key using HKDF-SHA256.
-    
-    This mitigates the risk of AES-GCM nonce reuse with the same key:
-    each message gets its own derived key, so even if two messages
-    accidentally use the same nonce, the keys are different and the
-    combined nonce+key collision is prevented.
-    
-    The derivation includes the nonce as context so that the same
-    base_key with different nonces produces independent keys.
-    
+
+    NOTE: This does NOT mitigate AES-GCM nonce reuse. The derived key is a
+    deterministic function of (base_key, nonce), so if the same nonce ever
+    repeats under the same base_key, the derived key repeats too — i.e. the
+    catastrophic (key, nonce) reuse is reproduced exactly, not prevented.
+    Nonce-collision safety here comes solely from the 96-bit random nonce.
+
+    What this derivation does provide is domain separation: the key actually
+    used by AES-GCM is bound to the nonce and to this protocol's info string,
+    so the raw time-derived base_key is never used directly as a GCM key.
+
     Args:
         base_key: The base AES-256 key (32 bytes) from time-key derivation.
         nonce: The 12-byte AES-GCM nonce for this message.
-        
+
     Returns:
         A 32-byte per-message AES-256 key.
     """

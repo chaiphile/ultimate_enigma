@@ -1,9 +1,7 @@
 """SQLite database for Enigma Messenger."""
 
 import json
-import hashlib
 import os
-import platform
 try:
     from sqlcipher3 import dbapi2 as sqlite3
     HAS_SQLCIPHER = True
@@ -159,64 +157,87 @@ def _derive_db_key() -> Optional[bytes]:
     with the master password inside the settings table.  On subsequent
     runs the encrypted key is decrypted with the master password.
 
-    This provides defense-in-depth: even if the master password is weak,
-    the raw DB key never leaves the machine (it is sealed with a
-    machine-specific HMAC derived from hardware identifiers).
+    Security: the DB key is protected solely by the master password via
+    Argon2id (see encrypt_secret/_derive_key_argon2id). There is no
+    additional machine/hardware binding — security therefore rests on
+    master-password strength.
+
+    Fail-closed: if a wrapped key already exists but cannot be decrypted
+    (wrong master password, or tampered/corrupted key material), this
+    raises DatabaseConnectionError rather than returning None. Returning
+    None would silently downgrade an existing encrypted database to
+    plaintext, which is a fail-open security hole.
+
+    Returns None only for the genuine first-run case where no key exists
+    yet and no master password has been set.
 
     Note: The master password used here is obtained at connection time
     via _MASTER_PASSWORD (set by key_manager after first successful
-    login).  For new databases before any login, encryption is skipped.
+    login).
     """
     try:
         conn = sqlite3.connect(str(DB_PATH))
-        table_row = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
-        ).fetchone()
-        if not table_row:
+        try:
+            table_row = conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='settings'"
+            ).fetchone()
+            if not table_row:
+                return None
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key=?",
+                (_DB_KEY_SETTING_KEY,)
+            ).fetchone()
+        finally:
             conn.close()
+    except sqlite3.Error as exc:
+        # Could not even read the settings table. Only treat this as a benign
+        # first-run when no master password is set; otherwise refuse to open.
+        if _MASTER_PASSWORD is None:
             return None
-        row = conn.execute(
-            "SELECT value FROM settings WHERE key=?",
-            (_DB_KEY_SETTING_KEY,)
-        ).fetchone()
-        conn.close()
+        raise DatabaseConnectionError(
+            f"Could not read database key material: {exc}"
+        ) from exc
 
-        if row:
-            # Key already exists — decrypt it
-            import json as _json
-            enc_data = _json.loads(row[0])
+    if row:
+        # A wrapped key exists: it MUST decrypt or we refuse to open the DB.
+        # Failing closed here prevents a tampered/corrupt key blob from
+        # silently downgrading the database to unencrypted.
+        try:
+            enc_data = json.loads(row[0])
             salt = base64.b64decode(enc_data["salt"])
             nonce = base64.b64decode(enc_data["nonce"])
             ct = base64.b64decode(enc_data["ct"])
             key = _derive_key_argon2id(_MASTER_PASSWORD, salt)
-            aesgcm = AESGCM(key)
-            return aesgcm.decrypt(nonce, ct, None)
-        else:
-            # First run — generate a new random DB key and store it
-            # encrypted.  If _MASTER_PASSWORD is not yet set (first-ever
-            # launch before any login), we return None and open without
-            # encryption this one time.
-            if _MASTER_PASSWORD is None:
-                return None
-            new_db_key = secrets.token_bytes(32)
-            enc = encrypt_secret(new_db_key, _MASTER_PASSWORD)
-            conn2 = sqlite3.connect(str(DB_PATH))
-            conn2.execute(
-                "CREATE TABLE IF NOT EXISTS settings ("
-                "    key TEXT PRIMARY KEY, value TEXT NOT NULL"
-                ")"
-            )
-            conn2.execute(
-                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                (_DB_KEY_SETTING_KEY, _json.dumps(enc))
-            )
-            conn2.commit()
-            conn2.close()
-            logger.info("Generated and stored new per-machine DB encryption key")
-            return new_db_key
-    except (ValueError, TypeError, sqlite3.Error) as exc:
-        logger.warning("Could not derive DB encryption key: %s — opening unencrypted", exc)
+            return AESGCM(key).decrypt(nonce, ct, None)
+        except Exception as exc:
+            raise DatabaseConnectionError(
+                "Could not decrypt the database encryption key — wrong master "
+                "password or tampered/corrupted key material. Refusing to open "
+                "the database unencrypted."
+            ) from exc
+
+    # No wrapped key yet.
+    if _MASTER_PASSWORD is None:
+        # First-ever launch before any login: open unencrypted this once.
         return None
+    new_db_key = secrets.token_bytes(32)
+    enc = encrypt_secret(new_db_key, _MASTER_PASSWORD)
+    conn2 = sqlite3.connect(str(DB_PATH))
+    try:
+        conn2.execute(
+            "CREATE TABLE IF NOT EXISTS settings ("
+            "    key TEXT PRIMARY KEY, value TEXT NOT NULL"
+            ")"
+        )
+        conn2.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (_DB_KEY_SETTING_KEY, json.dumps(enc))
+        )
+        conn2.commit()
+    finally:
+        conn2.close()
+    logger.info("Generated and stored new per-machine DB encryption key")
+    return new_db_key
 
 
 # Global master password reference set by key_manager after successful login.
@@ -248,15 +269,6 @@ def set_master_password(password: Union[str, SecureString]) -> None:
         _MASTER_PASSWORD.lock()
 
 
-def get_master_password():
-    """Return the current master password (or None).
-
-    Useful for testing or inspecting state; avoids direct global access.
-    """
-    with _master_pw_lock:
-        return _MASTER_PASSWORD
-
-
 def clear_master_password() -> None:
     """Clear the in-memory master password (call on lock/ logout)."""
     global _MASTER_PASSWORD
@@ -284,6 +296,10 @@ def get_connection() -> sqlite3.Connection:
 
         if HAS_SQLCIPHER:
             # Attempt to derive and set the per-machine encryption key.
+            # _derive_db_key() now fails closed: it returns None only for the
+            # genuine first-run / pre-login case, and raises if an existing
+            # wrapped key cannot be decrypted (rather than silently opening
+            # the DB unencrypted).
             db_key = _derive_db_key()
             if db_key is not None:
                 conn.execute('PRAGMA key = "x\'{}\'"'.format(db_key.hex()))
@@ -293,7 +309,10 @@ def get_connection() -> sqlite3.Connection:
                 conn.execute(f"PRAGMA cipher_kdf_algorithm = {SQLCIPHER_CIPHER_KDF}")
                 logger.debug("SQLCipher encryption enabled for database")
             else:
-                logger.info("No DB key available — opening database without encryption")
+                logger.info(
+                    "No DB key yet (first run / pre-login) — opening without "
+                    "SQLCipher encryption"
+                )
 
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA foreign_keys=ON")

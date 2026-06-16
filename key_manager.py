@@ -175,7 +175,7 @@ class KeyStore:
                     expiry = float(row_expiry[0]) if row_expiry else 0.0
                     if time.time() < expiry:
                         self.legacy_priv = _pem_to_privkey(
-                            row_legacy[0].encode(), password.encode()
+                            row_legacy[0].encode(), _to_bytes(password)
                         )
                         logger.debug("Legacy RSA key loaded (expires in %.1f days)",
                                      (expiry - time.time()) / 86400)
@@ -365,21 +365,23 @@ class KeyStore:
         import base64 as _b64
         import secrets as _secrets
 
-        try:
-            _salt_row = conn.execute(
+        # NOTE: open a fresh connection here. The connection used above is
+        # already closed in the finally block, so reusing it silently failed
+        # and left the salt as None — meaning the storage key degenerated to
+        # HKDF(password, salt=None) on every run, defeating the salt.
+        with closing(database.get_connection()) as _salt_conn:
+            _salt_row = _salt_conn.execute(
                 "SELECT value FROM settings WHERE key='ratchet_hkdf_salt'"
             ).fetchone()
             if _salt_row:
                 _ratchet_salt = _b64.b64decode(_salt_row[0])
             else:
                 _ratchet_salt = _secrets.token_bytes(32)
-                conn.execute(
+                _salt_conn.execute(
                     "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                     ("ratchet_hkdf_salt", _b64.b64encode(_ratchet_salt).decode())
                 )
-                conn.commit()
-        except Exception:
-            _ratchet_salt = None
+                _salt_conn.commit()
 
         _hkdf = HKDF(
             algorithm=_hashes.SHA256(),
@@ -425,39 +427,53 @@ class KeyStore:
                 # TODO: This blocks the calling thread. If called from the GUI thread,
                 #       replace with a non-blocking timer / polling approach.
 
-            # --- Check master password first ---
+            # Load both verifiers up front so the DB access pattern is the
+            # same regardless of which password (if any) matches.
+            master_enc = None
+            duress_enc = None
             try:
                 conn = database.get_connection()
-                row = conn.execute(
+                row_master = conn.execute(
                     "SELECT value FROM settings WHERE key='global_secret'"
                 ).fetchone()
-                conn.close()
-                if row:
-                    enc_dict = json.loads(row[0])
-                    database.decrypt_secret(enc_dict, password)
-                    # Success: reset lockout state
-                    self._lockout.reset()
-                    self._duress_mode = False
-                    return True
-            except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
-                logger.debug("Master password verification failed: %s", e)
-
-            # --- Check duress password ---
-            try:
-                conn = database.get_connection()
-                row = conn.execute(
+                row_duress = conn.execute(
                     "SELECT value FROM settings WHERE key='duress_verifier'"
                 ).fetchone()
                 conn.close()
-                if row:
-                    duress_data = json.loads(row[0])
-                    database.decrypt_secret(duress_data, password)
-                    # Duress success: reset lockout but flag decoy mode
-                    self._lockout.reset()
-                    self._duress_mode = True
-                    return True
-            except (ValueError, TypeError, InvalidTag, sqlite3.Error) as e:
-                logger.debug("Duress password verification failed: %s", e)
+                if row_master:
+                    master_enc = json.loads(row_master[0])
+                if row_duress:
+                    duress_enc = json.loads(row_duress[0])
+            except (ValueError, TypeError, sqlite3.Error) as e:
+                logger.debug("Password verifier load failed: %s", e)
+
+            # Always attempt BOTH derivations (no early return) so that a
+            # duress login and a real login perform the same amount of work.
+            # Otherwise an adversary timing the unlock could distinguish the
+            # decoy password from the real one — defeating duress mode.
+            master_ok = False
+            duress_ok = False
+            if master_enc is not None:
+                try:
+                    database.decrypt_secret(master_enc, password)
+                    master_ok = True
+                except (ValueError, TypeError, InvalidTag) as e:
+                    logger.debug("Master password verification failed: %s", e)
+            if duress_enc is not None:
+                try:
+                    database.decrypt_secret(duress_enc, password)
+                    duress_ok = True
+                except (ValueError, TypeError, InvalidTag) as e:
+                    logger.debug("Duress password verification failed: %s", e)
+
+            if master_ok:
+                self._lockout.reset()
+                self._duress_mode = False
+                return True
+            if duress_ok:
+                self._lockout.reset()
+                self._duress_mode = True
+                return True
 
             # --- Failed attempt: escalate lockout ---
             self._lockout.record_failure()
@@ -483,10 +499,20 @@ class KeyStore:
         """
         dummy_secret = secrets.token_bytes(32)
         enc = database.encrypt_secret(dummy_secret, duress_password)
+        # Pre-generate the decoy RSA key now so that entering duress mode later
+        # *loads* a key (fast) like a real login, rather than generating one
+        # (slow). Generation latency at unlock time would be a timing tell that
+        # distinguishes a duress login from a real one.
+        decoy_priv = rsa.generate_private_key(65537, MIN_RSA_KEY_SIZE, default_backend())
+        decoy_pem = _privkey_to_encrypted_pem(decoy_priv, duress_password)
         with closing(database.get_connection()) as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
                 ("duress_verifier", json.dumps(enc))
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("duress_decoy_privkey", decoy_pem)
             )
             conn.commit()
         logger.info("Duress password configured")
@@ -965,6 +991,9 @@ class KeyStore:
         """
         with self._lock:
             conn = database.get_connection()
+            gs_plain = None
+            totp_plain = None
+            friend_plain = None
             try:
                 # --- 1. Verify old password ---
                 row = conn.execute(
@@ -1007,6 +1036,7 @@ class KeyStore:
                 # Process each friend: decrypt, re-encrypt, and store in
                 # GuardedBuffer without accumulating raw plaintext.
                 friend_updates = {}
+                friend_plain = None
                 for fname, sec_json in friend_rows:
                     if not sec_json:
                         continue
@@ -1095,6 +1125,19 @@ class KeyStore:
                 logger.error("change_password failed (rolled back): %s", e)
                 raise KeyStoreError(f"change_password failed: {e}") from e
             finally:
+                # Wipe plaintext secrets from memory
+                if gs_plain is not None:
+                    if isinstance(gs_plain, bytearray):
+                        gs_plain[:] = b'\x00' * len(gs_plain)
+                    del gs_plain
+                if totp_plain is not None:
+                    if isinstance(totp_plain, bytearray):
+                        totp_plain[:] = b'\x00' * len(totp_plain)
+                    del totp_plain
+                if friend_plain is not None:
+                    if isinstance(friend_plain, bytearray):
+                        friend_plain[:] = b'\x00' * len(friend_plain)
+                    del friend_plain
                 conn.close()
 
         return True
@@ -1275,11 +1318,15 @@ class KeyStore:
                 self._cached_pqc_bundle = None
             gc.collect()
 
-    def load_duress_decoy(self) -> bool:
+    def load_duress_decoy(self, password: Union[str, bytes, SecureString, None] = None) -> bool:
         """Load decoy/empty state for duress mode.
 
         Wipes all real keys and populates the store with empty/fake data
         so the application appears functional but contains no real information.
+
+        If ``password`` (the duress password) is supplied, the pre-generated
+        decoy RSA key stored at setup time is loaded so that entering duress
+        mode is as fast as a real login (no telltale keygen latency).
 
         Returns True on success.
         """
@@ -1287,15 +1334,46 @@ class KeyStore:
             # Wipe all real secrets first
             self.wipe()
 
-            # Generate a throwaway RSA key pair so the app doesn't crash
-            # when code paths expect my_pub/my_priv to exist
-            decoy_priv = rsa.generate_private_key(65537, MIN_RSA_KEY_SIZE, default_backend())
+            decoy_priv = None
+            if password is not None:
+                try:
+                    with closing(database.get_connection()) as conn:
+                        row = conn.execute(
+                            "SELECT value FROM settings WHERE key='duress_decoy_privkey'"
+                        ).fetchone()
+                    if row:
+                        decoy_priv = _pem_to_privkey(row[0].encode(), _to_bytes(password))
+                except Exception as e:
+                    logger.debug("Could not load stored decoy key: %s", e)
+                    decoy_priv = None
+
+            if decoy_priv is None:
+                # No stored decoy key (e.g. duress configured before this
+                # feature existed). Generate one, and persist it under the
+                # duress password if we have it so subsequent logins are fast.
+                decoy_priv = rsa.generate_private_key(65537, MIN_RSA_KEY_SIZE, default_backend())
+                if password is not None:
+                    try:
+                        decoy_pem = _privkey_to_encrypted_pem(decoy_priv, password)
+                        with closing(database.get_connection()) as conn:
+                            conn.execute(
+                                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                                ("duress_decoy_privkey", decoy_pem)
+                            )
+                            conn.commit()
+                    except Exception as e:
+                        logger.debug("Could not persist decoy key: %s", e)
+
             self.my_priv = decoy_priv
             self.my_pub = decoy_priv.public_key()
 
-            # Empty friends list (already cleared by wipe)
-            # Empty global secret replaced with random bytes so length checks pass
-            self.global_secret = bytearray(secrets.token_bytes(32))
+            # Empty friends list (already cleared by wipe).
+            # Empty global secret replaced with random bytes so length checks
+            # pass. Stored as a GuardedBuffer to match the real path — an
+            # unguarded bytearray here would itself be a duress tell.
+            gb = GuardedBuffer(32)
+            gb.write(secrets.token_bytes(32))
+            self.global_secret = gb
 
             self._duress_mode = True
             return True
