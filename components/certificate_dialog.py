@@ -1,5 +1,6 @@
+import json
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
@@ -282,6 +283,65 @@ class CertificateDialog:
             except Exception as e:
                 messagebox.showerror("Error", str(e), parent=dlg)
 
+        def do_export():
+            sel = cert_tree.selection()
+            if not sel:
+                messagebox.showwarning("No Selection",
+                                       "Please select a certificate to export.",
+                                       parent=dlg)
+                return
+            cert_id = sel[0]
+            try:
+                certs = self.trust_chain_service.get_all_certificates()
+                target = next((c for c in certs if c.cert_id == cert_id), None)
+                if not target:
+                    messagebox.showerror("Error", "Certificate not found.", parent=dlg)
+                    return
+                path = filedialog.asksaveasfilename(
+                    parent=dlg,
+                    title="Export Certificate",
+                    defaultextension=".json",
+                    filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+                )
+                if not path:
+                    return
+                with open(path, "w") as f:
+                    json.dump(target.to_dict(), f, indent=2)
+                messagebox.showinfo("Exported",
+                                    f"Certificate exported to:\n{path}",
+                                    parent=dlg)
+            except Exception as e:
+                messagebox.showerror("Export Error", str(e), parent=dlg)
+
+        def do_import():
+            path = filedialog.askopenfilename(
+                parent=dlg,
+                title="Import Certificate",
+                filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+            )
+            if not path:
+                return
+            try:
+                with open(path, "r") as f:
+                    data = json.load(f)
+                cert_dicts = data if isinstance(data, list) else [data]
+                count = self.trust_chain_service.import_received_certs(cert_dicts)
+                load_certificates()
+                messagebox.showinfo("Imported",
+                                    f"Imported {count} certificate(s).",
+                                    parent=dlg)
+                event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
+            except Exception as e:
+                messagebox.showerror("Import Error", str(e), parent=dlg)
+
+        ttk.Button(
+            btn_view_frame, text="Export",
+            command=do_export, bootstyle="info-outline",
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            btn_view_frame, text="Import",
+            command=do_import, bootstyle="info-outline",
+        ).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(
             btn_view_frame, text="Verify Certificate",
             command=do_verify, bootstyle="info-outline",

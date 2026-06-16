@@ -86,9 +86,9 @@ class TestTrustCertificateModel:
         """to_dict should base64-encode byte fields."""
         cert = _make_cert()
         d = cert.to_dict()
-        assert isinstance(d["subject_pub"], str)
-        assert isinstance(d["issuer_pub"], str)
-        assert isinstance(d["signature"], str)
+        assert isinstance(d["subject_pub_b64"], str)
+        assert isinstance(d["issuer_pub_b64"], str)
+        assert isinstance(d["signature_b64"], str)
 
     def test_from_dict_restores_enums(self):
         """from_dict should restore enum types correctly."""

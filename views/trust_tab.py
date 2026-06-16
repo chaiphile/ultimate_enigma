@@ -12,7 +12,7 @@ Publishes Events:
 import json
 import logging
 import tkinter as tk
-from tkinter import messagebox, simpledialog
+from tkinter import filedialog, messagebox, simpledialog
 
 logger = logging.getLogger(__name__)
 import ttkbootstrap as ttk
@@ -54,7 +54,9 @@ class TrustTab:
 
         btn_specs = [
             ("➕ Issue Certificate", self.issue_cert_dialog, "success"),
-            ("📥 Import Certificate", self.import_cert_dialog, "info"),
+            ("📥 Import (Paste)", self.import_cert_dialog, "info"),
+            ("📂 Import from File", self.import_cert_file_dialog, "info"),
+            ("📤 Export Bundle", self.export_cert_bundle_dialog, "info"),
             ("🔑 Split Recovery Key", self.split_key_dialog, "warning"),
             ("🔓 Recover Key", self.recover_key_dialog, "danger"),
             ("🔄 Refresh", self.refresh_list, "secondary-outline"),
@@ -362,6 +364,57 @@ class TrustTab:
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
 
+    def export_cert_bundle_dialog(self) -> None:
+        parent = self.frame.winfo_toplevel()
+        path = filedialog.asksaveasfilename(
+            parent=parent,
+            title="Export Trust Certificate Bundle",
+            defaultextension=".json",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            bundle = self.trust_service.export_trust_bundle()
+            with open(path, "w") as f:
+                json.dump(bundle, f, indent=2)
+            messagebox.showinfo(
+                "Exported",
+                f"Bundle exported to:\n{path}",
+                parent=parent,
+            )
+        except Exception as e:
+            messagebox.showerror("Export Error", str(e), parent=parent)
+
+    def import_cert_file_dialog(self) -> None:
+        parent = self.frame.winfo_toplevel()
+        path = filedialog.askopenfilename(
+            parent=parent,
+            title="Import Certificate Bundle",
+            filetypes=[("JSON files", "*.json"), ("All files", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            with open(path, "r") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "certificates" in data:
+                cert_dicts = data["certificates"]
+            elif isinstance(data, list):
+                cert_dicts = data
+            else:
+                cert_dicts = [data]
+            count = self.trust_service.import_received_certs(cert_dicts)
+            self.refresh_list()
+            messagebox.showinfo(
+                "Imported",
+                f"Imported {count} certificate(s) from file.",
+                parent=parent,
+            )
+            event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
+        except Exception as e:
+            messagebox.showerror("Import Error", str(e), parent=parent)
+
     def split_key_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
         try:
@@ -415,5 +468,5 @@ class TrustTab:
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-    def notify_trust_changed(self) -> None:
+    def notify_trust_changed(self, **kwargs) -> None:
         self.refresh_list()
