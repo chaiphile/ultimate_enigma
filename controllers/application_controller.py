@@ -28,6 +28,7 @@ class ApplicationController:
         self._ntp_thread = None
         self._hotkey_service = None
         self._is_running = False
+        self._queue_after_id = None
         self._service_orchestrator = None
 
         # Background crypto task queue for non-blocking encryption/decryption.
@@ -66,7 +67,7 @@ class ApplicationController:
                 task()
         except Empty:
             pass
-        self.root.after(100, self._process_queue)
+        self._queue_after_id = self.root.after(100, self._process_queue)
 
     def enqueue(self, func):
         """Thread-safe task submission."""
@@ -165,6 +166,14 @@ class ApplicationController:
     def shutdown(self):
         """Clean up all managed resources."""
         self._is_running = False
+
+        if self._queue_after_id is not None:
+            try:
+                self.root.after_cancel(self._queue_after_id)
+            except Exception as e:
+                logger.debug("Queue callback cancellation skipped: %s", e)
+            finally:
+                self._queue_after_id = None
 
         # Stop background agents first
         self.stop_agents()

@@ -20,6 +20,10 @@ from services.trust_chain_service import TrustChainService
 logger = logging.getLogger(__name__)
 
 
+class StartupCancelled(Exception):
+    """Raised when startup is intentionally aborted by the user."""
+
+
 class AppBuilder:
     """Composes an EnigmaApp through explicit, testable build steps."""
 
@@ -75,25 +79,35 @@ class AppBuilder:
     def step5_authenticate(self) -> bool:
         """Load keys, enforce mandatory TOTP, verify startup TOTP.
 
-        Returns False (and destroys root) if any auth step fails.
+        Returns False if any auth step fails.
         """
         if not self.auth_controller.load_keys(self.first_run):
-            self.root.destroy()
             return False
 
         self.ks = self.auth_controller.ks
 
         if not self.auth_controller.enforce_mandatory_totp_setup():
             self.ks.wipe()
-            self.root.destroy()
             return False
 
         if not self.auth_controller.verify_startup_totp():
             self.ks.wipe()
-            self.root.destroy()
             return False
 
         return True
+
+    def _cleanup_partial_startup(self) -> None:
+        """Stop resources created before authentication completed."""
+        if self.app_controller is not None:
+            try:
+                self.app_controller.shutdown()
+            except Exception as e:
+                logger.warning("Partial startup cleanup failed: %s", e)
+
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def step6_init_services(self) -> bool:
         """Create ServiceOrchestrator, TrustChainService, wire them together."""
@@ -129,7 +143,8 @@ class AppBuilder:
         ]
         for step in steps:
             if not step():
-                return None
+                self._cleanup_partial_startup()
+                raise StartupCancelled("Startup cancelled or authentication failed")
         return {
             "root": self.root,
             "ks": self.ks,

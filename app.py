@@ -27,7 +27,7 @@ from controllers.auth_controller import AuthController
 from controllers.service_orchestrator import ServiceOrchestrator
 from services.event_bus import event_bus, Events
 from services.totp_persistence import TotpPersistence
-from builders.app_builder import AppBuilder
+from builders.app_builder import AppBuilder, StartupCancelled
 from views.utils import friendly_error
 
 logger = logging.getLogger(__name__)
@@ -45,8 +45,9 @@ class EnigmaApp:
         builder = AppBuilder(root)
         try:
             built = builder.build()
-            if built is None:
-                raise RuntimeError("AppBuilder.build() returned None")
+        except StartupCancelled:
+            logger.info("Startup cancelled before application initialization completed")
+            return
         except Exception as e:
             logger.exception("Application build failed; aborting startup")
             messagebox.showerror(

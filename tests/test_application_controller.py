@@ -19,7 +19,8 @@ from controllers.application_controller import ApplicationController
 @pytest.fixture
 def mock_root():
     root = MagicMock()
-    root.after = MagicMock(side_effect=lambda ms, cb: cb() if ms == 0 else None)
+    root.after = MagicMock(side_effect=lambda ms, cb: cb() if ms == 0 else "after-id")
+    root.after_cancel = MagicMock()
     return root
 
 
@@ -97,6 +98,12 @@ class TestShutdown:
         controller.shutdown()
         mock_crypto_queue.drain.assert_called_once_with(timeout=5.0)
         mock_crypto_queue.shutdown.assert_called_once_with(wait=False)
+
+    def test_shutdown_cancels_queue_callback(self, controller, mock_root):
+        """shutdown cancels the scheduled queue processor callback."""
+        controller.start_queue_processing()
+        controller.shutdown()
+        mock_root.after_cancel.assert_called_once_with("after-id")
 
     def test_shutdown_with_no_crypto_queue(self, mock_root):
         """shutdown handles None crypto_queue gracefully."""
@@ -236,3 +243,4 @@ class TestProcessQueue:
         controller._is_running = True
         controller._process_queue()
         mock_root.after.assert_called_with(100, controller._process_queue)
+        assert controller._queue_after_id == "after-id"
