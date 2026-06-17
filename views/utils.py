@@ -135,7 +135,7 @@ def run_busy(widget, work, on_done=None, on_error=None, busy_widgets=None) -> No
         except Exception as exc:  # noqa: BLE001 - surfaced to the user
             logger.exception("Background operation failed")
 
-            def _fail():
+            def _fail(exc=exc):
                 _restore()
                 if on_error:
                     on_error(exc)

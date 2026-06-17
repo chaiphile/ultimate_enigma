@@ -641,7 +641,7 @@ class KeyStore:
                 if s is None:
                     return None
                 if isinstance(s, GuardedBuffer):
-                    return s.read()
+                    return bytes(s.read())
                 return bytes(s)
         return None
 
