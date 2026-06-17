@@ -986,13 +986,13 @@ class KeyStore:
             secrets_to_try = []
             if self.global_secret is not None:
                 if isinstance(self.global_secret, GuardedBuffer):
-                    secrets_to_try.append(self.global_secret.read())
+                    secrets_to_try.append(bytes(self.global_secret.read()))
                 else:
                     secrets_to_try.append(bytes(self.global_secret))
             for _, _, sec in self.friends:
                 if sec is not None:
                     if isinstance(sec, GuardedBuffer):
-                        secrets_to_try.append(sec.read())
+                        secrets_to_try.append(bytes(sec.read()))
                     else:
                         secrets_to_try.append(bytes(sec))
             return my_priv, friends_for_crypto, secrets_to_try, legacy_priv

@@ -50,7 +50,7 @@ def submit_crypto_task(
                     task_queue.put(lambda r=result: on_success(r))
             except Exception as exc:
                 logger.exception("Crypto operation failed")
-                def _show_error():
+                def _show_error(exc=exc):
                     if error_dialog is not None:
                         error_dialog(exc)
                     elif error_map and type(exc) in error_map:

@@ -70,9 +70,9 @@ class FileService:
             return
 
         if method == "global":
-            secret = self._ks.global_secret
-            if not secret:
+            if not self._ks.global_secret:
                 raise FileServiceError("No global shared secret available")
+            secret = bytes(self._ks.global_secret)
         elif method == "friend":
             if not friend_name:
                 raise FileServiceError("Friend name required")
@@ -205,12 +205,14 @@ class FileService:
 
         secrets_dict = {}
         if self._ks.global_secret:
-            fp = hashlib.sha256(self._ks.global_secret).digest()[:16]
-            secrets_dict[fp] = (self._ks.global_secret, "Global")
+            gs = bytes(self._ks.global_secret)
+            fp = hashlib.sha256(gs).digest()[:16]
+            secrets_dict[fp] = (gs, "Global")
         for name, pub, sec in self._ks.friends:
             if sec:
-                fp = hashlib.sha256(sec).digest()[:16]
-                secrets_dict[fp] = (sec, name)
+                sb = bytes(sec)
+                fp = hashlib.sha256(sb).digest()[:16]
+                secrets_dict[fp] = (sb, name)
 
         self._cached_fingerprints = secrets_dict
         return secrets_dict
