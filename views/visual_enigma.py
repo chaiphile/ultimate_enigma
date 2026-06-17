@@ -27,4 +27,4 @@ class VisualEnigma:
                 x = cx + (r - 5) * math.cos(angle)
                 y = cy - (r - 5) * math.sin(angle)
                 canvas.create_text(x, y, text=ALPHABET_LIST[j],
-                                   fill=self.rotor_colors[i], font=("Consolas", 6))
+                                   fill=self.rotor_colors[i], font=("TkFixedFont", 8))

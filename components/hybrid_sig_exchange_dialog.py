@@ -5,6 +5,7 @@ from ttkbootstrap.constants import *
 
 from services.friends import FriendsService, FriendsServiceError
 from views.dialogs import password_dialog
+from views.utils import init_modal, run_busy, friendly_error, flash_widget_text
 
 
 class HybridSigExchangeDialog:
@@ -40,6 +41,8 @@ class HybridSigExchangeDialog:
         dlg.transient(self.parent)
         dlg.grab_set()
         dlg.configure(bg=self.bg)
+
+        init_modal(dlg, self.parent)
 
         notebook = ttk.Notebook(dlg, bootstyle="success")
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 5))
@@ -92,9 +95,7 @@ class HybridSigExchangeDialog:
             if content and not content.startswith("("):
                 self.parent.clipboard_clear()
                 self.parent.clipboard_append(content)
-                messagebox.showinfo("Copied",
-                                    "Hybrid signing combined public key copied to clipboard.",
-                                    parent=dlg)
+                flash_widget_text(my_pub_text, "✓ Copied", my_pub_text.cget("state"))
 
         def generate_hybrid_sig():
             pw = password_dialog(dlg,
@@ -106,8 +107,11 @@ class HybridSigExchangeDialog:
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
-            try:
-                pub_b64 = self.friends_service.generate_hybrid_sig_keys(pw)
+
+            def do_generate():
+                return self.friends_service.generate_hybrid_sig_keys(pw)
+
+            def on_done(pub_b64):
                 load_my_hybrid_sig()
                 messagebox.showinfo(
                     "Success",
@@ -116,8 +120,12 @@ class HybridSigExchangeDialog:
                     "verify your post-quantum secure signatures.",
                     parent=dlg
                 )
-            except FriendsServiceError as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+
+            def on_error(exc):
+                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
+
+            run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
+                     busy_widgets=[dlg])
 
         def export_certs_with_key():
             """Copy public key AND pending certificates to clipboard."""
@@ -133,7 +141,7 @@ class HybridSigExchangeDialog:
                 # Just copy the key
                 self.parent.clipboard_clear()
                 self.parent.clipboard_append(content)
-                messagebox.showinfo("Copied", "No pending certificates. Public key copied.", parent=dlg)
+                flash_widget_text(my_pub_text, "✓ Copied", my_pub_text.cget("state"))
                 return
             import json
             bundle = {
@@ -143,10 +151,7 @@ class HybridSigExchangeDialog:
             bundle_b64 = __import__('base64').b64encode(json.dumps(bundle).encode()).decode()
             self.parent.clipboard_clear()
             self.parent.clipboard_append(bundle_b64)
-            messagebox.showinfo("Copied",
-                f"Public key + {len(pending)} certificate(s) copied to clipboard.\n\n"
-                "Share this with friends to propagate trust.",
-                parent=dlg)
+            flash_widget_text(my_pub_text, f"✓ Copied (+{len(pending)} certs)", my_pub_text.cget("state"))
 
         ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
                    bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
@@ -199,7 +204,9 @@ class HybridSigExchangeDialog:
 
         ttk.Separator(tab_import, orient='horizontal').pack(fill=tk.X, pady=8)
 
-        ttk.Label(tab_import, text="Or paste a key bundle (public key + certificates):",
+        ttk.Label(tab_import, text="Or paste the full bundle, or just the key above:",
+                  font=("Segoe UI", 9, "italic")).pack(anchor="w", pady=(8, 4))
+        ttk.Label(tab_import, text="Key Bundle (public key + certificates, optional):",
                   font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(0, 4))
         bundle_text = ttk.ScrolledText(tab_import, height=3, wrap=tk.WORD,
                                         font=("Consolas", 9))
@@ -235,7 +242,7 @@ class HybridSigExchangeDialog:
                         else:
                             bundle_status_var.set(f"✅ Imported {count} certificate(s)")
                 except Exception as e:
-                    messagebox.showerror("Invalid Bundle", f"Could not parse key bundle: {e}", parent=dlg)
+                    messagebox.showerror("Invalid Bundle", friendly_error(e), parent=dlg)
                     return
 
             if not fname:
@@ -247,7 +254,7 @@ class HybridSigExchangeDialog:
                                        "Please paste the hybrid signing combined public key.",
                                        parent=dlg)
                 return
-            # ... rest of existing import logic stays the same
+
             pw = ""
             secret = self.friends_service.get_friend_secret(fname)
             if secret:
@@ -277,7 +284,7 @@ class HybridSigExchangeDialog:
                                     "both Ed25519 and Dilithium3.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("Import Failed", str(e), parent=dlg)
+                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_import, text="💾 Import & Save Signing Key",
                    command=do_import_hybrid_sig_key, bootstyle="success").pack(anchor="w")

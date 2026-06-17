@@ -44,6 +44,13 @@ class LockScreen:
         self._overlay = tk.Frame(self.root, bg="#0d0d0d")
         self._overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._overlay.lift()
+        # Make the overlay genuinely modal so clicks/keys can't reach widgets
+        # behind it. The grab is released right before the unlock callback runs
+        # (which itself opens a grab_set password dialog) - see _handle_unlock_request.
+        try:
+            self._overlay.grab_set()
+        except Exception:
+            logger.debug("Lock overlay grab_set failed", exc_info=True)
         # Don't use focus_force() - it can interfere with modal dialogs
 
         # Center content
@@ -69,9 +76,10 @@ class LockScreen:
         ).pack(pady=(5, 20))
 
         # Info
-        hotkey_line = ""
-        if sys.platform == "win32":
-            hotkey_line = "or use the hotkey Ctrl+Shift+U to unlock.\n"
+        # Show a platform-appropriate unlock-hotkey hint on every platform so
+        # non-Windows users aren't left with a button and no explanation.
+        modifier = "Cmd" if sys.platform == "darwin" else "Ctrl"
+        hotkey_line = f"or use the hotkey {modifier}+Shift+U to unlock.\n"
         tk.Label(
             center, text="All keys have been wiped from memory.\n"
                          "Press the button below to unlock.\n"
@@ -122,20 +130,51 @@ class LockScreen:
         # Prevent tab focus escape
         self._overlay.bind("<Tab>", lambda e: "break")
 
+        # Escape must never silently dismiss the lock.
+        self._overlay.bind("<Escape>", lambda e: "break")
+
         logger.info("Lock screen activated")
 
     def _handle_unlock_request(self) -> None:
-        """Publish unlock event and invoke the registered callback."""
+        """Publish unlock event and invoke the registered callback.
+
+        The overlay grab is released first so the downstream password/TOTP dialog
+        (which calls grab_set itself) isn't blocked by a conflicting grab. If the
+        unlock fails, the overlay frame is still present and on top; it is fully
+        re-grabbed on the next lock(). For an active-but-failed unlock we re-grab
+        below so the screen stays modal.
+        """
+        self._release_grab()
         self._on_unlock_request()
+        # If unlock didn't tear the overlay down (failed/cancelled), restore the grab.
+        if self._overlay is not None:
+            try:
+                self._overlay.grab_set()
+            except Exception:
+                logger.debug("Lock overlay re-grab failed", exc_info=True)
+
+    def _release_grab(self) -> None:
+        if self._overlay is not None:
+            try:
+                self._overlay.grab_release()
+            except Exception:
+                logger.debug("Lock overlay grab_release failed", exc_info=True)
 
     def _handle_recovery_request(self) -> None:
         """Invoke the recovery callback if registered."""
         if self._on_recovery_request is not None:
+            self._release_grab()
             self._on_recovery_request()
+            if self._overlay is not None:
+                try:
+                    self._overlay.grab_set()
+                except Exception:
+                    logger.debug("Lock overlay re-grab failed", exc_info=True)
 
     def unlock(self) -> None:
         """Remove the lock overlay."""
         if self._overlay is not None:
+            self._release_grab()
             self._overlay.destroy()
             self._overlay = None
             self.root.focus_force()

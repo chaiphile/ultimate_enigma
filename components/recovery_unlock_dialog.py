@@ -7,12 +7,16 @@ has forgotten their password and wants to recover using Shamir shares.
 
 import base64
 import json
+import logging
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 
 from services.shamir_service import ShamirService
 from views.dialogs import password_dialog
+from views.utils import init_modal, run_busy, friendly_error
+
+logger = logging.getLogger(__name__)
 
 _SHARE_FILE_EXT = ".enigma-share"
 _SHARE_FILE_TYPE = [("Enigma Share", "*.enigma-share"), ("All files", "*.*")]
@@ -39,8 +43,6 @@ class RecoveryUnlockDialog:
         dlg.geometry("700x600")
         dlg.resizable(True, True)
         dlg.minsize(600, 500)
-        dlg.transient(self.parent)
-        dlg.grab_set()
 
         notebook = ttk.Notebook(dlg, bootstyle="warning")
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 5))
@@ -56,6 +58,8 @@ class RecoveryUnlockDialog:
 
         ttk.Button(dlg, text="Cancel", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))
+
+        init_modal(dlg, self.parent)
 
         self.parent.wait_window(dlg)
 
@@ -147,17 +151,34 @@ class RecoveryUnlockDialog:
                                          "No encrypted share found in file.",
                                          parent=dlg)
                     return
-                # For recovery, the share may not be RSA-encrypted to us
-                # (we may not have keys loaded). Try to use the raw value.
-                try:
-                    enc_bytes = base64.b64decode(enc_b64)
-                    # Try RSA decryption (will fail if keys not loaded)
-                    from key_manager import KeyStore
-                    ks = KeyStore()
-                    plain_bytes = ks.decrypt_share(enc_bytes) if hasattr(ks, 'decrypt_share') else enc_bytes
-                except Exception:
-                    # If decryption fails, use the raw base64 value
-                    plain_bytes = base64.b64decode(enc_b64)
+                enc_bytes = base64.b64decode(enc_b64)
+
+                # The share file is RSA-encrypted to the owner. If we have a
+                # KeyStore with decryption capability, decrypt it; a failure
+                # there is a real error and must NOT be silently treated as a
+                # plaintext share. Only when no decryption capability exists at
+                # all (keys not loaded during recovery) do we accept the value
+                # as an already-plaintext share.
+                from key_manager import KeyStore
+                ks = KeyStore()
+                if hasattr(ks, "decrypt_share"):
+                    try:
+                        plain_bytes = ks.decrypt_share(enc_bytes)
+                    except Exception as dec_err:
+                        logger.exception("Share decryption failed")
+                        messagebox.showerror(
+                            "Decryption Failed",
+                            "Could not decrypt this share with your RSA private "
+                            "key.\n\n" + friendly_error(dec_err) + "\n\n"
+                            "Make sure this share file was created for you.",
+                            parent=dlg,
+                        )
+                        return
+                else:
+                    # No decryption capability: the share is expected to
+                    # already be a plaintext recovery share.
+                    plain_bytes = enc_bytes
+
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
@@ -167,8 +188,10 @@ class RecoveryUnlockDialog:
                     parent=dlg,
                 )
             except Exception as e:
+                logger.exception("Failed to import share file")
                 messagebox.showerror("Import Failed",
-                                     f"Failed to import share file:\n{e}", parent=dlg)
+                                     "Failed to import share file.\n\n"
+                                     + friendly_error(e), parent=dlg)
 
         ttk.Button(btn_row, text="Import .enigma-share File",
                    command=import_share_file,
@@ -198,16 +221,24 @@ class RecoveryUnlockDialog:
                 for share_idx, b64_str in raw_shares:
                     share_bytes = base64.b64decode(b64_str)
                     parsed.append((share_idx, share_bytes))
+            except Exception as e:
+                logger.exception("Invalid share encoding")
+                messagebox.showerror("Invalid Shares",
+                                     friendly_error(e), parent=dlg)
+                return
 
-                if len(set(len(s[1]) for s in parsed)) != 1:
-                    messagebox.showerror("Invalid Shares",
-                                         "All shares must have the same length.",
-                                         parent=dlg)
-                    return
+            if len(set(len(s[1]) for s in parsed)) != 1:
+                messagebox.showerror("Invalid Shares",
+                                     "All shares must have the same length.",
+                                     parent=dlg)
+                return
 
-                expected_len = len(parsed[0][1])
-                reconstructed = self.shamir_service.reconstruct_secret(parsed, expected_len)
+            expected_len = len(parsed[0][1])
 
+            def _work():
+                return self.shamir_service.reconstruct_secret(parsed, expected_len)
+
+            def _done(reconstructed):
                 full_b64 = base64.b64encode(reconstructed).decode("ascii")
                 masked = full_b64[:8] + "●" * (len(full_b64) - 8)
 
@@ -219,23 +250,26 @@ class RecoveryUnlockDialog:
 
                 self._reconstructed_state["key_bytes"] = reconstructed
 
-                # Enable the "Set New Password" tab
+                # Auto-switch to the "Set New Password" tab
                 notebook = dlg.winfo_children()[0]
                 if isinstance(notebook, ttk.Notebook):
-                    # Auto-switch to password tab
                     for tab in notebook.tabs():
                         if notebook.tab(tab, "text").strip() == "Set New Password":
                             notebook.select(tab)
                             break
 
-            except Exception as e:
+            def _err(e):
                 messagebox.showerror("Reconstruction Failed",
-                                     f"Failed to reconstruct key:\n{e}", parent=dlg)
+                                     friendly_error(e), parent=dlg)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[reconstruct_btn])
 
         ttk.Label(parent, textvariable=self._result_var,
                   font=("Segoe UI", 9), bootstyle="success").pack(anchor="w", pady=(0, 8))
-        ttk.Button(parent, text="Reconstruct Key", command=do_reconstruct,
-                   bootstyle="warning").pack(anchor="w")
+        reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
+                                     command=do_reconstruct, bootstyle="warning")
+        reconstruct_btn.pack(anchor="w")
 
     def _build_set_password_tab(self, parent, dlg):
         ttk.Label(
@@ -320,13 +354,22 @@ class RecoveryUnlockDialog:
             if not confirm:
                 return
 
-            try:
-                dlg.destroy()
-                self.on_recovered(new_pw)
-            except Exception as e:
-                messagebox.showerror("Recovery Failed",
-                                     f"Failed to complete recovery:\n{e}",
-                                     parent=self.parent)
+            def _work():
+                # Heavy key-regeneration runs off-thread with the dialog
+                # still visible and busy. NO UI calls in here.
+                return self.on_recovered(new_pw)
 
-        ttk.Button(parent, text="Apply Recovery & Set New Password",
-                   command=apply_recovery, bootstyle="danger").pack(anchor="w")
+            def _done(_result):
+                dlg.destroy()
+
+            def _err(e):
+                logger.exception("Recovery failed")
+                messagebox.showerror("Recovery Failed",
+                                     friendly_error(e), parent=dlg)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[apply_btn])
+
+        apply_btn = ttk.Button(parent, text="Apply Recovery & Set New Password",
+                               command=apply_recovery, bootstyle="danger")
+        apply_btn.pack(anchor="w")

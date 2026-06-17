@@ -6,6 +6,7 @@ import base64
 
 from services.friends import FriendsService, FriendsServiceError
 from views.dialogs import password_dialog
+from views.utils import init_modal, run_busy, friendly_error, flash_widget_text
 
 
 class PqcExchangeDialog:
@@ -40,6 +41,8 @@ class PqcExchangeDialog:
         dlg.transient(self.parent)
         dlg.grab_set()
         dlg.configure(bg=self.bg)
+
+        init_modal(dlg, self.parent)
 
         notebook = ttk.Notebook(dlg, bootstyle="primary")
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=(10, 5))
@@ -79,8 +82,7 @@ class PqcExchangeDialog:
             if content and not content.startswith("("):
                 self.parent.clipboard_clear()
                 self.parent.clipboard_append(content)
-                messagebox.showinfo("Copied", "PQC combined public key copied to clipboard.",
-                                    parent=dlg)
+                flash_widget_text(my_pub_text, "✓ Copied", my_pub_text.cget("state"))
 
         def generate_pqc():
             pw = password_dialog(dlg, "Enter Master Password to generate PQC keys",
@@ -91,8 +93,11 @@ class PqcExchangeDialog:
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
-            try:
-                pub_b64 = self.friends_service.generate_pqc_keys(pw)
+
+            def do_generate():
+                return self.friends_service.generate_pqc_keys(pw)
+
+            def on_done(pub_b64):
                 load_my_pqc()
                 messagebox.showinfo(
                     "Success",
@@ -101,8 +106,12 @@ class PqcExchangeDialog:
                     "quantum-resistant key exchange.",
                     parent=dlg
                 )
-            except FriendsServiceError as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+
+            def on_error(exc):
+                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
+
+            run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
+                     busy_widgets=[dlg])
 
         ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
                    bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
@@ -139,8 +148,12 @@ class PqcExchangeDialog:
                 messagebox.showwarning("No Selection", "Please select a friend.",
                                        parent=dlg)
                 return
-            try:
-                ct_b64, shared_secret = self.friends_service.pqc_encapsulate(fname, "")
+
+            def do_work():
+                return self.friends_service.pqc_encapsulate(fname, "")
+
+            def on_done(result):
+                ct_b64, shared_secret = result
                 encap_result_text.config(state='normal')
                 encap_result_text.delete('1.0', tk.END)
                 encap_result_text.insert('1.0',
@@ -165,8 +178,12 @@ class PqcExchangeDialog:
                     encap_status_var.set(
                         f"✅ Shared secret saved for '{fname}' AND ciphertext ready to send."
                     )
-            except FriendsServiceError as e:
-                messagebox.showerror("Encapsulation Failed", str(e), parent=dlg)
+
+            def on_error(exc):
+                messagebox.showerror("Encapsulation Failed", friendly_error(exc), parent=dlg)
+
+            run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
+                     busy_widgets=[dlg])
 
         def copy_encap_result():
             content = encap_result_text.get('1.0', tk.END).strip()
@@ -184,8 +201,7 @@ class PqcExchangeDialog:
                 if ct_line:
                     self.parent.clipboard_clear()
                     self.parent.clipboard_append(ct_line)
-                    messagebox.showinfo("Copied", "Ciphertext copied to clipboard.",
-                                        parent=dlg)
+                    flash_widget_text(encap_result_text, "✓ Copied", encap_result_text.cget("state"))
 
         encap_btn_row = ttk.Frame(tab_encap)
         encap_btn_row.pack(fill=tk.X)
@@ -225,8 +241,11 @@ class PqcExchangeDialog:
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
-            try:
-                shared_secret = self.friends_service.pqc_decapsulate(ct_b64, pw)
+
+            def do_work():
+                return self.friends_service.pqc_decapsulate(ct_b64, pw)
+
+            def on_done(shared_secret):
                 ss_b64 = base64.b64encode(shared_secret).decode()
                 fp = base64.b64encode(shared_secret[:8]).decode()
                 decap_result_var.set(
@@ -255,8 +274,12 @@ class PqcExchangeDialog:
                             f"✅ Shared secret recovered AND saved for '{save_for}'!\n"
                             f"Fingerprint: {fp}"
                         )
-            except FriendsServiceError as e:
-                messagebox.showerror("Decapsulation Failed", str(e), parent=dlg)
+
+            def on_error(exc):
+                messagebox.showerror("Decapsulation Failed", friendly_error(exc), parent=dlg)
+
+            run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
+                     busy_widgets=[dlg])
 
         ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
                    command=do_decapsulate, bootstyle="info").pack(anchor="w")
@@ -305,7 +328,7 @@ class PqcExchangeDialog:
                     raise ValueError("Too short")
             except Exception as e:
                 messagebox.showerror("Invalid Key",
-                                     f"Invalid PQC combined public key: {e}",
+                                     friendly_error(e),
                                      parent=dlg)
                 return
             try:
@@ -335,7 +358,7 @@ class PqcExchangeDialog:
                                     f"PQC combined public key saved for '{fname}'.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("Import Failed", str(e), parent=dlg)
+                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_import, text="💾 Import & Save PQC Key",
                    command=do_import_pqc_key, bootstyle="info").pack(anchor="w")

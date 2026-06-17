@@ -20,6 +20,7 @@ from ttkbootstrap.dialogs import Messagebox
 
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
+from views.utils import init_modal, friendly_error
 
 
 class TrustTab:
@@ -48,6 +49,7 @@ class TrustTab:
 
         self.all_friend_names = []
         self._tooltips = {}
+        self._trust_cache = {}  # name -> trust_info, refreshed once per refresh_list
         self._build_ui()
         event_bus.subscribe(Events.TRUST_LEVEL_CHANGED, self.notify_trust_changed)
 
@@ -105,10 +107,18 @@ class TrustTab:
             self.tree.column(col_id, width=cfg["width"], anchor=cfg["anchor"],
                              minwidth=50)
 
-        self.tree.tag_configure("has_certs", background="#d4edda", foreground="#155724")
-        self.tree.tag_configure("no_certs", background="#ffffff", foreground="#212529")
-        self.tree.tag_configure("even_row", background="#f0f2f5", foreground="#212529")
-        self.tree.tag_configure("odd_row", background="#ffffff", foreground="#212529")
+        # Theme-derived row colors so dark themes aren't broken. Textual status
+        # stays the primary signal so meaning isn't color-only.
+        style = ttk.Style()
+        colors = style.colors
+        self.tree.tag_configure("has_certs", background=colors.success,
+                                foreground=colors.selectfg)
+        self.tree.tag_configure("no_certs", background=colors.bg,
+                                foreground=colors.fg)
+        self.tree.tag_configure("even_row", background=colors.bg,
+                                foreground=colors.fg)
+        self.tree.tag_configure("odd_row", background=colors.inputbg,
+                                foreground=colors.fg)
 
         vsb = ttk.Scrollbar(list_frame, orient="vertical",
                             command=self.tree.yview)
@@ -118,6 +128,12 @@ class TrustTab:
         vsb.grid(row=0, column=1, sticky="ns")
         list_frame.grid_rowconfigure(0, weight=1)
         list_frame.grid_columnconfigure(0, weight=1)
+
+        # Empty-state placeholder shown over the table when there are no rows.
+        self._empty_label = ttk.Label(
+            list_frame, text="", font=("Segoe UI", 11),
+            bootstyle="secondary", anchor="center", justify="center",
+        )
 
         self.tree.bind('<<TreeviewSelect>>', self.on_select)
         self.tree.bind('<Button-3>', self._show_context_menu)
@@ -178,10 +194,43 @@ class TrustTab:
         self.refresh_list()
 
     def refresh_list(self) -> None:
-        self.all_friend_names = [
-            friend["name"] for friend in self.friends_service.get_all_friends()
-        ]
+        friends = self.friends_service.get_all_friends()
+        self.all_friend_names = [friend["name"] for friend in friends]
+        # Load trust info once per refresh so per-keystroke filtering doesn't
+        # hammer the DB.
+        self._trust_cache = {}
+        for name in self.all_friend_names:
+            info = dict(self.trust_service.get_trust_info(name))
+            # Determine raw cert states so we can distinguish "no certs yet"
+            # from "all certs revoked/expired" and render distinct text.
+            raw_certs = self.trust_service.get_certs_for_friend(name)
+            info["_raw_cert_count"] = len(raw_certs)
+            info["_has_revoked"] = any(c.revoked for c in raw_certs)
+            info["_has_expired"] = any(
+                (not c.revoked and c.is_expired()) for c in raw_certs
+            )
+            self._trust_cache[name] = info
         self.filter_list()
+
+    _TRUST_MAP = {
+        "trusted": "Trusted",
+        "partially_trusted": "Partial",
+        "untrusted": "Untrusted",
+        "unknown": "Unknown",
+    }
+
+    def _status_text(self, trust_info) -> str:
+        """Render a distinct TEXT status, including expired/revoked states."""
+        cert_count = trust_info.get("certificate_count", 0)
+        badge = trust_info.get("badge", "⚪")
+        if cert_count == 0:
+            if trust_info.get("_has_revoked"):
+                return "🚫 Revoked"
+            if trust_info.get("_has_expired"):
+                return "⌛ Expired"
+        trust_level = trust_info.get("trust_level", "untrusted")
+        trust_text = self._TRUST_MAP.get(trust_level, trust_level.title())
+        return f"{badge} {trust_text}"
 
     def filter_list(self) -> None:
         query = self.search_var.get().lower()
@@ -191,27 +240,18 @@ class TrustTab:
             self.tree.delete(item)
 
         row_idx = 0
-        for friend in self.friends_service.get_all_friends():
-            name = friend["name"]
+        for name in self.all_friend_names:
             if query and query not in name.lower():
                 continue
 
-            trust_info = self.trust_service.get_trust_info(name)
+            trust_info = self._trust_cache.get(name, {})
             trust_level = trust_info.get("trust_level", "untrusted")
             cert_count = trust_info.get("certificate_count", 0)
             last_cert = trust_info.get("last_certificate_date", "—")
             nearest_expiry = trust_info.get("nearest_expiry", "—")
-            badge = trust_info.get("badge", "⚪")
 
-            trust_map = {
-                "trusted": "Trusted",
-                "partially_trusted": "Partial",
-                "untrusted": "Untrusted",
-                "unknown": "Unknown",
-            }
-            trust_text = trust_map.get(trust_level, trust_level.title())
-
-            status_text = f"{badge} {trust_text}"
+            trust_text = self._TRUST_MAP.get(trust_level, trust_level.title())
+            status_text = self._status_text(trust_info)
             has_certs = cert_count > 0
 
             tags = []
@@ -234,19 +274,34 @@ class TrustTab:
             row_idx += 1
 
         count = len(self.tree.get_children())
+        self._update_empty_state(count, query)
         self.status_var.set(f"{count} friend(s) listed" +
                             (f" • Filtered by \"{query}\"" if query else ""))
 
-    def _on_motion(self, event) -> None:
-        region = self.tree.identify_region(event.x, event.y)
-        if region not in ("cell", "heading"):
+    def _update_empty_state(self, count: int, query: str) -> None:
+        """Show a placeholder distinguishing no-friends / no-certs / no-matches."""
+        if count > 0:
+            self._empty_label.place_forget()
             return
-        iid = self.tree.identify_row(event.y)
-        if not iid or iid not in self._tooltips:
-            return
+        if not self.all_friend_names:
+            text = "No friends yet — add friends to manage their trust certificates."
+        elif query:
+            text = "No matches for your search."
+        elif any(
+            info.get("certificate_count", 0) > 0
+            for info in self._trust_cache.values()
+        ):
+            text = "No matches for your search."
+        else:
+            text = ("No certificates yet — use 🎛 Certificate Control Panel "
+                    "to issue or import a certificate.")
+        self._empty_label.config(text=text)
+        self._empty_label.place(relx=0.5, rely=0.5, anchor="center")
 
-        data = self._tooltips[iid]
-        self.status_var.set(f"{data['name']} | Trust: {data['trust_level']} | Certs: {data['cert_count']}")
+    def _on_motion(self, event) -> None:
+        # Intentionally a no-op: previously this overwrote the shared status var
+        # on every mouse move, clobbering selection/action status.
+        return
 
     def _show_context_menu(self, event) -> None:
         iid = self.tree.identify_row(event.y)
@@ -315,10 +370,9 @@ class TrustTab:
         parent = self.frame.winfo_toplevel()
         dlg = tk.Toplevel(parent)
         dlg.title("Import Certificate")
-        dlg.geometry("520x380")
-        dlg.resizable(False, False)
-        dlg.transient(parent)
-        dlg.grab_set()
+        dlg.geometry("560x480")
+        dlg.resizable(True, True)
+        dlg.minsize(480, 360)
         dlg.configure(bg=self._bg)
 
         form = ttk.Frame(dlg, padding=20)
@@ -327,7 +381,7 @@ class TrustTab:
         ttk.Label(form, text="Paste Certificate Bundle (PEM or Base64):",
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
 
-        cert_input = ttk.ScrolledText(form, height=12, wrap=tk.WORD,
+        cert_input = ttk.ScrolledText(form, height=16, wrap=tk.WORD,
                                       font=("Consolas", 9))
         cert_input.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
@@ -374,12 +428,14 @@ class TrustTab:
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
 
             except Exception as e:
-                messagebox.showerror("Import Failed", str(e), parent=dlg)
+                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
 
         ttk.Button(btn_frame, text="📥 Import", command=do_import,
                    bootstyle="info").pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+
+        init_modal(dlg, parent, focus_widget=cert_input)
 
     def export_cert_bundle_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -401,7 +457,7 @@ class TrustTab:
                 parent=parent,
             )
         except Exception as e:
-            messagebox.showerror("Export Error", str(e), parent=parent)
+            messagebox.showerror("Export Error", friendly_error(e), parent=parent)
 
     def import_cert_file_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -442,7 +498,7 @@ class TrustTab:
                 )
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
         except Exception as e:
-            messagebox.showerror("Import Error", str(e), parent=parent)
+            messagebox.showerror("Import Error", friendly_error(e), parent=parent)
 
     def split_key_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -483,21 +539,79 @@ class TrustTab:
         if not valid_certs:
             messagebox.showinfo("No Certificates", f"No valid certificates found for '{name}'.")
             return
+
+        if len(valid_certs) == 1:
+            cert = valid_certs[0]
+        else:
+            cert = self._choose_cert_dialog(name, valid_certs)
+            if cert is None:
+                return
+
         if not messagebox.askyesno(
             "Revoke Certificate",
-            f"Are you sure you want to revoke the certificate for '{name}'?\n\n"
+            f"Are you sure you want to revoke this certificate for '{name}'?\n\n"
+            f"{self._cert_summary(cert)}\n\n"
             "This action cannot be undone."
         ):
             return
         try:
-            self.trust_service.revoke_certificate(valid_certs[0].cert_id, reason="Revoked by user")
+            self.trust_service.revoke_certificate(cert.cert_id, reason="Revoked by user")
             self.refresh_list()
             messagebox.showinfo("Revoked", f"Certificate for '{name}' revoked.")
             event_bus.publish(Events.CERTIFICATE_REVOKED, source="trust_tab", friend_name=name)
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab", friend_name=name)
 
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", friendly_error(e))
+
+    @staticmethod
+    def _cert_summary(cert) -> str:
+        import time
+        issued = time.strftime("%Y-%m-%d", time.localtime(cert.created_at)) \
+            if cert.created_at else "?"
+        return (f"Issuer: {cert.issuer_name}\n"
+                f"Issued: {issued}\n"
+                f"Cert ID: {cert.cert_id}")
+
+    def _choose_cert_dialog(self, name, certs):
+        """Let the user pick which valid certificate to revoke. Returns a cert or None."""
+        parent = self.frame.winfo_toplevel()
+        dlg = tk.Toplevel(parent)
+        dlg.title(f"Select Certificate to Revoke – {name}")
+        dlg.geometry("560x340")
+        dlg.configure(bg=self._bg)
+
+        result = {"cert": None}
+
+        form = ttk.Frame(dlg, padding=20)
+        form.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(form, text=f"'{name}' has {len(certs)} valid certificates.\n"
+                             "Choose which one to revoke:",
+                  font=("Segoe UI", 10, "bold"), justify="left").pack(anchor="w", pady=(0, 10))
+
+        sel_var = tk.IntVar(value=0)
+        for idx, cert in enumerate(certs):
+            ttk.Radiobutton(
+                form, variable=sel_var, value=idx, bootstyle="primary",
+                text=self._cert_summary(cert).replace("\n", "  |  "),
+            ).pack(anchor="w", pady=2)
+
+        btn_frame = ttk.Frame(dlg, padding=(20, 10))
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+        def do_select():
+            result["cert"] = certs[sel_var.get()]
+            dlg.destroy()
+
+        ttk.Button(btn_frame, text="Select", command=do_select,
+                   bootstyle="danger").pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+
+        init_modal(dlg, parent)
+        dlg.wait_window()
+        return result["cert"]
 
     def notify_trust_changed(self, **kwargs) -> None:
         self.refresh_list()

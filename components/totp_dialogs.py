@@ -18,6 +18,7 @@ except ImportError:
     HAS_QRCODE = False
 
 from services.totp_service import TOTPService
+from views.utils import init_modal, flash_widget_text
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class TOTPVerifyDialog:
 
     def show(self) -> bool:
         """Display the dialog and return True if verification succeeds."""
-        dlg = tk.Toplevel(self.parent, bg="#1a1a1a")
+        dlg = tk.Toplevel(self.parent)
         dlg.title("TOTP Verification")
         dlg.geometry("380x300")
         dlg.resizable(False, False)
@@ -40,14 +41,15 @@ class TOTPVerifyDialog:
         dlg.attributes("-topmost", True)
         dlg.grab_set()
 
-        tk.Label(
-            dlg, text="🔐 TOTP Verification", font=("Segoe UI", 16, "bold"),
-            bg="#1a1a1a", fg="#ffffff"
+        init_modal(dlg, self.parent)
+
+        ttk.Label(
+            dlg, text="🔐 TOTP Verification", font=("Segoe UI", 16, "bold")
         ).pack(pady=(20, 10))
 
-        tk.Label(
+        ttk.Label(
             dlg, text="Enter the 6-digit code from your authenticator app:",
-            font=("Segoe UI", 10), bg="#1a1a1a", fg="#cccccc"
+            font=("Segoe UI", 10)
         ).pack()
 
         totp_var = tk.StringVar()
@@ -59,9 +61,9 @@ class TOTPVerifyDialog:
 
         # Timer
         timer_var = tk.StringVar()
-        timer_label = tk.Label(
-            dlg, textvariable=timer_var, font=("Segoe UI", 9),
-            bg="#1a1a1a", fg="#ffaa00"
+        timer_label = ttk.Label(
+            dlg, textvariable=timer_var,
+            font=("Segoe UI", 9), bootstyle="warning"
         )
         timer_label.pack()
 
@@ -71,10 +73,6 @@ class TOTPVerifyDialog:
             try:
                 remaining = self.totp_service.time_remaining()
                 timer_var.set(f"⏱ Expires in: {remaining}s")
-                if remaining <= 5:
-                    timer_label.config(fg="#ff4444")
-                else:
-                    timer_label.config(fg="#ffaa00")
                 dlg.after(500, update_timer)
             except Exception:
                 pass
@@ -96,7 +94,7 @@ class TOTPVerifyDialog:
         def cancel():
             dlg.destroy()
 
-        btn_frame = tk.Frame(dlg, bg="#1a1a1a")
+        btn_frame = ttk.Frame(dlg)
         btn_frame.pack(pady=15)
         ttk.Button(btn_frame, text="✅ Verify", command=verify,
                    bootstyle="success").pack(side=tk.LEFT, padx=5)
@@ -123,7 +121,7 @@ class TOTPSetupDialog:
 
     def show(self) -> bool:
         """Display the setup dialog and return True if acknowledged."""
-        dlg = tk.Toplevel(self.parent, bg="#1a1a1a")
+        dlg = tk.Toplevel(self.parent)
         dlg.title("TOTP Setup")
         dlg.geometry("580x920")
         dlg.resizable(False, False)
@@ -131,8 +129,10 @@ class TOTPSetupDialog:
         dlg.attributes("-topmost", True)
         dlg.grab_set()
 
+        init_modal(dlg, self.parent)
+
         # ── BUTTON FRAME - Pack FIRST at bottom so it's always visible ──
-        btn_frame = tk.Frame(dlg, bg="#1a1a1a", height=60)
+        btn_frame = ttk.Frame(dlg, height=60)
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=20, pady=(0, 15))
         btn_frame.pack_propagate(False)
 
@@ -161,46 +161,38 @@ class TOTPSetupDialog:
                                     "Please re-scan with your authenticator app.", parent=dlg)
 
         # OK button
-        ok_btn = tk.Button(
+        ok_btn = ttk.Button(
             btn_frame, text="✅  OK – I have saved the secret",
-            font=("Segoe UI", 11, "bold"), bg="#28a745", fg="white",
-            activebackground="#34d058", activeforeground="white",
-            bd=0, padx=20, pady=10, cursor="hand2", command=ok_close
+            command=ok_close, bootstyle="success"
         )
         ok_btn.pack(side=tk.RIGHT, padx=5)
 
         # Cancel button
-        cancel_btn = tk.Button(
-            btn_frame, text="Cancel", font=("Segoe UI", 10),
-            bg="#6c757d", fg="white", activebackground="#5a6268",
-            activeforeground="white", bd=0, padx=15, pady=8,
-            cursor="hand2", command=dlg.destroy
+        cancel_btn = ttk.Button(
+            btn_frame, text="Cancel",
+            command=dlg.destroy, bootstyle="secondary-outline"
         )
         cancel_btn.pack(side=tk.RIGHT, padx=5)
 
         # Regenerate button
         if self.on_regenerate:
-            regen_btn = tk.Button(
-                btn_frame, text="🔄 Regenerate", font=("Segoe UI", 10),
-                bg="#ffc107", fg="#212529", activebackground="#e0a800",
-                activeforeground="#212529", bd=0, padx=12, pady=8,
-                cursor="hand2", command=regenerate
+            regen_btn = ttk.Button(
+                btn_frame, text="🔄 Regenerate",
+                command=regenerate, bootstyle="warning"
             )
             regen_btn.pack(side=tk.LEFT, padx=5)
 
         # ── CONTENT ──
-        content = tk.Frame(dlg, bg="#1a1a1a")
+        content = ttk.Frame(dlg)
         content.pack(fill=tk.BOTH, expand=True, padx=20, pady=(15, 5))
 
-        tk.Label(
-            content, text="🔐 TOTP Setup", font=("Segoe UI", 16, "bold"),
-            bg="#1a1a1a", fg="#ffffff"
+        ttk.Label(
+            content, text="🔐 TOTP Setup", font=("Segoe UI", 16, "bold")
         ).pack(pady=(5, 8))
 
-        tk.Label(
+        ttk.Label(
             content, text="Scan with Google Authenticator / Authy / Microsoft Authenticator",
-            font=("Segoe UI", 9), bg="#1a1a1a", fg="#888888",
-            justify="center"
+            font=("Segoe UI", 9), justify="center"
         ).pack(pady=(0, 10))
 
         # QR Code display
@@ -208,28 +200,27 @@ class TOTPSetupDialog:
         qr_label = None
         if HAS_QRCODE:
             try:
-                qr_label = tk.Label(content, bg="#1a1a1a")
+                qr_label = ttk.Label(content)
                 qr_label.pack(pady=(0, 10))
                 self._update_qr(qr_label, self.provisioning_uri)
             except Exception as e:
                 logger.warning("Failed to generate QR code: %s", e)
-                tk.Label(
+                ttk.Label(
                     content, text="(QR code unavailable – use URI below)",
-                    font=("Segoe UI", 9, "italic"), bg="#1a1a1a", fg="#ff6666"
+                    font=("Segoe UI", 9, "italic")
                 ).pack(pady=(0, 10))
         else:
-            tk.Label(
+            ttk.Label(
                 content, text="(Install qrcode[pil] for QR display – use URI below)",
-                font=("Segoe UI", 9, "italic"), bg="#1a1a1a", fg="#ffaa00"
+                font=("Segoe UI", 9, "italic")
             ).pack(pady=(0, 10))
 
         # Provisioning URI
-        tk.Label(
-            content, text="Provisioning URI:", font=("Segoe UI", 9, "bold"),
-            bg="#1a1a1a", fg="#ffaa00"
+        ttk.Label(
+            content, text="Provisioning URI:", font=("Segoe UI", 9, "bold")
         ).pack(anchor="w")
 
-        uri_text = tk.Text(content, height=3, width=68, bg="#2a2a2a", fg="#00ff88",
+        uri_text = tk.Text(content, height=3, width=68,
                            font=("Consolas", 9), wrap="char", relief="flat")
         uri_text.pack(pady=5, fill=tk.X)
         uri_text.insert("1.0", self.provisioning_uri)
@@ -239,22 +230,22 @@ class TOTPSetupDialog:
             try:
                 self.parent.clipboard_clear()
                 self.parent.clipboard_append(self.provisioning_uri)
-                messagebox.showinfo("Copied", "URI copied to clipboard.", parent=dlg)
+                flash_widget_text(copy_uri_btn, "✓ Copied", "📋 Copy URI")
             except Exception:
                 pass
 
-        ttk.Button(content, text="📋 Copy URI", command=copy_uri,
-                   bootstyle="info-outline").pack(pady=(0, 8))
+        copy_uri_btn = ttk.Button(content, text="📋 Copy URI", command=copy_uri,
+                                  bootstyle="info-outline")
+        copy_uri_btn.pack(pady=(0, 8))
 
         # Base32 secret
         b32 = self.totp_service.get_b32_secret()
 
-        tk.Label(
-            content, text="Secret (Base32) – Manual Entry:", font=("Segoe UI", 9, "bold"),
-            bg="#1a1a1a", fg="#ffaa00"
+        ttk.Label(
+            content, text="Secret (Base32) – Manual Entry:", font=("Segoe UI", 9, "bold")
         ).pack(anchor="w")
 
-        secret_text = tk.Text(content, height=1, width=68, bg="#2a2a2a", fg="#00ff88",
+        secret_text = tk.Text(content, height=1, width=68,
                               font=("Consolas", 12), relief="flat")
         secret_text.pack(pady=5, fill=tk.X)
         secret_text.insert("1.0", b32)
@@ -264,31 +255,31 @@ class TOTPSetupDialog:
             try:
                 self.parent.clipboard_clear()
                 self.parent.clipboard_append(b32)
-                messagebox.showinfo("Copied", "Secret copied to clipboard.", parent=dlg)
+                flash_widget_text(copy_secret_btn, "✓ Copied", "📋 Copy Secret")
             except Exception:
                 pass
 
-        ttk.Button(content, text="📋 Copy Secret", command=copy_secret,
-                   bootstyle="info-outline").pack(pady=(0, 10))
+        copy_secret_btn = ttk.Button(content, text="📋 Copy Secret", command=copy_secret,
+                                     bootstyle="info-outline")
+        copy_secret_btn.pack(pady=(0, 10))
 
         # Live code preview – shows the CURRENT code that an authenticator
         # app would generate with the same secret.  Updates every 500 ms.
-        tk.Label(
+        ttk.Label(
             content, text="Current Code (matches your authenticator app):",
-            font=("Segoe UI", 10), bg="#1a1a1a", fg="#cccccc"
+            font=("Segoe UI", 10)
         ).pack()
 
         code_var = tk.StringVar()
-        code_label = tk.Label(
-            content, textvariable=code_var, font=("Consolas", 28, "bold"),
-            bg="#1a1a1a", fg="#00ff88"
+        code_label = ttk.Label(
+            content, textvariable=code_var, font=("Consolas", 28, "bold")
         )
         code_label.pack(pady=5)
 
         timer_var = tk.StringVar()
-        timer_label = tk.Label(
+        timer_label = ttk.Label(
             content, textvariable=timer_var,
-            font=("Segoe UI", 9), bg="#1a1a1a", fg="#888888"
+            font=("Segoe UI", 9)
         )
         timer_label.pack()
 
@@ -302,21 +293,10 @@ class TOTPSetupDialog:
                 new_code = self.totp_service.generate()
                 remaining = self.totp_service.time_remaining()
 
-                # Visual flash when code changes
-                if _prev_code[0] is not None and new_code != _prev_code[0]:
-                    code_label.config(fg="#ffffff")  # brief white flash
-                    dlg.after(150, lambda: code_label.config(
-                        fg="#ff4444" if remaining <= 5 else "#00ff88"))
                 _prev_code[0] = new_code
 
                 code_var.set(new_code)
                 timer_var.set(f"(expires in {remaining}s)")
-                if remaining <= 5:
-                    code_label.config(fg="#ff4444")
-                    timer_label.config(fg="#ff4444")
-                else:
-                    code_label.config(fg="#00ff88")
-                    timer_label.config(fg="#888888")
                 dlg.after(500, update_code_display)
             except Exception as e:
                 logger.debug("update_code_display error: %s", e)

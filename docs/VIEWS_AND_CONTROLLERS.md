@@ -231,12 +231,15 @@ EncryptTab(parent, encryption_service, friends_service, clipboard_service, crypt
 
 | Method | Description |
 |--------|-------------|
-| `send_message()` | Validate, encrypt via CryptoTaskQueue, log result |
-| `copy_last_sent()` | Copy last encrypted message to clipboard |
+| `send_message()` | Validate, encrypt via CryptoTaskQueue, log result. Disables the Send button + shows a busy cursor while in flight; surfaces failures via `friendly_error` (the `crypto_queue` path reports through `on_error`). Bound to **Ctrl+Enter**; Escape clears. |
+| `copy_last_sent()` | Copy last encrypted message to clipboard with inline button feedback (no modal) |
 | `clear_input()` | Clear message input |
+| `clear_log()` | Clear the sent-messages history (confirms first; no-op when already empty) |
 | `notify_friend_list_changed()` | Refresh friend dropdown |
 | `_update_friend_list()` | Fetch names from FriendsService |
 | `_on_friend_changed(event)` | Auto-select encryption mode based on friend capabilities |
+
+> The sent-messages log is **read-only** (toggled to editable only while inserting) so ciphertext history can't be accidentally corrupted.
 
 #### Constants
 - `MAX_MESSAGE_SIZE = 1 MB`
@@ -258,10 +261,13 @@ DecryptTab(parent, encryption_service, clipboard_service, task_queue, crypto_que
 
 | Method | Description |
 |--------|-------------|
-| `receive_message()` | Decrypt via CryptoTaskQueue using thread-safe `get_decryption_snapshot()`, show result with mode indicator |
-| `paste_from_clipboard()` | Paste clipboard content |
-| `clear()` | Clear input and output |
-| `_show_decrypted(text, decrypt_mode)` | Display result with PQC/Ratchet/Legacy indicator |
+| `receive_message()` | Decrypt via CryptoTaskQueue, show result with mode indicator. Disables the Decrypt button + busy cursor while running; failures shown via `friendly_error`. Bound to **Ctrl+Enter**. |
+| `copy_decrypted()` | Copy the decrypted plaintext to the clipboard with inline button feedback |
+| `paste_from_clipboard()` | Paste clipboard content (confirms before overwriting non-empty input) |
+| `clear()` | Clear input, output, and indicators |
+| `_show_decrypted(text, decrypt_mode)` | Display result (read-only, replaces previous) with PQC/Ratchet/Legacy indicator; the hybrid-signature indicator renders on its **own** label so it no longer hides the mode |
+
+> The decrypted-message pane is **read-only**, and a static caption clarifies that self-destruct is best-effort (it depends on the sender's settings and the recipient's client).
 
 ---
 
@@ -301,11 +307,15 @@ FileTab(parent, file_service, friends_service, global_secret_service, root, task
 
 | Method | Description |
 |--------|-------------|
-| `encrypt_file()` | Select method, encrypt via CryptoTaskQueue |
-| `decrypt_file()` | Auto-detect method, handle SharedSecretDetected |
+| `encrypt_file()` | Select method, encrypt off-thread; busy state on both action buttons; suggests no overwrite of the original |
+| `decrypt_file()` | Auto-detect method, handle SharedSecretDetected; suggests an output filename (strips trailing `.enc`) |
 | `refresh_list()` | Refresh friend dropdown |
+| `_submit_file_task(do_work, on_success, on_error)` | Run a file crypto op via the queue or a thread fallback. The fallback catches **all** exceptions (not just `FileServiceError`) so no failure dies silently in a daemon thread |
+| `_set_busy(busy)` | Disable both action buttons + toggle the busy cursor |
 | `_handle_shared_detected(infile, outfile, detection)` | Confirm and decrypt with shared secret |
 | `_prompt_password_and_decrypt(infile, outfile)` | Prompt for password and retry |
+
+> Path length is validated against a platform-aware limit (260 on Windows, 4096 elsewhere) with a plain-language message. All user-facing errors use `friendly_error`.
 
 ---
 
@@ -331,11 +341,11 @@ FriendsTab(parent, friends_service, style_config=None, trust_chain_service=None)
 
 | Method | Description |
 |--------|-------------|
-| `refresh_list()` | Reload all friends from service |
-| `filter_list()` | Apply search filter |
+| `refresh_list()` | Reload all friends from service (caches the result so filtering doesn't re-query the DB) |
+| `filter_list()` | Apply search filter over the cached list |
 | `add_friend_dialog()` | Full add friend form with PQC + hybrid sig fields |
-| `remove_friend_dialog()` | Remove selected friend |
-| `ecdh_with_selected()` | ECDH exchange with selected friend |
+| `remove_friend_dialog()` | Remove the **selected** friend after an `askyesno` confirmation (also bound to the `<Delete>` key); shows an info message if nothing is selected |
+| `ecdh_with_selected()` | ECDH exchange with selected friend (key derivation runs off-thread via `run_busy`) |
 | `show_my_pubkey()` | Display own public key and fingerprint |
 | `init_ratchet_dialog()` | Initialize Double Ratchet (Alice/Bob role) |
 | `reset_ratchet_dialog()` | Delete ratchet session |
@@ -345,6 +355,8 @@ FriendsTab(parent, friends_service, style_config=None, trust_chain_service=None)
 
 #### Events Published
 - `FRIEND_LIST_CHANGED`, `FRIEND_ADDED`, `FRIEND_REMOVED`, `RATCHET_INITIALIZED`, `RATCHET_RESET`
+
+> **UX notes:** an empty-state placeholder guides new users to "Add Friend" (and distinguishes "no matches" when filtering); ratchet init/reset and ECDH run off-thread with a busy cursor; row colors derive from the active theme (the text badge — "Secure"/"No Key" — is the primary, non-color-only signal); `<Double-1>`/`<Return>` open details.
 
 ---
 
@@ -393,6 +405,8 @@ TrustTab(parent, trust_chain_service, friends_service, clipboard_service, key_st
 | `export_certificate()` | Export certificate to Base64 string |
 | `import_certificate()` | Import certificate from Base64 string |
 | `view_certificate_details()` | Show full certificate details dialog |
+
+> **UX notes:** trust info is loaded once per refresh and cached, so the search box filters the cache instead of re-querying per keystroke; expired/revoked certificates render a distinct **text** status (not color/date alone); revoking a cert when a friend has more than one prompts the user to pick which (showing issuer/date/cert-id in the confirmation); the import dialog is resizable and modal.
 
 ---
 
@@ -458,10 +472,12 @@ Full-window overlay blocking interaction when locked.
 
 | Method | Description |
 |--------|-------------|
-| `lock()` | Show overlay with lock icon, unlock button, hotkey hint |
-| `unlock()` | Remove overlay |
-| `set_status(text)` | Update status text |
+| `lock()` | Show overlay with lock icon, unlock button, hotkey hint. Calls `grab_set()` so the overlay is **truly modal** (input can't reach widgets behind it); the grab is released around the unlock callback so the downstream password/TOTP dialog still works |
+| `unlock()` | Release the grab and remove the overlay |
+| `set_status(text)` | Update status text (e.g. "Incorrect password", "Locked out", "Unlocking…"); defaults to "🔒 LOCKED" |
 | `is_locked` | Property: whether overlay is active |
+
+> `<Escape>` is bound to a no-op so the lock can never be dismissed silently; the unlock shortcut hint is shown on all platforms (Cmd on macOS, Ctrl elsewhere).
 
 ### VisualEnigma
 
@@ -495,6 +511,22 @@ perform_ecdh(parent, purpose="friend") -> (derived_secret, friend_x25519_b64) | 
 |----------|---------|-------------|
 | `validate_password_strength(pw)` | `(is_valid, message, score)` | Military-grade password validation |
 | `get_strength_label(score)` | `(label, color)` | Visual strength indicator |
+
+### Shared UI Helpers
+
+**File:** `views/utils.py`
+
+Reusable helpers that standardize UX across all tabs and dialogs. Prefer these over ad-hoc implementations so behavior (error wording, busy state, modal hygiene) stays consistent.
+
+| Function | Description |
+|----------|-------------|
+| `friendly_error(exc) -> str` | Map an exception to a safe, user-facing message. Use **instead of** `str(exc)` in `messagebox.showerror` for technical/unexpected errors. Maps common types (decryption, timeout, permission, base64/JSON/MAC failures); falls back to a generic message. Always log the raw detail separately with `logger.exception(...)`. |
+| `init_modal(dlg, parent, focus_widget=None, on_close=None)` | Apply consistent modal hygiene to a `Toplevel`. Centers over `parent`, sets `transient` + `grab_set` (true modality), binds `<Escape>` and the window-close (X) button to `on_close` (defaults to `dlg.destroy`), and sets initial keyboard focus. Call **once** after the dialog is created and sized. Idempotent with existing `transient()`/`grab_set()` calls. |
+| `center_over_parent(dlg, parent)` | Position a `Toplevel` centered over its parent (used internally by `init_modal`; can be called directly). |
+| `run_busy(widget, work, on_done=None, on_error=None, busy_widgets=None)` | Run a blocking `work()` callable off the UI thread. Shows a `watch` cursor on the toplevel, disables `busy_widgets` (e.g. the trigger button), then dispatches `on_done(result)` / `on_error(exc)` back on the Tk main thread (restoring cursor + widget states first). If `on_error` is omitted, shows `friendly_error` in a dialog. **Tkinter is not thread-safe — `work` must perform NO Tk/UI calls; do all UI updates in `on_done`/`on_error`.** |
+| `flash_widget_text(widget, text, revert_to, ms=1500)` | Briefly change a widget's text (e.g. a copy button → "Copied ✓") then revert. Lightweight inline feedback in place of a modal "copied" dialog. |
+
+> **Note on `submit_crypto_task`:** the encrypt/decrypt/file tabs already offload work via `src/crypto_task_helper.submit_crypto_task` (CryptoTaskQueue or a thread fallback). Its `error_map` is honored only on the thread-fallback path — when a `crypto_queue` is present, surface errors in the task's `on_error` callback, not via `error_map`.
 
 ### Dialogs
 

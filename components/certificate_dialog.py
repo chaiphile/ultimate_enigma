@@ -1,4 +1,5 @@
 import json
+import logging
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
@@ -6,8 +7,11 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
 from views.dialogs import password_dialog
+from views.utils import init_modal, run_busy, friendly_error
 from services.event_bus import event_bus, Events
 from models.trust_chain import CertificateType, TrustLevel, RevocationStatus
+
+logger = logging.getLogger(__name__)
 
 
 class CertificateDialog:
@@ -42,8 +46,6 @@ class CertificateDialog:
         dlg.geometry("700x650")
         dlg.resizable(True, True)
         dlg.minsize(600, 550)
-        dlg.transient(self.parent)
-        dlg.grab_set()
         dlg.configure(bg=self.bg)
 
         notebook = ttk.Notebook(dlg, bootstyle="info")
@@ -74,7 +76,7 @@ class CertificateDialog:
         cert_type_var = tk.StringVar(value="Identity")
         cert_type_combo = ttk.Combobox(
             tab_issue, textvariable=cert_type_var,
-            values=["Identity", "Endorsement", "Delegation"],
+            values=["Identity", "Recovery", "Delegation"],
             state="readonly", width=25, bootstyle="info",
         )
         cert_type_combo.pack(anchor="w", pady=(0, 10))
@@ -93,6 +95,7 @@ class CertificateDialog:
                   font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 8))
 
         def do_issue():
+            issue_status_var.set("")
             fname = issue_friend_var.get()
             if not fname:
                 messagebox.showwarning("No Selection",
@@ -105,13 +108,14 @@ class CertificateDialog:
                     raise ValueError
             except ValueError:
                 messagebox.showwarning("Invalid Validity",
-                                       "Please enter a positive number of days.",
+                                       "Please enter a positive whole number of days.",
                                        parent=dlg)
                 return
             cert_type_label = cert_type_var.get()
+            # UI labels map 1:1 to CertificateType members (no relabeling).
             cert_type_map = {
                 "Identity": CertificateType.IDENTITY,
-                "Endorsement": CertificateType.RECOVERY,
+                "Recovery": CertificateType.RECOVERY,
                 "Delegation": CertificateType.DELEGATION,
             }
             cert_type = cert_type_map[cert_type_label]
@@ -126,23 +130,27 @@ class CertificateDialog:
                 messagebox.showerror("Wrong Password",
                                      "Master password incorrect.", parent=dlg)
                 return
-            try:
-                subject_pub_b64 = self.friends_service.get_friend_hybrid_sig_pub_b64(fname)
-                if not subject_pub_b64:
-                    messagebox.showerror(
-                        "Missing Key",
-                        f"No hybrid signing public key stored for '{fname}'.\n"
-                        "Import their hybrid signing key first.",
-                        parent=dlg,
-                    )
-                    return
-                cert = self.trust_chain_service.issue_certificate(
+            subject_pub_b64 = self.friends_service.get_friend_hybrid_sig_pub_b64(fname)
+            if not subject_pub_b64:
+                messagebox.showerror(
+                    "Missing Key",
+                    f"No hybrid signing public key stored for '{fname}'.\n"
+                    "Import their hybrid signing key first.",
+                    parent=dlg,
+                )
+                return
+
+            def _work():
+                # Signing is blocking; runs off the UI thread. NO UI calls here.
+                return self.trust_chain_service.issue_certificate(
                     subject_name=fname,
                     subject_pub_b64=subject_pub_b64,
                     cert_type=cert_type,
                     validity_days=days,
                     master_password=pw2,
                 )
+
+            def _done(cert):
                 issue_status_var.set(
                     f"✅ Certificate issued for '{fname}' ({cert_type_label}, {days} days)"
                 )
@@ -156,13 +164,20 @@ class CertificateDialog:
                     parent=dlg,
                 )
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog", friend_name=fname)
-            except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
 
-        ttk.Button(
+            def _err(e):
+                logger.exception("Failed to issue certificate")
+                issue_status_var.set("")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[issue_btn])
+
+        issue_btn = ttk.Button(
             tab_issue, text="Sign & Issue Certificate",
             command=do_issue, bootstyle="info",
-        ).pack(anchor="w", pady=(10, 0))
+        )
+        issue_btn.pack(anchor="w", pady=(10, 0))
 
         tab_view = ttk.Frame(notebook, padding=15)
         notebook.add(tab_view, text="  View & Revoke  ")
@@ -194,13 +209,20 @@ class CertificateDialog:
         cert_tree.configure(yscrollcommand=cert_scroll.set)
         cert_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
+        cert_load_status_var = tk.StringVar(value="")
+        ttk.Label(tab_view, textvariable=cert_load_status_var,
+                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+
         def load_certificates():
             for item in cert_tree.get_children():
                 cert_tree.delete(item)
             try:
                 certs = self.trust_chain_service.get_all_certificates()
             except Exception:
-                certs = []
+                logger.exception("Failed to load certificates")
+                cert_load_status_var.set("⚠ Failed to load certificates — see logs")
+                return
+            cert_load_status_var.set("")
             for cert in certs:
                 import datetime
                 expires_str = datetime.datetime.fromtimestamp(
@@ -213,8 +235,6 @@ class CertificateDialog:
                     RevocationStatus.EXPIRED: "Expired",
                 }
                 type_label = cert.cert_type.value.capitalize()
-                if type_label == "Recovery":
-                    type_label = "Endorsement"
                 cert_tree.insert("", tk.END, iid=cert.cert_id, values=(
                     cert.subject_name,
                     cert.issuer_name,
@@ -240,8 +260,11 @@ class CertificateDialog:
                                        parent=dlg)
                 return
             cert_id = sel[0]
-            try:
-                result = self.trust_chain_service.verify_certificate(cert_id)
+
+            def _work():
+                return self.trust_chain_service.verify_certificate(cert_id)
+
+            def _done(result):
                 if result:
                     messagebox.showinfo("Verification",
                                         "Certificate is valid and trusted.",
@@ -250,8 +273,13 @@ class CertificateDialog:
                     messagebox.showwarning("Verification",
                                            "Certificate verification failed.",
                                            parent=dlg)
-            except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+
+            def _err(e):
+                logger.exception("Certificate verification error")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[verify_btn])
 
         def do_revoke():
             sel = cert_tree.selection()
@@ -280,15 +308,23 @@ class CertificateDialog:
                 messagebox.showerror("Wrong Password",
                                      "Master password incorrect.", parent=dlg)
                 return
-            try:
+
+            def _work():
                 self.trust_chain_service.revoke_certificate(cert_id)
+
+            def _done(_result):
                 load_certificates()
                 messagebox.showinfo("Revoked",
                                     "Certificate has been revoked successfully.",
                                     parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
-            except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+
+            def _err(e):
+                logger.exception("Failed to revoke certificate")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[revoke_btn])
 
         def do_export():
             sel = cert_tree.selection()
@@ -314,7 +350,8 @@ class CertificateDialog:
                                     f"Certificate exported to:\n{path}",
                                     parent=dlg)
             except Exception as e:
-                messagebox.showerror("Export Error", str(e), parent=dlg)
+                logger.exception("Certificate export failed")
+                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
 
         def do_export_delegation():
             try:
@@ -339,7 +376,8 @@ class CertificateDialog:
                                     f"Exported {count} delegation certificate(s) to:\n{path}",
                                     parent=dlg)
             except Exception as e:
-                messagebox.showerror("Export Error", str(e), parent=dlg)
+                logger.exception("Delegation export failed")
+                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
 
         def do_export_all():
             try:
@@ -359,7 +397,8 @@ class CertificateDialog:
                                     f"Exported {count} certificate(s) to:\n{path}",
                                     parent=dlg)
             except Exception as e:
-                messagebox.showerror("Export Error", str(e), parent=dlg)
+                logger.exception("Export all certificates failed")
+                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
 
         def do_import():
             path = filedialog.askopenfilename(
@@ -391,7 +430,8 @@ class CertificateDialog:
                                         parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
             except Exception as e:
-                messagebox.showerror("Import Error", str(e), parent=dlg)
+                logger.exception("Certificate import failed")
+                messagebox.showerror("Import Error", friendly_error(e), parent=dlg)
 
         # Export row
         ttk.Button(
@@ -449,13 +489,20 @@ class CertificateDialog:
         trust_tree.configure(yscrollcommand=trust_scroll.set)
         trust_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
+        trust_load_status_var = tk.StringVar(value="")
+        ttk.Label(tab_status, textvariable=trust_load_status_var,
+                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+
         def load_trust_status():
             for item in trust_tree.get_children():
                 trust_tree.delete(item)
             try:
                 friend_names_list = self.friends_service.get_friend_names()
             except Exception:
-                friend_names_list = []
+                logger.exception("Failed to load friend names for trust status")
+                trust_load_status_var.set("⚠ Failed to load trust status — see logs")
+                return
+            trust_load_status_var.set("")
             trust_badge_map = {
                 TrustLevel.TRUSTED: "🟢 TRUSTED",
                 TrustLevel.VERIFIED: "🟡 VERIFIED",
@@ -526,13 +573,20 @@ class CertificateDialog:
         del_tree.configure(yscrollcommand=del_scroll.set)
         del_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
+        del_load_status_var = tk.StringVar(value="")
+        ttk.Label(tab_delegation, textvariable=del_load_status_var,
+                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+
         def load_delegation_certs():
             for item in del_tree.get_children():
                 del_tree.delete(item)
             try:
                 certs = self.trust_chain_service.get_delegation_certs_held_by_me()
             except Exception:
-                certs = []
+                logger.exception("Failed to load delegation certificates")
+                del_load_status_var.set("⚠ Failed to load delegation certs — see logs")
+                return
+            del_load_status_var.set("")
             import datetime
             for cert in certs:
                 expires_str = datetime.datetime.fromtimestamp(
@@ -571,8 +625,6 @@ class CertificateDialog:
             key_dlg.title(title_str)
             key_dlg.geometry("560x230")
             key_dlg.resizable(True, False)
-            key_dlg.transient(dlg)
-            key_dlg.grab_set()
             ttk.Label(key_dlg, text=label_str,
                       font=("Segoe UI", 10), wraplength=530,
                       ).pack(anchor="w", padx=15, pady=(15, 4))
@@ -589,6 +641,7 @@ class CertificateDialog:
                        bootstyle="info").pack(side=tk.LEFT, padx=5)
             ttk.Button(kbf, text="Cancel", command=key_dlg.destroy,
                        bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+            init_modal(key_dlg, dlg, focus_widget=key_text)
             dlg.wait_window(key_dlg)
             return result["v"] or None
 
@@ -630,7 +683,8 @@ class CertificateDialog:
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to update delegator hybrid key")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         def do_update_x25519():
             name = _get_delegator()
@@ -653,7 +707,8 @@ class CertificateDialog:
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to update delegator X25519 key")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         def do_update_pem():
             name = _get_delegator()
@@ -676,7 +731,8 @@ class CertificateDialog:
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to update delegator RSA PEM")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         def do_update_pqc():
             name = _get_delegator()
@@ -699,7 +755,8 @@ class CertificateDialog:
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to update delegator PQC key")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         def do_remove_all_keys():
             name = _get_delegator()
@@ -724,7 +781,8 @@ class CertificateDialog:
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to remove delegator optional keys")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         def do_revoke_all_delegator_certs():
             name = _get_delegator()
@@ -750,7 +808,8 @@ class CertificateDialog:
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to revoke all delegator certs")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         def do_revoke_recovery_shares():
             name = _get_delegator()
@@ -771,7 +830,8 @@ class CertificateDialog:
                                     f"Deleted {count} recovery share record(s) for '{name}'.",
                                     parent=dlg)
             except Exception as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                logger.exception("Failed to revoke delegator recovery shares")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         # ---- button rows ---------------------------------------------------
 
@@ -816,3 +876,5 @@ class CertificateDialog:
 
         ttk.Button(dlg, text="Close", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))
+
+        init_modal(dlg, self.parent, focus_widget=issue_friend_combo)

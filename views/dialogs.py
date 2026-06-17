@@ -38,13 +38,13 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
     
     dlg = tk.Toplevel(parent, bg=dialog_bg)
     dlg.title(title)
-    # Dynamic sizing: base height + extra for confirm field + strength meter
+    # Dynamic sizing: base height + extra for confirm field + strength meter, capped at 600
     if confirm and enforce_strength:
-        dlg_height = 380
+        dlg_height = min(380, 600)
     elif confirm:
-        dlg_height = 310
+        dlg_height = min(310, 600)
     else:
-        dlg_height = 220
+        dlg_height = min(220, 600)
     dlg.geometry(f"400x{dlg_height}")
     dlg.resizable(False, False)
     dlg.transient(parent)
@@ -64,6 +64,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
     pwd_entry.pack(pady=5)
     pwd_entry.focus_set()
 
+    confirm_entry = None
     if confirm:
         ttk.Label(dlg, text="Confirm password:",
                   font=("Segoe UI", 10),
@@ -74,6 +75,8 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         confirm_entry = ttk.Entry(dlg, textvariable=confirm_var, show="*", width=30,
                                   bootstyle="primary")
         confirm_entry.pack(pady=5)
+        # Tab order: password → confirm
+        pwd_entry.bind("<Tab>", lambda e: (confirm_entry.focus_set(), "break"))
 
     # Add strength meter (only when enforce_strength=True and confirm=True)
     strength_var = tk.StringVar(value="")
@@ -103,16 +106,14 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         pw = pwd_var.get()
         # Capture confirm value BEFORE clearing
         confirm_pw = confirm_var.get() if confirm else ""
-        
-        # Clear the Tkinter StringVars immediately to minimize memory exposure
-        pwd_var.set("")
-        if confirm:
-            confirm_var.set("")
-        
+
         # Validation
         if confirm:
             if pw != confirm_pw:
                 messagebox.showerror("Mismatch", "Passwords do not match.", parent=dlg)
+                pwd_var.set("")
+                confirm_var.set("")
+                pwd_entry.focus_set()
                 return
             if enforce_strength:
                 is_valid, msg, score = validate_password_strength(pw)
@@ -124,8 +125,16 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
                         f"• Uppercase + lowercase + digit + special character",
                         parent=dlg
                     )
+                    pwd_var.set("")
+                    confirm_var.set("")
+                    pwd_entry.focus_set()
                     return
-        
+
+        # Clear the Tkinter StringVars immediately to minimize memory exposure
+        pwd_var.set("")
+        if confirm:
+            confirm_var.set("")
+
         # Create SecureString and clear local references
         result.append(SecureString(pw))
         pw = ""
@@ -151,6 +160,9 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
 
     dlg.bind("<Return>", lambda e: ok())
     dlg.bind("<Escape>", lambda e: cancel())
+
+    if confirm_entry:
+        confirm_entry.bind("<Return>", lambda e: ok())
 
     parent.wait_window(dlg)
     return result[0] if result else None

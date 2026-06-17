@@ -5,6 +5,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 
 from services.ecdh_service import ECDHService      # pure crypto service
+from views.utils import init_modal, flash_widget_text
 
 
 def perform_ecdh(parent, purpose="friend"):
@@ -22,10 +23,8 @@ def perform_ecdh(parent, purpose="friend"):
     style = ttk.Style()
     dlg = tk.Toplevel(parent, bg=style.colors.bg)
     dlg.title(f"ECDH Key Exchange ({purpose})")
-    dlg.geometry("500x450")
-    dlg.resizable(False, False)
-    dlg.transient(parent)
-    dlg.grab_set()
+    dlg.geometry("500x550")
+    dlg.resizable(True, True)
 
     # Step 1: Show our ephemeral public key
     ttk.Label(dlg, text="1. Your ephemeral X25519 public key (send to friend):",
@@ -44,13 +43,19 @@ def perform_ecdh(parent, purpose="friend"):
               font=("Consolas", 9),
               bootstyle="warning").pack(anchor=tk.W, padx=20)
 
-    def copy_pubkey():
-        parent.clipboard_clear()
-        parent.clipboard_append(pub_b64)
-        messagebox.showinfo("Copied", "Public key copied to clipboard.", parent=dlg)
+    copy_btn = ttk.Button(dlg, text="Copy Public Key",
+                          bootstyle="secondary-outline")
+    copy_btn.pack(pady=5)
 
-    ttk.Button(dlg, text="Copy Public Key", command=copy_pubkey,
-               bootstyle="secondary-outline").pack(pady=5)
+    def copy_pubkey():
+        try:
+            parent.clipboard_clear()
+            parent.clipboard_append(pub_b64)
+            flash_widget_text(copy_btn, "✓ Copied!", "Copy Public Key", ms=1500)
+        except Exception:
+            messagebox.showerror("Copy Failed", "Could not access clipboard.", parent=dlg)
+
+    copy_btn.config(command=copy_pubkey)
 
     ttk.Separator(dlg, orient='horizontal', bootstyle="secondary").pack(fill=tk.X, padx=10, pady=10)
 
@@ -81,7 +86,7 @@ def perform_ecdh(parent, purpose="friend"):
             fp = ECDHService.fingerprint(raw)
             friend_fp_var.set(fp)
         except ValueError:
-            friend_fp_var.set("Invalid Base64 or length")
+            friend_fp_var.set("Invalid key. Expected a Base64-encoded 32-byte X25519 public key.")
 
     friend_pub_var.trace_add('write', compute_fingerprint)
 
@@ -119,6 +124,8 @@ def perform_ecdh(parent, purpose="friend"):
                bootstyle="success").pack(pady=15)
     ttk.Button(dlg, text="Cancel", command=dlg.destroy,
                bootstyle="secondary-outline").pack()
+
+    init_modal(dlg, parent, focus_widget=friend_pub_entry)
 
     parent.wait_window(dlg)
     if result["secret"] is None:

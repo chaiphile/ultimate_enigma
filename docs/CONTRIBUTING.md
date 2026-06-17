@@ -90,6 +90,17 @@ tests/               36 test files, 550+ tests
 - Anti-tamper protections (`src/anti_tamper.py`) only activate in frozen .exe; do not test debugger detection from source
 - Use `GuardedBuffer` (`security/guarded_buffer.py`) for in-memory secrets (e.g. chain keys, global secret). GuardedBuffer supports `bytes()`, `len()`, iteration, and `==` comparison for seamless interop with bytes-based code. Always wrap values via `_update_chain_key()` or `GuardedBuffer.write()` — never store raw `bytes` for sensitive data.
 
+### UI / UX Guidelines (Tkinter + ttkbootstrap)
+
+Use the shared helpers in `views/utils.py` instead of ad-hoc implementations so behavior stays consistent (see `docs/VIEWS_AND_CONTROLLERS.md` → *Shared UI Helpers*).
+
+- **Never show raw exceptions to users.** Wrap user-facing errors with `friendly_error(exc)` in `messagebox.showerror`, and log the raw detail with `logger.exception(...)`.
+- **Don't block the UI thread.** Run blocking crypto/network/file work off-thread via `run_busy(...)` (or the existing `submit_crypto_task`). Show a busy cursor and disable the trigger button while in flight. **Tkinter is not thread-safe** — the `work()` callable must do no UI calls; perform all widget updates in `on_done`/`on_error`.
+- **Modal dialogs:** call `init_modal(dlg, parent, focus_widget=...)` once after creating/sizing a `Toplevel` — it centers over the parent, makes it modal (`grab_set`), binds `<Escape>` and the window-close (X) button, and sets initial focus.
+- **Feedback:** prefer inline feedback (`flash_widget_text` on a copy button) over modal "done" dialogs for frequent actions. Confirm destructive actions with `askyesno`, and act on the current selection rather than asking the user to retype identifiers.
+- **Theme over hardcoded styling:** use ttkbootstrap `bootstyle` and `ttk.Style().colors`; avoid hardcoded hex colors and Windows-only fonts so light/dark themes and non-Windows platforms render correctly. Don't rely on color alone to convey state — pair it with a text label.
+- **Read-only displays:** keep ciphertext/plaintext output widgets `state='disabled'` (toggle only while inserting) so users can't corrupt them.
+
 ### Example: Service Method
 
 ```python

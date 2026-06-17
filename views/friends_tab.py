@@ -11,12 +11,12 @@ Publishes Events:
 import tkinter as tk
 from tkinter import messagebox, simpledialog
 import ttkbootstrap as ttk
-from ttkbootstrap.tooltip import ToolTip
 import logging
 
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
+from views.utils import run_busy, friendly_error
 from components.add_friend_dialog import AddFriendDialog
 from components.pqc_exchange_dialog import PqcExchangeDialog
 from components.hybrid_sig_exchange_dialog import HybridSigExchangeDialog
@@ -48,6 +48,7 @@ class FriendsTab:
             self._fg = s.colors.fg
 
         self.all_friend_names = []
+        self._cached_friends = []  # Cache to avoid double DB query per refresh
         self._tooltips = {}  # Track tooltip widgets to avoid leaks
         self._build_ui()
 
@@ -114,11 +115,18 @@ class FriendsTab:
             self.tree.column(col_id, width=cfg["width"], anchor=cfg["anchor"],
                              minwidth=50)
 
-        # Row tags for visual differentiation
-        self.tree.tag_configure("has_secret", background="#d4edda", foreground="#155724")
-        self.tree.tag_configure("no_secret", background="#ffffff", foreground="#212529")
-        self.tree.tag_configure("even_row", background="#f0f2f5", foreground="#212529")
-        self.tree.tag_configure("odd_row", background="#ffffff", foreground="#212529")
+        # Row tags for visual differentiation – derived from the active theme so
+        # dark themes aren't broken. The textual badge stays the primary signal.
+        style = ttk.Style()
+        colors = style.colors
+        self.tree.tag_configure("has_secret", background=colors.success,
+                                foreground=colors.selectfg)
+        self.tree.tag_configure("no_secret", background=colors.bg,
+                                foreground=colors.fg)
+        self.tree.tag_configure("even_row", background=colors.bg,
+                                foreground=colors.fg)
+        self.tree.tag_configure("odd_row", background=colors.inputbg,
+                                foreground=colors.fg)
 
         # Scrollbar
         vsb = ttk.Scrollbar(list_frame, orient="vertical",
@@ -130,10 +138,19 @@ class FriendsTab:
         list_frame.grid_rowconfigure(0, weight=1)
         list_frame.grid_columnconfigure(0, weight=1)
 
+        # Empty-state placeholder shown over the treeview area when no rows.
+        self._empty_label = ttk.Label(
+            list_frame, text="", font=("Segoe UI", 11),
+            bootstyle="secondary", anchor="center", justify="center",
+        )
+
         # Bindings
         self.tree.bind('<<TreeviewSelect>>', self.on_select)
         self.tree.bind('<Button-3>', self._show_context_menu)  # Right-click
-        self.tree.bind('<Motion>', self._on_motion)  # Tooltip on hover
+        self.tree.bind('<Motion>', self._on_motion)
+        self.tree.bind('<Delete>', lambda e: self.remove_friend_dialog())
+        self.tree.bind('<Double-1>', self.on_select)
+        self.tree.bind('<Return>', self.on_select)
 
         # ── Context menu ────────────────────────────────────────────────
         self.ctx_menu = tk.Menu(self.frame, tearoff=0)
@@ -206,9 +223,8 @@ class FriendsTab:
 
     # ---- Data refresh ----
     def refresh_list(self) -> None:
-        self.all_friend_names = [
-            friend["name"] for friend in self.service.get_all_friends()
-        ]
+        self._cached_friends = self.service.get_all_friends()
+        self.all_friend_names = [friend["name"] for friend in self._cached_friends]
         self.filter_list()
 
     def filter_list(self) -> None:
@@ -220,7 +236,7 @@ class FriendsTab:
             self.tree.delete(item)
 
         row_idx = 0
-        for friend in self.service.get_all_friends():
+        for friend in self._cached_friends:
             name = friend["name"]
             if query and query not in name.lower():
                 continue
@@ -262,26 +278,27 @@ class FriendsTab:
             row_idx += 1
 
         count = len(self.tree.get_children())
+        self._update_empty_state(count, query)
         self.status_var.set(f"{count} friend(s) listed" +
                             (f" • Filtered by \"{query}\"" if query else ""))
 
+    def _update_empty_state(self, count: int, query: str) -> None:
+        """Show a centered placeholder over the table when there are no rows."""
+        if count > 0:
+            self._empty_label.place_forget()
+            return
+        if self._cached_friends:
+            text = "No matches"
+        else:
+            text = "No friends yet — click ➕ Add Friend to get started"
+        self._empty_label.config(text=text)
+        self._empty_label.place(relx=0.5, rely=0.5, anchor="center")
+
     # ---- Hover tooltip ----
     def _on_motion(self, event) -> None:
-        region = self.tree.identify_region(event.x, event.y)
-        if region not in ("cell", "heading"):
-            return
-        iid = self.tree.identify_row(event.y)
-        if not iid or iid not in self._tooltips:
-            return
-
-        data = self._tooltips[iid]
-        tip_text = f"RSA: {data['rsa_fp']}"
-        if data['ecdh_fp']:
-            tip_text += f"\nECDH: {data['ecdh_fp']}"
-
-        # Simple approach: update tree's own tooltip-like behavior via status bar
-        self.status_var.set(f"{data['name']} | RSA: {data['rsa_fp']}" +
-                            (f" | ECDH: {data['ecdh_fp']}" if data['ecdh_fp'] else ""))
+        # Intentionally a no-op: previously this overwrote the shared status var
+        # on every mouse move, clobbering selection/action status.
+        return
 
     # ---- Context menu ----
     def _show_context_menu(self, event) -> None:
@@ -362,27 +379,25 @@ class FriendsTab:
         AddFriendDialog(parent, self.service, self._bg, self.refresh_list).show()
 
     def remove_friend_dialog(self) -> None:
-        names = self.service.get_friend_names()
-        if not names:
-            messagebox.showinfo("No Friends", "You have no friends to remove.")
+        name = self._get_selected_name()
+        if not name:
+            messagebox.showinfo("No Selection",
+                                "Select a friend in the list to remove.")
             return
 
-        # Pre-select currently selected friend if any
-        preselect = self._get_selected_name()
-
-        choice = simpledialog.askstring(
-            "Remove Friend",
-            f"Enter friend name to remove:\n{', '.join(names)}",
-            initialvalue=preselect or ""
-        )
-        if choice and choice in names:
-            if messagebox.askyesno("Confirm", f"Are you sure you want to remove '{choice}'?"):
-                self.service.remove_friend(choice)
-                self.refresh_list()
-                messagebox.showinfo("Removed", f"Friend '{choice}' removed.")
-                event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
-        elif choice:
-            messagebox.showerror("Not Found", "Name not found in friend list.")
+        if not messagebox.askyesno(
+            "Confirm Removal",
+            f"Are you sure you want to remove '{name}'?"
+        ):
+            return
+        try:
+            self.service.remove_friend(name)
+        except FriendsServiceError as e:
+            messagebox.showerror("Error", friendly_error(e))
+            return
+        self.refresh_list()
+        messagebox.showinfo("Removed", f"Friend '{name}' removed.")
+        event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
     def ecdh_with_selected(self) -> None:
         name = self._get_selected_name()
@@ -402,35 +417,44 @@ class FriendsTab:
             return
 
         new_secret, friend_x25519_b64 = result
-        if new_secret:
-            pw = password_dialog(parent,
-                                 "Enter master password to encrypt new shared secret",
-                                 confirm=False)
-            if pw:
-                if not self.service.verify_password(pw):
-                    messagebox.showerror("Wrong Password", "Master password incorrect.")
-                    return
-                try:
-                    self.service.update_shared_secret(
-                        name=name,
-                        new_secret=new_secret,
-                        master_password=pw,
-                        x25519_pub_b64=friend_x25519_b64,
-                    )
-                    self.refresh_list()
-                    messagebox.showinfo(
-                        "Success",
-                        f"Shared secret for {name} updated via ECDH.\n"
-                        "ECDH public key saved."
-                    )
-                except FriendsServiceError as e:
-                    messagebox.showerror("Error", str(e))
+        if not new_secret:
+            return
+
+        pw = password_dialog(parent,
+                             "Enter master password to encrypt new shared secret",
+                             confirm=False)
+        if not pw:
+            return
+        if not self.service.verify_password(pw):
+            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            return
+
+        def work():
+            self.service.update_shared_secret(
+                name=name,
+                new_secret=new_secret,
+                master_password=pw,
+                x25519_pub_b64=friend_x25519_b64,
+            )
+
+        def on_done(_):
+            self.refresh_list()
+            messagebox.showinfo(
+                "Success",
+                f"Shared secret for {name} updated via ECDH.\n"
+                "ECDH public key saved."
+            )
+
+        def on_error(exc):
+            messagebox.showerror("Error", friendly_error(exc))
+
+        run_busy(self.frame, work, on_done=on_done, on_error=on_error)
 
     def show_my_pubkey(self) -> None:
         try:
             info = self.service.get_my_public_info()
         except FriendsServiceError as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", friendly_error(e))
             return
 
         pem = info["public_key_pem"]
@@ -560,19 +584,27 @@ class FriendsTab:
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
-            try:
-                self.service.init_ratchet(name, role_var.get(), pw)
+            role = role_var.get()
+
+            def work():
+                self.service.init_ratchet(name, role, pw)
+
+            def on_done(_):
                 self.refresh_list()
                 dlg.destroy()
                 messagebox.showinfo(
                     "Success",
-                    f"Double Ratchet session initialized as {role_var.get().upper()} "
+                    f"Double Ratchet session initialized as {role.upper()} "
                     f"for '{name}'.\n\n"
                     "Messages to/from this friend will now use forward-secret encryption."
                 )
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
-            except FriendsServiceError as e:
-                messagebox.showerror("Ratchet Init Failed", str(e), parent=dlg)
+
+            def on_error(exc):
+                messagebox.showerror("Ratchet Init Failed", friendly_error(exc),
+                                     parent=dlg)
+
+            run_busy(dlg, work, on_done=on_done, on_error=on_error)
 
         ttk.Button(btn_frame, text="🔐 Initialize", command=do_init,
                    bootstyle="warning").pack(side=tk.RIGHT, padx=5)
@@ -610,14 +642,19 @@ class FriendsTab:
             messagebox.showerror("Wrong Password", "Master password incorrect.")
             return
 
-        try:
+        def work():
             self.service.reset_ratchet(name, master_password=pw)
+
+        def on_done(_):
             self.refresh_list()
             messagebox.showinfo("Reset Complete",
                                 f"Ratchet session for '{name}' has been deleted.")
             event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
-        except FriendsServiceError as e:
-            messagebox.showerror("Error", str(e))
+
+        def on_error(exc):
+            messagebox.showerror("Error", friendly_error(exc))
+
+        run_busy(self.frame, work, on_done=on_done, on_error=on_error)
 
     def pqc_exchange_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()

@@ -14,6 +14,9 @@ import base64
 from services.friends import FriendsService, FriendsServiceError
 from services.ecdh_service import ECDHService
 from views.dialogs import password_dialog
+from views.utils import init_modal, friendly_error
+from src.crypto_utils import pem_to_pubkey, pubkey_to_pem
+from crypto import sha256_fingerprint
 
 
 class UpdateFriendKeysDialog:
@@ -54,6 +57,8 @@ class UpdateFriendKeysDialog:
         dlg.grab_set()
         dlg.configure(bg=self.bg)
 
+        init_modal(dlg, self.parent)
+
         # ── Friend selector ──────────────────────────────────────────────
         top = ttk.Frame(dlg, padding=(15, 12, 15, 6))
         top.pack(fill=tk.X)
@@ -61,7 +66,8 @@ class UpdateFriendKeysDialog:
         ttk.Label(top, text="Friend:", font=("Segoe UI", 10, "bold")).pack(
             side=tk.LEFT, padx=(0, 8))
         friend_names = self.friends_service.get_friend_names()
-        friend_var = tk.StringVar(value=self.preselect_name or (friend_names[0] if friend_names else ""))
+        preselect = self.preselect_name if self.preselect_name and self.preselect_name in friend_names else (friend_names[0] if friend_names else "")
+        friend_var = tk.StringVar(value=preselect)
         friend_combo = ttk.Combobox(top, textvariable=friend_var,
                                     values=friend_names, state="readonly",
                                     width=35, bootstyle="primary")
@@ -118,14 +124,11 @@ class UpdateFriendKeysDialog:
                 rsa_fp_var.set("")
                 return
             try:
-                from src.crypto_utils import pem_to_pubkey as _check
-                from crypto import sha256_fingerprint
-                pub = _check(pem)
-                from src.crypto_utils import pubkey_to_pem as _topem
-                fp = sha256_fingerprint(_topem(pub).encode())
+                pub = pem_to_pubkey(pem)
+                fp = sha256_fingerprint(pubkey_to_pem(pub).encode())
                 rsa_fp_var.set(f"✅ New fingerprint: {fp}")
             except Exception as e:
-                rsa_fp_var.set(f"⚠ Invalid PEM: {e}")
+                rsa_fp_var.set(f"⚠ Invalid PEM: {friendly_error(e)}")
 
         rsa_text.bind("<KeyRelease>", on_rsa_change)
 
@@ -147,7 +150,7 @@ class UpdateFriendKeysDialog:
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_rsa, text="🔑 Update RSA Key", command=do_update_rsa,
                    bootstyle="primary").pack(anchor="w")
@@ -213,7 +216,7 @@ class UpdateFriendKeysDialog:
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_ecdh, text="🔁 Update ECDH Key", command=do_update_ecdh,
                    bootstyle="secondary").pack(anchor="w")
@@ -280,7 +283,7 @@ class UpdateFriendKeysDialog:
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_pqc, text="🛡 Update PQC Key", command=do_update_pqc,
                    bootstyle="info").pack(anchor="w")
@@ -352,7 +355,7 @@ class UpdateFriendKeysDialog:
                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", str(e), parent=dlg)
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_hsig, text="✍️ Update Hybrid Sig Key", command=do_update_hsig,
                    bootstyle="success").pack(anchor="w")
@@ -377,8 +380,11 @@ class UpdateFriendKeysDialog:
             has_hs = details.get("has_hybrid_sig_key")
             if has_hs:
                 hs_b64 = self.friends_service.get_friend_hybrid_sig_pub_b64(fname)
-                fp = self.friends_service.get_hybrid_sig_key_fingerprint(hs_b64) if hs_b64 else None
-                hsig_current_var.set(f"Stored (fp: {fp})" if fp else "Stored")
+                if hs_b64:
+                    fp = self.friends_service.get_hybrid_sig_key_fingerprint(hs_b64)
+                    hsig_current_var.set(f"Stored (fp: {fp})" if fp else "Stored")
+                else:
+                    hsig_current_var.set("Not configured")
             else:
                 hsig_current_var.set("Not configured")
 

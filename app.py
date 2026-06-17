@@ -29,8 +29,14 @@ from controllers.service_orchestrator import ServiceOrchestrator
 from services.event_bus import event_bus, Events
 from services.totp_persistence import TotpPersistence
 from builders.app_builder import AppBuilder
+from views.utils import friendly_error
 
 logger = logging.getLogger(__name__)
+
+# Cross-platform UI fonts (avoid hardcoding Windows-only families/sizes inline).
+FONT_TITLE = ("Segoe UI", 16, "bold")
+FONT_SUBTITLE = ("Segoe UI", 10)
+FONT_BUTTON = ("Segoe UI", 9, "bold")
 
 
 class EnigmaApp:
@@ -38,8 +44,21 @@ class EnigmaApp:
         self.root = root
 
         builder = AppBuilder(root)
-        built = builder.build()
-        if built is None:
+        try:
+            built = builder.build()
+            if built is None:
+                raise RuntimeError("AppBuilder.build() returned None")
+        except Exception as e:
+            logger.exception("Application build failed; aborting startup")
+            messagebox.showerror(
+                "Startup Error",
+                "The application could not be initialized and will now close.\n\n"
+                + friendly_error(e)
+            )
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
             return
 
         self.ks = built["ks"]
@@ -103,29 +122,25 @@ class EnigmaApp:
         header.pack_propagate(False)
 
         ttk.Label(header, text="ULTIMATE ENIGMA MESSENGER",
-                  font=("Segoe UI", 16, "bold"),
+                  font=FONT_TITLE,
                   bootstyle="inverse-warning").pack(side=tk.LEFT, padx=20, pady=10)
 
         ttk.Label(header, text="Hybrid Encryption · AES‑GCM + RSA‑OAEP · Time‑based keys",
-                  font=("Segoe UI", 8),
+                  font=FONT_SUBTITLE,
                   bootstyle="inverse-secondary").pack(side=tk.LEFT, padx=5)
 
         # Emergency Lock Button
-        lock_btn = tk.Button(
+        lock_btn = ttk.Button(
             header, text="🔒 EMERGENCY\nLOCK",
-            font=("Segoe UI", 9, "bold"),
-            bg="#cc0000", fg="white", activebackground="#ff0000",
-            activeforeground="white", bd=0, padx=10, pady=5,
+            bootstyle="danger",
             cursor="hand2", command=self._emergency_lock
         )
         lock_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
 
         # TOTP Setup Button
-        totp_setup_btn = tk.Button(
+        totp_setup_btn = ttk.Button(
             header, text="🔑 TOTP\nSetup",
-            font=("Segoe UI", 9, "bold"),
-            bg="#007bff", fg="white", activebackground="#0056b3",
-            activeforeground="white", bd=0, padx=10, pady=5,
+            bootstyle="primary",
             cursor="hand2", command=lambda: self.auth_controller.show_totp_setup()
         )
         totp_setup_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
@@ -214,20 +229,48 @@ class EnigmaApp:
         self._notebook = notebook
         notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
+        # Transient status bar for non-blocking feedback (e.g. unlock success).
+        self._status_var = tk.StringVar(value="")
+        self._status_clear_job = None
+        status_bar = ttk.Label(
+            self.root, textvariable=self._status_var,
+            bootstyle="inverse-dark", anchor="w", font=FONT_SUBTITLE
+        )
+        status_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def _set_status(self, text: str, clear_after_ms: int = 2000) -> None:
+        """Show a transient status message that self-clears after a delay."""
+        self._status_var.set(text)
+        if self._status_clear_job is not None:
+            try:
+                self.root.after_cancel(self._status_clear_job)
+            except Exception:
+                pass
+            self._status_clear_job = None
+        if clear_after_ms:
+            self._status_clear_job = self.root.after(
+                clear_after_ms, lambda: self._status_var.set("")
+            )
+
     def _on_tab_changed(self, event):
-        """Handle tab change events to auto-refresh content."""
+        """Handle tab change events to auto-refresh content.
+
+        Matches on the selected frame's widget path (exact identity) rather than
+        a substring of the display text, which is fragile to label changes.
+        """
         try:
             selected = self._notebook.select()
-            if selected:
-                tab_text = self._notebook.tab(selected, "text")
-                if "Friends" in tab_text:
-                    self.friends_tab.refresh_list()
-                elif "File" in tab_text:
-                    self.file_tab.refresh_list()
-                elif "Trust" in tab_text:
-                    self.trust_tab.refresh_list()
-                elif "Encrypt" in tab_text:
-                    self.encrypt_tab._update_friend_list()
+            if not selected:
+                return
+            refreshers = {
+                str(self.friends_tab.frame): self.friends_tab.refresh_list,
+                str(self.file_tab.frame): self.file_tab.refresh_list,
+                str(self.trust_tab.frame): self.trust_tab.refresh_list,
+                str(self.encrypt_tab.frame): self.encrypt_tab._update_friend_list,
+            }
+            refresh = refreshers.get(str(selected))
+            if refresh is not None:
+                refresh()
         except Exception as e:
             logger.warning("Tab change handler error (non-critical): %s", e)
 
@@ -256,40 +299,53 @@ class EnigmaApp:
             return
 
         success, new_ks, new_totp = self.auth_controller.request_unlock(self.ks)
-        
+
         if not success:
             return
 
-        # Restore keys and services
-        self.ks = new_ks
-        self.auth_controller.ks = new_ks
-        self.auth_controller.totp_service = new_totp
-        self.totp_persistence.ks = new_ks
+        # The remaining steps (key restore, service rebuild, trust chain rebuild,
+        # tab refresh) run synchronously and briefly freeze the UI. Show a busy
+        # cursor so the freeze is communicated. These steps are security-sensitive
+        # and ordering must be preserved, so they are NOT offloaded off-thread.
+        try:
+            self.root.configure(cursor="watch")
+            self.root.update_idletasks()
 
-        # Rebuild services with restored keys
-        tab_refs = {
-            "encrypt": self.encrypt_tab,
-            "decrypt": self.decrypt_tab,
-            "file": self.file_tab,
-            "secret": self.secret_tab,
-            "friends": self.friends_tab,
-            "trust": self.trust_tab,
-            "ntp": self.ntp_tab
-        }
-        self.service_orchestrator.rebuild_services(new_ks, tab_refs)
+            # Restore keys and services
+            self.ks = new_ks
+            self.auth_controller.ks = new_ks
+            self.auth_controller.totp_service = new_totp
+            self.totp_persistence.ks = new_ks
 
-        # Rebuild trust chain service with restored keys
-        self.trust_chain_service = TrustChainService(new_ks)
-        self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
+            # Rebuild services with restored keys
+            tab_refs = {
+                "encrypt": self.encrypt_tab,
+                "decrypt": self.decrypt_tab,
+                "file": self.file_tab,
+                "secret": self.secret_tab,
+                "friends": self.friends_tab,
+                "trust": self.trust_tab,
+                "ntp": self.ntp_tab
+            }
+            self.service_orchestrator.rebuild_services(new_ks, tab_refs)
 
-        # Update trust tab with fresh services
-        self.trust_tab.trust_service = self.trust_chain_service
-        self.trust_tab.friends_service = self.service_orchestrator.friends_service
+            # Rebuild trust chain service with restored keys
+            self.trust_chain_service = TrustChainService(new_ks)
+            self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
 
-        self._is_locked = False
-        self.lock_screen.unlock()
+            # Update trust tab with fresh services
+            self.trust_tab.trust_service = self.trust_chain_service
+            self.trust_tab.friends_service = self.service_orchestrator.friends_service
 
-        messagebox.showinfo("Unlocked", "Application unlocked successfully.\nAll keys restored.")
+            self._is_locked = False
+            self.lock_screen.unlock()
+        finally:
+            try:
+                self.root.configure(cursor="")
+            except Exception:
+                pass
+
+        self._set_status("🔓 Unlocked — all keys restored.")
         logger.info("Application unlocked successfully")
 
 
@@ -306,34 +362,43 @@ class EnigmaApp:
         if not success or new_ks is None:
             return
 
-        # Restore keys and services
-        self.ks = new_ks
-        self.auth_controller.ks = new_ks
-        self.auth_controller.totp_service = new_totp
-        self.totp_persistence.ks = new_ks
+        try:
+            self.root.configure(cursor="watch")
+            self.root.update_idletasks()
 
-        # Rebuild services with restored keys
-        tab_refs = {
-            "encrypt": self.encrypt_tab,
-            "decrypt": self.decrypt_tab,
-            "file": self.file_tab,
-            "secret": self.secret_tab,
-            "friends": self.friends_tab,
-            "trust": self.trust_tab,
-            "ntp": self.ntp_tab
-        }
-        self.service_orchestrator.rebuild_services(new_ks, tab_refs)
+            # Restore keys and services
+            self.ks = new_ks
+            self.auth_controller.ks = new_ks
+            self.auth_controller.totp_service = new_totp
+            self.totp_persistence.ks = new_ks
 
-        # Rebuild trust chain service with restored keys
-        self.trust_chain_service = TrustChainService(new_ks)
-        self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
+            # Rebuild services with restored keys
+            tab_refs = {
+                "encrypt": self.encrypt_tab,
+                "decrypt": self.decrypt_tab,
+                "file": self.file_tab,
+                "secret": self.secret_tab,
+                "friends": self.friends_tab,
+                "trust": self.trust_tab,
+                "ntp": self.ntp_tab
+            }
+            self.service_orchestrator.rebuild_services(new_ks, tab_refs)
 
-        # Update trust tab with fresh services
-        self.trust_tab.trust_service = self.trust_chain_service
-        self.trust_tab.friends_service = self.service_orchestrator.friends_service
+            # Rebuild trust chain service with restored keys
+            self.trust_chain_service = TrustChainService(new_ks)
+            self.service_orchestrator.friends_service.set_trust_chain_service(self.trust_chain_service)
 
-        self._is_locked = False
-        self.lock_screen.unlock()
+            # Update trust tab with fresh services
+            self.trust_tab.trust_service = self.trust_chain_service
+            self.trust_tab.friends_service = self.service_orchestrator.friends_service
+
+            self._is_locked = False
+            self.lock_screen.unlock()
+        finally:
+            try:
+                self.root.configure(cursor="")
+            except Exception:
+                pass
 
         messagebox.showinfo(
             "Recovery Complete",

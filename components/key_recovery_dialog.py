@@ -1,5 +1,6 @@
 import base64
 import json
+import logging
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -10,6 +11,9 @@ import database
 from services.event_bus import event_bus, Events
 from services.shamir_service import ShamirService, generate_recovery_key
 from views.dialogs import password_dialog
+from views.utils import init_modal, run_busy, friendly_error
+
+logger = logging.getLogger(__name__)
 
 _SHARE_FILE_EXT = ".enigma-share"
 _SHARE_FILE_TYPE = [("Enigma Share", "*.enigma-share"), ("All files", "*.*")]
@@ -52,8 +56,6 @@ class KeyRecoveryDialog:
         dlg.geometry("740x640")
         dlg.resizable(True, True)
         dlg.minsize(640, 540)
-        dlg.transient(self.parent)
-        dlg.grab_set()
         dlg.configure(bg=self.bg)
 
         notebook = ttk.Notebook(dlg, bootstyle="warning")
@@ -85,6 +87,8 @@ class KeyRecoveryDialog:
 
         ttk.Button(dlg, text="Close", command=dlg.destroy,
                    bootstyle="secondary-outline").pack(pady=(0, 10))
+
+        init_modal(dlg, self.parent)
 
     # ------------------------------------------------------------------
     # Split tab
@@ -202,14 +206,14 @@ class KeyRecoveryDialog:
                 )
                 return
 
-            try:
+            status_var.set("")
+
+            def _work():
+                # Heavy crypto + DB writes off the UI thread. NO UI calls here.
                 recovery_key = generate_recovery_key(32)
                 shares = self.shamir_service.split_secret(recovery_key, n, k)
-
-                shares_display.config(state="normal")
-                shares_display.delete("1.0", tk.END)
-
                 now = time.time()
+                rows = []
                 for idx, (share_index, share_bytes) in enumerate(shares):
                     holder = (selected_names[idx]
                               if idx < len(selected_names) else f"Share {share_index}")
@@ -230,15 +234,21 @@ class KeyRecoveryDialog:
                         "created_at": now,
                     }
                     database.save_recovery_share(share_dict)
-                    _split_result[holder] = share_dict
+                    rows.append((share_index, holder, encrypted_b64,
+                                 len(encrypted_bytes), share_dict))
+                return rows
 
+            def _done(rows):
+                shares_display.config(state="normal")
+                shares_display.delete("1.0", tk.END)
+                for share_index, holder, encrypted_b64, byte_len, share_dict in rows:
+                    _split_result[holder] = share_dict
                     shares_display.insert(
                         tk.END,
                         f"Share #{share_index} → {holder}  "
-                        f"[RSA-encrypted, {len(encrypted_bytes)} bytes]\n"
+                        f"[RSA-encrypted, {byte_len} bytes]\n"
                         f"{encrypted_b64[:48]}…\n\n",
                     )
-
                 shares_display.config(state="disabled")
 
                 # Build per-friend export buttons
@@ -288,11 +298,17 @@ class KeyRecoveryDialog:
                     "Friends can import their file in the 'Held Shares' tab.",
                     parent=dlg,
                 )
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to split key:\n{e}", parent=dlg)
 
-        ttk.Button(parent, text="Generate & Distribute Shares",
-                   command=do_split, bootstyle="warning").pack(anchor="w")
+            def _err(e):
+                logger.exception("Failed to split key")
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[split_btn])
+
+        split_btn = ttk.Button(parent, text="Generate & Distribute Shares",
+                               command=do_split, bootstyle="warning")
+        split_btn.pack(anchor="w")
 
     # ------------------------------------------------------------------
     # Recover tab
@@ -388,9 +404,11 @@ class KeyRecoveryDialog:
                 try:
                     plain_bytes = self.friends_service.decrypt_share(enc_bytes)
                 except Exception as dec_err:
+                    logger.exception("Share decryption failed")
                     messagebox.showerror(
                         "Decryption Failed",
-                        f"Could not decrypt the share with your RSA private key:\n{dec_err}\n\n"
+                        "Could not decrypt the share with your RSA private key.\n\n"
+                        + friendly_error(dec_err) + "\n\n"
                         "Make sure this share file was created for you.",
                         parent=dlg,
                     )
@@ -404,8 +422,10 @@ class KeyRecoveryDialog:
                     parent=dlg,
                 )
             except Exception as e:
+                logger.exception("Failed to import share file")
                 messagebox.showerror("Import Failed",
-                                     f"Failed to import share file:\n{e}", parent=dlg)
+                                     "Failed to import share file.\n\n"
+                                     + friendly_error(e), parent=dlg)
 
         ttk.Button(btn_row, text="Import .enigma-share File",
                    command=import_share_file,
@@ -435,16 +455,29 @@ class KeyRecoveryDialog:
                 for share_idx, b64_str in raw_shares:
                     share_bytes = base64.b64decode(b64_str)
                     parsed.append((share_idx, share_bytes))
+            except Exception as e:
+                logger.exception("Invalid share encoding")
+                messagebox.showerror("Invalid Shares",
+                                     friendly_error(e), parent=dlg)
+                return
 
-                if len(set(len(s[1]) for s in parsed)) != 1:
-                    messagebox.showerror("Invalid Shares",
-                                         "All shares must have the same length.",
-                                         parent=dlg)
-                    return
+            if len(set(len(s[1]) for s in parsed)) != 1:
+                messagebox.showerror("Invalid Shares",
+                                     "All shares must have the same length.",
+                                     parent=dlg)
+                return
 
-                expected_len = len(parsed[0][1])
-                reconstructed = self.shamir_service.reconstruct_secret(parsed, expected_len)
+            expected_len = len(parsed[0][1])
 
+            def _work():
+                return self.shamir_service.reconstruct_secret(parsed, expected_len)
+
+            def _err(e):
+                logger.exception("Failed to reconstruct key")
+                messagebox.showerror("Reconstruction Failed",
+                                     friendly_error(e), parent=dlg)
+
+            def _done(reconstructed):
                 full_b64 = base64.b64encode(reconstructed).decode("ascii")
                 masked = full_b64[:8] + "●" * (len(full_b64) - 8)
 
@@ -462,73 +495,104 @@ class KeyRecoveryDialog:
                     recovered_key_b64=full_b64,
                 )
 
-            except Exception as e:
-                messagebox.showerror("Reconstruction Failed",
-                                     f"Failed to reconstruct key:\n{e}", parent=dlg)
+                if _reconstructed_state["action_frame"] is not None:
+                    _reconstructed_state["action_frame"].destroy()
+
+                action_frame = ttk.Frame(parent)
+                action_frame.pack(fill=tk.X, pady=(0, 5))
+                _reconstructed_state["action_frame"] = action_frame
+
+                def copy_key():
+                    key_b64 = _reconstructed_state["key_b64"]
+                    self.parent.clipboard_clear()
+                    self.parent.clipboard_append(key_b64)
+
+                    def _auto_clear():
+                        # Only clear if the clipboard still holds the key, so we
+                        # don't clobber something the user copied afterwards.
+                        try:
+                            if self.parent.clipboard_get() == key_b64:
+                                self.parent.clipboard_clear()
+                        except Exception:
+                            # No clipboard / not our content — clear defensively.
+                            try:
+                                self.parent.clipboard_clear()
+                            except Exception:
+                                logger.debug("clipboard auto-clear failed",
+                                             exc_info=True)
+                    dlg.after(30000, _auto_clear)
+
+                    messagebox.showinfo(
+                        "Copied",
+                        "Recovery key copied to clipboard.\n"
+                        "Use it immediately. For your security the clipboard "
+                        "will be cleared automatically after 30 seconds.",
+                        parent=dlg)
+
+                ttk.Button(action_frame, text="Copy to Clipboard",
+                           command=copy_key, bootstyle="warning").pack(side=tk.LEFT, padx=(0, 8))
+
+                _build_apply_button(action_frame)
+
+            run_busy(dlg, _work, on_done=_done, on_error=_err,
+                     busy_widgets=[reconstruct_btn])
+
+        def _build_apply_button(action_frame):
+            if self.global_secret_service is None:
                 return
 
-            if _reconstructed_state["action_frame"] is not None:
-                _reconstructed_state["action_frame"].destroy()
-
-            action_frame = ttk.Frame(parent)
-            action_frame.pack(fill=tk.X, pady=(0, 5))
-            _reconstructed_state["action_frame"] = action_frame
-
-            def copy_key():
-                self.parent.clipboard_clear()
-                self.parent.clipboard_append(_reconstructed_state["key_b64"])
-                messagebox.showinfo("Copied",
-                                    "Recovery key copied to clipboard.\n"
-                                    "Use it immediately and clear clipboard.",
-                                    parent=dlg)
-
-            ttk.Button(action_frame, text="Copy to Clipboard",
-                       command=copy_key, bootstyle="warning").pack(side=tk.LEFT, padx=(0, 8))
-
-            if self.global_secret_service is not None:
-                def apply_as_master_key():
-                    key_bytes = _reconstructed_state["key_bytes"]
-                    if key_bytes is None:
-                        return
-                    if len(key_bytes) != 32:
-                        messagebox.showerror(
-                            "Invalid Key Length",
-                            f"Reconstructed key is {len(key_bytes)} bytes; "
-                            "exactly 32 bytes required to set as master key.",
-                            parent=dlg,
-                        )
-                        return
-                    confirmed = messagebox.askyesno(
-                        "Replace Master Key",
-                        "This will replace your current master key with the reconstructed key.\n\n"
-                        "Any data encrypted with the old key will need to be re-encrypted manually.\n\n"
-                        "Continue?",
-                        icon="warning",
+            def apply_as_master_key():
+                key_bytes = _reconstructed_state["key_bytes"]
+                if key_bytes is None:
+                    return
+                if len(key_bytes) != 32:
+                    messagebox.showerror(
+                        "Invalid Key Length",
+                        f"Reconstructed key is {len(key_bytes)} bytes; "
+                        "exactly 32 bytes required to set as master key.",
                         parent=dlg,
                     )
-                    if not confirmed:
-                        return
-                    try:
-                        self.global_secret_service.update_secret(key_bytes, master_pw)
-                        messagebox.showinfo(
-                            "Key Applied",
-                            "Master key has been replaced with the reconstructed recovery key.\n"
-                            "Your session is now using the recovered key.",
-                            parent=dlg,
-                        )
-                    except Exception as exc:
-                        messagebox.showerror("Apply Failed",
-                                             f"Failed to apply recovered key:\n{exc}",
-                                             parent=dlg)
+                    return
+                confirmed = messagebox.askyesno(
+                    "Replace Master Key",
+                    "This will replace your current master key with the reconstructed key.\n\n"
+                    "Any data encrypted with the old key will need to be re-encrypted manually.\n\n"
+                    "Continue?",
+                    icon="warning",
+                    parent=dlg,
+                )
+                if not confirmed:
+                    return
 
-                ttk.Button(action_frame, text="Apply as Master Key",
-                           command=apply_as_master_key,
-                           bootstyle="danger").pack(side=tk.LEFT)
+                def _work():
+                    self.global_secret_service.update_secret(key_bytes, master_pw)
+
+                def _ok(_result):
+                    messagebox.showinfo(
+                        "Key Applied",
+                        "Master key has been replaced with the reconstructed recovery key.\n"
+                        "Your session is now using the recovered key.",
+                        parent=dlg,
+                    )
+
+                def _fail(exc):
+                    logger.exception("Failed to apply recovered key")
+                    messagebox.showerror("Apply Failed",
+                                         friendly_error(exc), parent=dlg)
+
+                run_busy(dlg, _work, on_done=_ok, on_error=_fail,
+                         busy_widgets=[apply_btn])
+
+            apply_btn = ttk.Button(action_frame, text="Apply as Master Key",
+                                   command=apply_as_master_key,
+                                   bootstyle="danger")
+            apply_btn.pack(side=tk.LEFT)
 
         ttk.Label(parent, textvariable=result_var,
                   font=("Segoe UI", 9), bootstyle="success").pack(anchor="w", pady=(0, 8))
-        ttk.Button(parent, text="Reconstruct Key", command=do_reconstruct,
-                   bootstyle="warning").pack(anchor="w")
+        reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
+                                     command=do_reconstruct, bootstyle="warning")
+        reconstruct_btn.pack(anchor="w")
 
     # ------------------------------------------------------------------
     # Held Shares tab  (shares this user is holding for others)
@@ -567,12 +631,23 @@ class KeyRecoveryDialog:
         tree.configure(yscrollcommand=sb.set)
         tree.pack(fill=tk.BOTH, expand=True, pady=(0, 8))
 
+        held_status_var = tk.StringVar(value="")
+        ttk.Label(parent, textvariable=held_status_var,
+                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+
         _held: list = []
 
         def load_held():
             tree.delete(*tree.get_children())
             _held.clear()
-            for row in database.get_all_held_shares():
+            try:
+                rows = database.get_all_held_shares()
+            except Exception:
+                logger.exception("Failed to load held shares")
+                held_status_var.set("⚠ Failed to load held shares — see logs")
+                return
+            held_status_var.set("")
+            for row in rows:
                 _held.append(row)
                 created_str = time.strftime(
                     "%Y-%m-%d %H:%M",
@@ -612,9 +687,11 @@ class KeyRecoveryDialog:
                 try:
                     plain_bytes = self.friends_service.decrypt_share(enc_bytes)
                 except Exception as dec_err:
+                    logger.exception("Held-share decryption failed")
                     messagebox.showerror(
                         "Decryption Failed",
-                        f"Could not decrypt the share:\n{dec_err}\n\n"
+                        "Could not decrypt the share.\n\n"
+                        + friendly_error(dec_err) + "\n\n"
                         "This file may not have been encrypted for you, "
                         "or your RSA key does not match.",
                         parent=dlg,
@@ -645,8 +722,10 @@ class KeyRecoveryDialog:
                     parent=dlg,
                 )
             except Exception as e:
+                logger.exception("Failed to import held share")
                 messagebox.showerror("Import Failed",
-                                     f"Failed to import share:\n{e}", parent=dlg)
+                                     "Failed to import share.\n\n"
+                                     + friendly_error(e), parent=dlg)
 
         def export_back():
             sel = tree.selection()
@@ -677,16 +756,33 @@ class KeyRecoveryDialog:
                 enc_b64 = base64.b64encode(enc_bytes).decode("ascii")
                 note = "RSA-encrypted to owner"
             else:
-                # Owner not in friend list — export as plaintext with warning
-                enc_b64 = row["plaintext_share_b64"]
-                note = "plaintext (owner not in friend list)"
-                messagebox.showwarning(
-                    "Owner Not Found",
-                    f"'{owner}' is not in your friend list.\n"
-                    "The share will be exported as plaintext.\n"
-                    "Send the file only through a secure channel.",
+                # Owner not in friend list — we cannot RSA-encrypt the share.
+                # Exporting it as plaintext is dangerous, so require explicit,
+                # informed confirmation before doing so. Abort if declined.
+                proceed = messagebox.askyesno(
+                    "Export UNENCRYPTED Recovery Share?",
+                    f"'{owner}' is not in your friend list, so this recovery "
+                    "share cannot be encrypted to them.\n\n"
+                    "⚠ The share will be written to disk UNENCRYPTED. Anyone who "
+                    "obtains the file can use it toward reconstructing the "
+                    "owner's recovery key.\n\n"
+                    "Only continue if you will transfer the file over a secure "
+                    "channel and delete it afterwards.\n\n"
+                    "Export the share UNENCRYPTED anyway?",
+                    icon="warning",
+                    default="no",
                     parent=dlg,
                 )
+                if not proceed:
+                    messagebox.showinfo(
+                        "Export Cancelled",
+                        "No file was written. Add the owner as a friend so the "
+                        "share can be encrypted to them, then export again.",
+                        parent=dlg,
+                    )
+                    return
+                enc_b64 = row["plaintext_share_b64"]
+                note = "plaintext (owner not in friend list)"
             export_payload = {
                 "type": "enigma_recovery_share",
                 "version": 1,
@@ -772,10 +868,20 @@ class KeyRecoveryDialog:
         tree.configure(yscrollcommand=scrollbar.set)
         tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
 
+        status_status_var = tk.StringVar(value="")
+        ttk.Label(parent, textvariable=status_status_var,
+                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+
         def load_status():
             for item in tree.get_children():
                 tree.delete(item)
-            friend_names = self.friends_service.get_friend_names()
+            had_error = False
+            try:
+                friend_names = self.friends_service.get_friend_names()
+            except Exception:
+                logger.exception("Failed to load friend names for share status")
+                status_status_var.set("⚠ Failed to load share status — see logs")
+                return
             for name in friend_names:
                 try:
                     shares = database.get_recovery_shares_for(name)
@@ -793,7 +899,11 @@ class KeyRecoveryDialog:
                             "Encrypted ✓",
                         ))
                 except Exception:
-                    pass
+                    logger.exception("Failed to load recovery shares for %s", name)
+                    had_error = True
+            status_status_var.set(
+                "⚠ Some share status could not be loaded — see logs"
+                if had_error else "")
 
         load_status()
 

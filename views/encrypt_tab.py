@@ -14,6 +14,7 @@ from services.clipboard_service import ClipboardService
 from services.pqc_service import is_pqc_available
 from src.exceptions import CryptoTimeoutError
 from src.crypto_task_helper import submit_crypto_task
+from views.utils import friendly_error, flash_widget_text
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +99,9 @@ class EncryptTab:
         # Buttons – always visible on the right
         ttk.Button(opts, text="Clear", command=self.clear_input,
                    bootstyle="secondary-outline").grid(row=0, column=11, padx=5, sticky=tk.E)
-        ttk.Button(opts, text="Encrypt & Send", command=self.send_message,
-                   bootstyle="success").grid(row=0, column=12, padx=5, sticky=tk.E)
+        self.send_btn = ttk.Button(opts, text="Encrypt & Send", command=self.send_message,
+                                   bootstyle="success")
+        self.send_btn.grid(row=0, column=12, padx=5, sticky=tk.E)
 
         # Message input
         msg_frame = ttk.Labelframe(self.frame, text="Write your message",
@@ -109,24 +111,49 @@ class EncryptTab:
             msg_frame, height=8, wrap=tk.WORD
         )
         self.msg_input.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Keyboard shortcuts: Ctrl+Enter sends, Escape clears
+        self.msg_input.bind("<Control-Return>", lambda e: (self.send_message(), "break")[1])
+        self.msg_input.bind("<Escape>", lambda e: (self.clear_input(), "break")[1])
 
         # Sent messages log
         sent_frame = ttk.Labelframe(self.frame, text="Sent messages (Base64)",
                                     bootstyle="info")
         sent_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        # Read-only so users can't accidentally corrupt the ciphertext history
         self.sent_log = ttk.ScrolledText(
-            sent_frame, height=6, wrap=tk.WORD, state='normal'
+            sent_frame, height=6, wrap=tk.WORD, state='disabled'
         )
         self.sent_log.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         # Bottom button bar
         btn_bar = ttk.Frame(self.frame)
         btn_bar.pack(fill=tk.X, padx=10, pady=(0, 5))
-        ttk.Button(btn_bar, text="Copy Last Sent", command=self.copy_last_sent,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_bar, text="Clear Log",
-                   command=lambda: self.sent_log.delete("1.0", tk.END),
+        self.copy_btn = ttk.Button(btn_bar, text="Copy Last Sent", command=self.copy_last_sent,
+                                   bootstyle="info-outline")
+        self.copy_btn.pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_bar, text="Clear Log", command=self.clear_log,
                    bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+
+    def _set_busy(self, busy: bool) -> None:
+        try:
+            self.send_btn.configure(state="disabled" if busy else "normal")
+            self.frame.winfo_toplevel().configure(cursor="watch" if busy else "")
+        except Exception:
+            logger.debug("set_busy failed", exc_info=True)
+
+    def clear_log(self) -> None:
+        self.sent_log.configure(state='normal')
+        has_content = bool(self.sent_log.get("1.0", tk.END).strip())
+        self.sent_log.configure(state='disabled')
+        if not has_content:
+            return
+        if messagebox.askyesno(
+            "Clear Log",
+            "Clear the entire sent-messages history? This cannot be undone."
+        ):
+            self.sent_log.configure(state='normal')
+            self.sent_log.delete("1.0", tk.END)
+            self.sent_log.configure(state='disabled')
 
     def _update_friend_list(self) -> None:
         """Fetch friend names from service instead of direct model access."""
@@ -222,21 +249,22 @@ class EncryptTab:
 
         def _on_success(b64):
             """Handle successful encryption (runs on main thread)."""
+            self._set_busy(False)
             self.last_sent_b64 = b64
             self._log_sent(b64)
 
         def _on_error(exc):
             """Handle encryption error (runs on main thread)."""
+            self._set_busy(False)
             logger.exception("Encryption failed")
-
-        error_map = {
-            CryptoTimeoutError: (
-                "Timeout",
-                "Encryption operation timed out. The system may be under "
-                "heavy load. Please try again."
-            ),
-            EncryptionError: ("Encryption Error", None),
-        }
+            if isinstance(exc, CryptoTimeoutError):
+                messagebox.showerror(
+                    "Timeout",
+                    "Encryption timed out. The system may be under heavy load. "
+                    "Please try again."
+                )
+            else:
+                messagebox.showerror("Encryption Error", friendly_error(exc))
 
         # Determine timeout based on mode
         if mode == "pqc":
@@ -246,6 +274,7 @@ class EncryptTab:
         else:
             timeout = 30.0
 
+        self._set_busy(True)
         submit_crypto_task(
             crypto_queue=self.crypto_queue,
             do_work=_do_encrypt,
@@ -253,7 +282,6 @@ class EncryptTab:
             on_error=_on_error,
             frame=self.frame,
             fallback_timeout=timeout,
-            error_map=error_map,
         )
 
     def _log_sent(self, b64_text: str) -> None:
@@ -266,23 +294,22 @@ class EncryptTab:
         elif mode == "legacy":
             mode_label = "\U0001f511 Legacy AES-GCM"
         else:
-            mode_label = "Unknown mode"
+            mode_label = "\U0001f510 Encrypted"
+        self.sent_log.configure(state='normal')
         self.sent_log.insert(
             tk.END,
             f"[{timestamp}] {mode_label}\n{b64_text}\n\n"
         )
         self.sent_log.see(tk.END)
+        self.sent_log.configure(state='disabled')
         self.msg_input.delete("1.0", tk.END)
 
     def copy_last_sent(self) -> None:
         if self.last_sent_b64:
             ok = self.clipboard_service.copy(self.last_sent_b64)
             if ok:
-                messagebox.showinfo(
-                    "Copied",
-                    "Last sent message copied to clipboard.\n"
-                    "Clipboard will be cleared automatically in 30 seconds."
-                )
+                flash_widget_text(self.copy_btn, "Copied ✓ (clears in 30s)",
+                                  "Copy Last Sent")
             else:
                 messagebox.showerror("Clipboard Error", "Could not access clipboard.")
         else:

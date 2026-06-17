@@ -10,6 +10,7 @@ import ttkbootstrap as ttkb
 from ntp_client import get_ntp_time, NTP_SERVERS as CONSENSUS_SERVERS, PRESET_NTP_SERVERS
 from services.encryption import EncryptionService
 from services.event_bus import event_bus, Events
+from views.utils import friendly_error
 
 # Build ordered fallback list: presets first, then consensus servers not already in presets
 _FALLBACK_SERVERS = list(PRESET_NTP_SERVERS)
@@ -171,6 +172,14 @@ class NtpTab:
 
     def _manual_sync(self) -> None:
         if self._syncing:
+            return
+        custom = self.custom_server_var.get().strip()
+        if custom and not custom.replace(".", "").replace("-", "").isalnum():
+            messagebox.showwarning(
+                "Invalid Hostname",
+                "Please enter a valid NTP server hostname (e.g., 'pool.ntp.org').",
+                parent=self.frame.winfo_toplevel()
+            )
             return
         self._syncing = True
         self.sync_btn.config(state=tk.DISABLED)

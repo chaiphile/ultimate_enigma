@@ -7,6 +7,7 @@ import ttkbootstrap as ttk
 from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
 from services.clipboard_service import ClipboardService
 from views.dialogs import password_dialog
+from views.utils import init_modal
 
 
 class SecretTab:
@@ -89,43 +90,74 @@ class SecretTab:
             else:
                 messagebox.showerror("Clipboard Error", "Could not access clipboard.")
         except GlobalSecretServiceError as e:
-            messagebox.showerror("Error", str(e))
+            from views.utils import friendly_error
+            messagebox.showerror("Error", friendly_error(e))
 
     def import_global(self) -> None:
-        b64 = simpledialog.askstring("Import Global Secret", "Paste Base64 shared secret:")
-        if not b64:
-            return
-        
-        try:
-            new_key = self.service.validate_secret_b64(b64)
-        except ValueError as e:
-            messagebox.showerror("Invalid", str(e))
-            return
-            
+        from views.dialogs import password_dialog
+        from views.utils import init_modal
         from crypto import sha256_fingerprint
-        fp = sha256_fingerprint(new_key)
-        
-        ok = messagebox.askyesno(
-            "⚠️ Replace Global Secret",
-            f"New secret fingerprint:\n{fp}\n\n"
-            "WARNING: This will permanently replace the current global secret.\n"
-            "All messages encrypted with the OLD secret will become UNREADABLE.\n"
-            "Make sure you have shared the new secret with trusted contacts.\n\n"
-            "Replace current global secret?"
-        )
-        if not ok:
-            return
-            
-        pw = self._verify_master_password()
-        if not pw:
-            return
-            
-        try:
-            self.service.update_secret(new_key, pw)
-            self._update_display()
-            messagebox.showinfo("Success", "Global shared secret updated.")
-        except GlobalSecretServiceError as e:
-            messagebox.showerror("Error", str(e))
+
+        parent = self.frame.winfo_toplevel()
+        dlg = tk.Toplevel(parent)
+        dlg.title("Import Global Secret")
+        dlg.geometry("450x200")
+        dlg.resizable(False, False)
+
+        ttk.Label(dlg, text="Paste the Base64 secret your friend shared:",
+                  font=("Segoe UI", 10),
+                  bootstyle="inverse-primary").pack(pady=(15, 5), padx=15, anchor=tk.W)
+
+        b64_var = tk.StringVar()
+        b64_entry = ttk.Entry(dlg, textvariable=b64_var, width=50)
+        b64_entry.pack(padx=15, pady=5)
+
+        result = {"secret": None}
+
+        def submit():
+            b64 = b64_var.get().strip()
+            if not b64:
+                messagebox.showerror("Required", "Please paste the Base64 secret.", parent=dlg)
+                return
+
+            try:
+                new_key = self.service.validate_secret_b64(b64)
+            except ValueError as e:
+                messagebox.showerror("Invalid", str(e), parent=dlg)
+                return
+
+            fp = sha256_fingerprint(new_key)
+
+            ok = messagebox.askyesno(
+                "⚠️ Replace Global Secret",
+                f"New secret fingerprint:\n{fp}\n\n"
+                "WARNING: This will permanently replace the current global secret.\n"
+                "All messages encrypted with the OLD secret will become UNREADABLE.\n"
+                "Make sure you have shared the new secret with trusted contacts.\n\n"
+                "Replace current global secret?",
+                parent=dlg
+            )
+            if not ok:
+                return
+
+            pw = self._verify_master_password()
+            if not pw:
+                return
+
+            try:
+                self.service.update_secret(new_key, pw)
+                self._update_display()
+                dlg.destroy()
+                messagebox.showinfo("Success", "Global shared secret updated.")
+            except GlobalSecretServiceError as e:
+                from views.utils import friendly_error
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+
+        ttk.Button(dlg, text="Submit", command=submit, bootstyle="success").pack(pady=(15, 5))
+        ttk.Button(dlg, text="Cancel", command=dlg.destroy, bootstyle="secondary-outline").pack(pady=5)
+
+        init_modal(dlg, parent, focus_widget=b64_entry)
+        parent.wait_window(dlg)
 
     def start_ecdh(self) -> None:
         from views.ecdh import perform_ecdh
