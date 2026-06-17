@@ -105,7 +105,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-> **Note:** `sqlcipher3>=1.2.0` provides optional encrypted database support. If `sqlcipher3` is unavailable, the app falls back to plain SQLite. See [Troubleshooting](#troubleshooting) to install SQLCipher.
+> **Note:** `sqlcipher3==0.6.2` provides SQLCipher support for encrypted database storage. If `sqlcipher3` is unavailable in a future environment, the app falls back to plain SQLite. See [Troubleshooting](#troubleshooting) for manual SQLCipher installation.
 
 > **Note:** `pytest>=7.0.0` in `requirements.txt` is optional — only needed for running tests.
 
