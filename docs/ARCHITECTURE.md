@@ -100,7 +100,6 @@ ultimate_enigma/
 │   ├── ntp_tab.py          # NTP sync UI
 │   ├── secret_tab.py       # Shared secret management
 │   ├── lock_screen.py      # Lock screen overlay
-│   ├── visual_enigma.py    # Rotor animation widget
 │   ├── ecdh.py             # ECDH key exchange dialog
 │   ├── dialogs.py          # Shared modal dialogs (password entry)
 │   └── utils.py            # Password validation and strength utilities

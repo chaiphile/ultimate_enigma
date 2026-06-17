@@ -51,7 +51,7 @@ builders/
   app_builder.py     Application composition root builder
 
 models/              Data structures (envelope, friend_profile)
-views/               UI files (tabs, lock_screen, visual_enigma, utils)
+views/               UI files (tabs, lock_screen, utils)
   ecdh.py            ECDH key exchange view
 controllers/         Business logic coordination (3 controllers)
 services/            23 service modules (plus encryption/ and friends/ subpackages)

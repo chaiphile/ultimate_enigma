@@ -81,7 +81,6 @@ All sensitive keys are encrypted at rest and stored in a SQLCipher-encrypted SQL
 - **Clipboard Auto-Clear** – Sensitive data cleared after configurable timeout
 - **NTP Synchronization** – Multi-server NTP consensus with outlier rejection for accurate time-based key derivation
 - **Event-Driven UI** – Decoupled components via EventBus with 22 event types
-- **Rotor Animation** – Visual Enigma machine header animation
 - **SecureString** – Memory-safe string handling with 3-pass wipe
 
 ---
@@ -277,7 +276,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 │  │  PQCService               │  NtpTab                   │  │
 │  │  TOTPService              │  AboutTab                 │  │
 │  │  HotkeyService            │  LockScreen               │  │
-│  │  ... (19 services)        │  VisualEnigma             │  │
+│  │  ... (19 services)        │  TrustTab                 │  │
 │  └───────────────────────────┴───────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -287,7 +286,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | Directory/File | Purpose |
 |----------------|---------|
 | `main.py` | Entry point (48 lines) - logging, anti-tamper, ttkbootstrap darkly theme |
-| `app.py` | EnigmaApp class (373 lines) - composition root, 7 tabs, emergency lock/unlock, event subscriptions, rotor animation |
+| `app.py` | EnigmaApp class (373 lines) - composition root, 7 tabs, emergency lock/unlock, event subscriptions |
 | `crypto.py` | Crypto operations (465 lines) - AES-256-GCM + RSA-OAEP, time-based keys, constant-time decryption, hybrid signing, self-destruct |
 | `database.py` | Database layer (500 lines) - SQLite/SQLCipher, Argon2id KDF, schema init, integrity check, error classification, PBKDF2-to-Argon2id migration |
 | `key_manager.py` | Key management (1182 lines) - RSA 4096-bit, PQC keys, hybrid sig keys, exponential backoff lockout, duress mode, password change |
@@ -295,7 +294,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | `controllers/` | MVC controllers (3 files) - lifecycle, auth, service DI |
 | `models/` | Data models (3 files) - envelope (RatchetEnvelope, PQCEncvelope), friend profile, re-exports |
 | `services/` | Business logic (19 files, ~5214 lines) - encryption, files, friends, ratchet, PQC, TOTP, etc. |
-| `views/` | View layer (12 files, ~2747 lines) - tabs, dialogs, lock screen, utilities |
+| `views/` | View layer (11 files, ~2747 lines) - tabs, dialogs, lock screen, utilities |
 | `components/` | Reusable UI components (5 files) - add friend, hybrid sig exchange, PQC exchange, TOTP dialogs |
 | `src/` | Core utilities (8 files, ~2014 lines) - constants, exceptions, secure string, crypto helpers, anti-tamper, timeout |
 | `tests/` | Test suite (23 files, 550+ tests) |

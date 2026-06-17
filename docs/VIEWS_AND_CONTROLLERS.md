@@ -28,7 +28,6 @@ Comprehensive documentation for all UI views (tabs) and MVC controllers.
   - [TOTPSetupDialog](#totpsetupdialog)
 - [Supporting Views](#supporting-views)
   - [LockScreen](#lockscreen)
-  - [VisualEnigma](#visualenigma)
   - [ECDH Dialog](#ecdh-dialog)
 - [Utility Functions](#utility-functions)
 
@@ -173,7 +172,7 @@ Creates: EncryptionService, FileService, FriendsService, ClipboardService, Globa
 
 ## Views (Tabs)
 
-13 view modules: about_tab, decrypt_tab, dialogs, ecdh, encrypt_tab, file_tab, friends_tab, lock_screen, ntp_tab, secret_tab, trust_tab, utils, visual_enigma.
+12 view modules: about_tab, decrypt_tab, dialogs, ecdh, encrypt_tab, file_tab, friends_tab, lock_screen, ntp_tab, secret_tab, trust_tab, utils.
 
 ### EnigmaApp (Main Window)
 
@@ -478,16 +477,6 @@ Full-window overlay blocking interaction when locked.
 | `is_locked` | Property: whether overlay is active |
 
 > `<Escape>` is bound to a no-op so the lock can never be dismissed silently; the unlock shortcut hint is shown on all platforms (Cmd on macOS, Ctrl elsewhere).
-
-### VisualEnigma
-
-**File:** `views/visual_enigma.py`
-
-Compact rotor animation for the header canvas.
-
-| Method | Description |
-|--------|-------------|
-| `draw_compact(canvas, positions)` | Draw three rotating Enigma rotors |
 
 ### ECDH Dialog
 

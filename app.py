@@ -10,7 +10,6 @@ from pathlib import Path
 import logging
 import ttkbootstrap as ttk
 
-from views.visual_enigma import VisualEnigma
 import database
 from key_manager import KeyStore
 from views.encrypt_tab import EncryptTab
@@ -75,8 +74,6 @@ class EnigmaApp:
         self.secondary = built["secondary"]
         self.dark = built["dark"]
 
-        self.vis_enigma = VisualEnigma()
-        self.rotor_positions = [0, 0, 0]
         self._is_locked = False
 
         from services.backup_service import BackupService
@@ -84,7 +81,6 @@ class EnigmaApp:
 
         self._setup_header()
         self._setup_tabs()
-        self._start_rotor_animation()
 
         self.lock_screen = LockScreen(root, on_unlock_request=self._request_unlock,
                                        on_recovery_request=self._request_recovery_unlock)
@@ -144,14 +140,6 @@ class EnigmaApp:
             cursor="hand2", command=lambda: self.auth_controller.show_totp_setup()
         )
         totp_setup_btn.pack(side=tk.RIGHT, padx=(5, 5), pady=10)
-
-        self.header_canvas = tk.Canvas(
-            header,
-            bg=self.style.colors.dark,
-            height=70, width=210,
-            highlightthickness=0
-        )
-        self.header_canvas.pack(side=tk.RIGHT, padx=10, pady=5)
 
     def _setup_tabs(self):
         notebook = ttk.Notebook(self.root, bootstyle="dark")
@@ -492,22 +480,3 @@ class EnigmaApp:
         self.app_controller.start_agents()
         logger.debug("Background agents started")
 
-    # ------------------------------------------------------------------
-    # Header rotor animation
-    # ------------------------------------------------------------------
-    def _start_rotor_animation(self):
-        self._draw_header_rotors()
-        self._animate_header_rotors()
-
-    def _draw_header_rotors(self):
-        self.header_canvas.delete("all")
-        self.vis_enigma.draw_compact(self.header_canvas, self.rotor_positions)
-
-    def _animate_header_rotors(self):
-        self.rotor_positions[0] = (self.rotor_positions[0] + 0.5) % 26
-        if self.rotor_positions[0] < 0.5:
-            self.rotor_positions[1] = (self.rotor_positions[1] + 0.5) % 26
-            if self.rotor_positions[1] < 0.5:
-                self.rotor_positions[2] = (self.rotor_positions[2] + 0.5) % 26
-        self._draw_header_rotors()
-        self.root.after(200, self._animate_header_rotors)
