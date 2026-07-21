@@ -24,7 +24,7 @@ class HybridSigExchangeDialog:
         )
         if not pqc_pw:
             return
-        if not self.friends_service.verify_password(pqc_pw):
+        if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
                 "Access Denied",
                 "Incorrect master password.\n"
@@ -103,7 +103,7 @@ class HybridSigExchangeDialog:
                                  confirm=False)
             if not pw:
                 return
-            if not self.friends_service.verify_password(pw):
+            if not self.friends_service.verify_master_password(pw):
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
@@ -265,7 +265,7 @@ class HybridSigExchangeDialog:
                 )
                 if not pw:
                     return
-                if not self.friends_service.verify_password(pw):
+                if not self.friends_service.verify_master_password(pw):
                     messagebox.showerror("Wrong Password",
                                          "Master password incorrect.",
                                          parent=dlg)

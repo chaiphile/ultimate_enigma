@@ -37,7 +37,7 @@ class UpdateFriendKeysDialog:
         )
         if not pw:
             return
-        if not self.friends_service.verify_password(pw):
+        if not self.friends_service.verify_master_password(pw):
             messagebox.showerror(
                 "Access Denied",
                 "Incorrect master password.",

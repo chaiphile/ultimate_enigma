@@ -105,6 +105,10 @@ class FriendsService:
         """Verify master password."""
         return self._crud.verify_password(password)
 
+    def verify_master_password(self, password: str) -> bool:
+        """Verify the real master password, rejecting duress credentials."""
+        return self._crud.verify_master_password(password)
+
     def get_friend_names(self) -> List[str]:
         """Return list of all friend names."""
         return self._crud.get_friend_names()

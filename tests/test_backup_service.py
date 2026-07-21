@@ -83,6 +83,40 @@ class TestExportBackup:
         after = int(time.time())
         assert before <= data["exported_at"] <= after
 
+    def test_set_key_store_retargets_verification(self):
+        old_ks = MagicMock()
+        old_ks.verify_password.return_value = False
+        old_ks.is_duress_mode = False
+        new_ks = MagicMock()
+        new_ks.verify_password.return_value = False
+        new_ks.is_duress_mode = False
+
+        svc = BackupService(old_ks)
+        svc.set_key_store(new_ks)
+        svc.verify_master_password("pw")
+
+        old_ks.verify_password.assert_not_called()
+        new_ks.verify_password.assert_called_once_with("pw")
+
+    def test_verify_master_password_rejects_duress_and_preserves_mode(self):
+        class FakeKeyStore:
+            def __init__(self):
+                self._duress_mode = False
+
+            @property
+            def is_duress_mode(self):
+                return self._duress_mode
+
+            def verify_password(self, _password):
+                self._duress_mode = True
+                return True
+
+        ks = FakeKeyStore()
+        svc = BackupService(ks)
+
+        assert svc.verify_master_password("duress") is False
+        assert ks._duress_mode is False
+
 
 # ---------------------------------------------------------------------------
 # Tests: import_backup

@@ -29,6 +29,11 @@ class AboutTab:
         self._backup_service = backup_service or BackupService(key_store)
         self._build_ui()
 
+    def set_backup_service(self, backup_service: BackupService) -> None:
+        """Retarget backup actions to the active backup service."""
+        if backup_service is not None:
+            self._backup_service = backup_service
+
     def _build_ui(self) -> None:
         # Main container with generous padding
         f = ttkb.Frame(self.frame, padding=30)

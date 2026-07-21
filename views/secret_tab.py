@@ -67,7 +67,7 @@ class SecretTab:
         pw = password_dialog(parent, "Enter master password", confirm=False)
         if not pw:
             return None
-        if not self.service.verify_password(pw):
+        if not self.service.verify_master_password(pw):
             messagebox.showerror("Wrong Password", "Master password incorrect.")
             return None
         return pw

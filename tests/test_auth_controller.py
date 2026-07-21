@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import patch, MagicMock, PropertyMock
 
 from controllers.auth_controller import AuthController
+from services.auth_manager import AuthManager
 from services.totp_persistence import TOTP_SETUP_KEY, TOTP_ENABLED_KEY
 from services.event_bus import Events
 from src.secure_string import SecureString
@@ -333,6 +334,18 @@ class TestSetDuressPassword:
 
         result = controller.set_duress_password()
         assert result is False
+
+
+class TestSetKeyStore:
+    def test_retargets_auth_manager_and_totp_persistence(self, controller):
+        new_ks = MagicMock()
+
+        controller.set_key_store(new_ks)
+
+        assert controller.ks is new_ks
+        assert isinstance(controller.auth_manager, AuthManager)
+        assert controller.auth_manager._ks is new_ks
+        assert controller._totp_persistence.ks is new_ks
 
 
 # ---------------------------------------------------------------------------

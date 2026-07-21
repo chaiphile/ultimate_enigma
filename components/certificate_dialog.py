@@ -32,7 +32,7 @@ class CertificateDialog:
         )
         if not pw:
             return
-        if not self.friends_service.verify_password(pw):
+        if not self.friends_service.verify_master_password(pw):
             messagebox.showerror(
                 "Access Denied",
                 "Incorrect master password.\n"
@@ -126,7 +126,7 @@ class CertificateDialog:
             )
             if not pw2:
                 return
-            if not self.friends_service.verify_password(pw2):
+            if not self.friends_service.verify_master_password(pw2):
                 messagebox.showerror("Wrong Password",
                                      "Master password incorrect.", parent=dlg)
                 return
@@ -304,7 +304,7 @@ class CertificateDialog:
             )
             if not pw2:
                 return
-            if not self.friends_service.verify_password(pw2):
+            if not self.friends_service.verify_master_password(pw2):
                 messagebox.showerror("Wrong Password",
                                      "Master password incorrect.", parent=dlg)
                 return
@@ -654,7 +654,7 @@ class CertificateDialog:
             )
             if not pw2:
                 return None
-            if not self.friends_service.verify_password(pw2):
+            if not self.friends_service.verify_master_password(pw2):
                 messagebox.showerror("Wrong Password",
                                      "Master password incorrect.", parent=dlg)
                 return None

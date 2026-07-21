@@ -42,7 +42,7 @@ class KeyRecoveryDialog:
         )
         if not master_pw:
             return
-        if not self.friends_service.verify_password(master_pw):
+        if not self.friends_service.verify_master_password(master_pw):
             messagebox.showerror(
                 "Access Denied",
                 "Incorrect master password.\n"

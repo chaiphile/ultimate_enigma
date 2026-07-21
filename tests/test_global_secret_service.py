@@ -139,6 +139,25 @@ class TestVerifyPassword:
         empty_service._ks.verify_password.return_value = False
         assert empty_service.verify_password("wrong") is False
 
+    def test_verify_master_password_rejects_duress_and_preserves_mode(self):
+        class FakeKeyStore:
+            def __init__(self):
+                self._duress_mode = False
+
+            @property
+            def is_duress_mode(self):
+                return self._duress_mode
+
+            def verify_password(self, _password):
+                self._duress_mode = True
+                return True
+
+        ks = FakeKeyStore()
+        service = GlobalSecretService(ks)
+
+        assert service.verify_master_password("duress") is False
+        assert ks._duress_mode is False
+
 
 # ---------------------------------------------------------------------------
 # Tests: update_secret

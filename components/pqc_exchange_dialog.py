@@ -24,7 +24,7 @@ class PqcExchangeDialog:
         )
         if not pqc_pw:
             return
-        if not self.friends_service.verify_password(pqc_pw):
+        if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
                 "Access Denied",
                 "Incorrect master password.\n"
@@ -89,7 +89,7 @@ class PqcExchangeDialog:
                                  confirm=False)
             if not pw:
                 return
-            if not self.friends_service.verify_password(pw):
+            if not self.friends_service.verify_master_password(pw):
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
@@ -168,7 +168,7 @@ class PqcExchangeDialog:
                     "Enter Master Password to save the derived shared secret",
                     confirm=False
                 )
-                if save_pw and self.friends_service.verify_password(save_pw):
+                if save_pw and self.friends_service.verify_master_password(save_pw):
                     self.friends_service.update_shared_secret(
                         name=fname,
                         new_secret=shared_secret,
@@ -237,7 +237,7 @@ class PqcExchangeDialog:
                                  confirm=False)
             if not pw:
                 return
-            if not self.friends_service.verify_password(pw):
+            if not self.friends_service.verify_master_password(pw):
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
@@ -342,7 +342,7 @@ class PqcExchangeDialog:
                     )
                     if not pw:
                         return
-                    if not self.friends_service.verify_password(pw):
+                    if not self.friends_service.verify_master_password(pw):
                         messagebox.showerror("Wrong Password",
                                              "Master password incorrect.",
                                              parent=dlg)

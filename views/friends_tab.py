@@ -425,7 +425,7 @@ class FriendsTab:
                              confirm=False)
         if not pw:
             return
-        if not self.service.verify_password(pw):
+        if not self.service.verify_master_password(pw):
             messagebox.showerror("Wrong Password", "Master password incorrect.")
             return
 
@@ -580,7 +580,7 @@ class FriendsTab:
             pw = password_dialog(dlg, "Enter Master Password", confirm=False)
             if not pw:
                 return
-            if not self.service.verify_password(pw):
+            if not self.service.verify_master_password(pw):
                 messagebox.showerror("Wrong Password", "Master password incorrect.",
                                      parent=dlg)
                 return
@@ -638,7 +638,7 @@ class FriendsTab:
         pw = password_dialog(parent, "Enter Master Password", confirm=False)
         if not pw:
             return
-        if not self.service.verify_password(pw):
+        if not self.service.verify_master_password(pw):
             messagebox.showerror("Wrong Password", "Master password incorrect.")
             return
 

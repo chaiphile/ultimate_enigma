@@ -88,7 +88,7 @@ class FriendRatchetManager:
                 current_pub_pem = pubkey_to_pem(pub)
                 break
         if current_pub_pem:
-            if not self._ks.verify_password(master_password):
+            if not self.crud.verify_master_password(master_password):
                 raise ValueError("Invalid password — cannot save friend")
             self._ks.save_friend(
                 name=name,
@@ -132,7 +132,7 @@ class FriendRatchetManager:
                 raise FriendsServiceError(
                     "Master password required to encrypt shared secret"
                 )
-            if not self._ks.verify_password(master_password):
+            if not self.crud.verify_master_password(master_password):
                 raise ValueError("Invalid password — cannot save friend")
             self._ks.save_friend(
                 name=name,

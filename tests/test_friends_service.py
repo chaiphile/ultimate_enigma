@@ -208,3 +208,32 @@ class TestFriendExists:
     def test_false(self, friends_service):
         svc, ks, pw = friends_service
         assert svc.friend_exists("Zara") is False
+
+
+class TestVerifyMasterPassword:
+    def test_accepts_real_master_password(self):
+        ks = MagicMock()
+        ks.verify_password.return_value = True
+        ks.is_duress_mode = False
+        svc = FriendsService(ks)
+
+        assert svc.verify_master_password("master") is True
+
+    def test_rejects_duress_password_and_preserves_mode(self):
+        class FakeKeyStore:
+            def __init__(self):
+                self._duress_mode = False
+
+            @property
+            def is_duress_mode(self):
+                return self._duress_mode
+
+            def verify_password(self, _password):
+                self._duress_mode = True
+                return True
+
+        ks = FakeKeyStore()
+        svc = FriendsService(ks)
+
+        assert svc.verify_master_password("duress") is False
+        assert ks._duress_mode is False

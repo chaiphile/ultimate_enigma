@@ -61,6 +61,7 @@ class ServiceOrchestrator:
         """
         # Backup reminder agent - needs BackupService (created on demand)
         self._backup_agent: Optional[BackupReminderAgent] = None
+        self._backup_service = None
 
         # Ratchet maintenance agent
         self.ratchet_maintenance_agent = RatchetMaintenanceAgent()
@@ -87,6 +88,14 @@ class ServiceOrchestrator:
         """
         self._backup_agent = BackupReminderAgent(backup_service)
         logger.info("BackupReminderAgent configured")
+
+    def set_backup_service(self, backup_service) -> None:
+        """Attach the shared BackupService for later KeyStore retargeting."""
+        if backup_service is None:
+            return
+        self._backup_service = backup_service
+        if self._backup_agent is None:
+            self.set_backup_agent(backup_service)
 
     def start_agents(self):
         """Start all background agents. Call after app initialization."""
@@ -176,6 +185,9 @@ class ServiceOrchestrator:
             self.friends_service = FriendsService(new_key_store)
             self.clipboard_service = ClipboardService(self.root)
             self.global_secret_service = GlobalSecretService(new_key_store)
+            backup_service = getattr(self, "_backup_service", None)
+            if backup_service is not None:
+                backup_service.set_key_store(new_key_store)
             
             # Re-initialize ratchet storage encryption key
             self._init_ratchet_storage_key(new_key_store)
@@ -224,7 +236,12 @@ class ServiceOrchestrator:
                 
             if "ntp" in tabs:
                 tabs["ntp"].encryption_service = self.encryption_service
-                
+
+            if "about" in tabs and hasattr(tabs["about"], "set_backup_service"):
+                tabs["about"].set_backup_service(
+                    getattr(self, "_backup_service", None)
+                )
+                 
             logger.debug("Tab service references updated")
         except Exception as e:
             logger.error("Failed to update tab references: %s", e)

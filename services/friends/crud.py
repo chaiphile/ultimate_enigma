@@ -281,6 +281,14 @@ class FriendCrudService:
         """Verify master password. Allows views to check auth without accessing KeyStore."""
         return self._ks.verify_password(password)
 
+    def verify_master_password(self, password: str) -> bool:
+        """Verify the real master password, rejecting duress credentials."""
+        previous_duress_mode = self._ks.is_duress_mode
+        is_valid = self._ks.verify_password(password)
+        is_duress = self._ks.is_duress_mode
+        self._ks._duress_mode = previous_duress_mode
+        return bool(is_valid and not is_duress)
+
     def get_friend_names(self) -> List[str]:
         """Return list of all friend names."""
         return [name for name, _, _ in self._ks.friends]

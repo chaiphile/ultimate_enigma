@@ -65,6 +65,12 @@ class AuthController:
         self._ui = ui or _DefaultUI(root)
         self._recovery_requested = False
 
+    def set_key_store(self, key_store: KeyStore) -> None:
+        """Retarget auth helpers to the currently active KeyStore."""
+        self.ks = key_store
+        self.auth_manager = AuthManager(key_store)
+        self._totp_persistence.ks = key_store
+
     @property
     def master_password_hash(self):
         return self._master_password_hash
@@ -123,8 +129,9 @@ class AuthController:
                 self._recovery_requested = False
                 success, new_ks, new_totp = self.request_recovery_unlock()
                 if success and new_ks is not None:
-                    self.ks = new_ks
-                    self._ks = new_ks
+                    self.set_key_store(new_ks)
+                    if new_totp is not None:
+                        self.totp_service = new_totp
                     return True
                 continue
             if not pw:

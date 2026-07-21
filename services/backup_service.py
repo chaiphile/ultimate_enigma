@@ -75,6 +75,18 @@ class BackupService:
         self._max_backups = max_backups
         self._reminder_days = reminder_days
 
+    def set_key_store(self, key_store: KeyStore) -> None:
+        """Retarget this service to the currently active KeyStore."""
+        self._ks = key_store
+
+    def verify_master_password(self, password: str) -> bool:
+        """Verify the real master password, rejecting duress credentials."""
+        previous_duress_mode = self._ks.is_duress_mode
+        is_valid = self._ks.verify_password(password)
+        is_duress = self._ks.is_duress_mode
+        self._ks._duress_mode = previous_duress_mode
+        return bool(is_valid and not is_duress)
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
@@ -115,7 +127,7 @@ class BackupService:
         into an export dictionary.  The caller is responsible for writing
         this to disk as JSON.
         """
-        if not self._ks.verify_password(password):
+        if not self.verify_master_password(password):
             raise BackupServiceError("Invalid master password — cannot export backup")
         try:
             conn = database.get_connection()

@@ -57,11 +57,13 @@ class GlobalSecretService:
         """
         if not master_password:
             raise GlobalSecretServiceError("Master password required")
-        is_valid = self._ks.verify_password(master_password)
+        is_valid = self.verify_master_password(master_password)
+        if not is_valid:
+            if self._ks.is_duress_mode:
+                raise GlobalSecretServiceError("Duress password detected — cannot update secret")
+            raise GlobalSecretServiceError("Incorrect master password")
         if self._ks.is_duress_mode:
             raise GlobalSecretServiceError("Duress password detected — cannot update secret")
-        if not is_valid:
-            raise GlobalSecretServiceError("Incorrect master password")
         if len(new_secret) != 32:
             raise GlobalSecretServiceError("Secret must be 32 bytes")
 
@@ -74,3 +76,11 @@ class GlobalSecretService:
     def verify_password(self, password: str) -> bool:
         """Verify the master password against the keystore."""
         return self._ks.verify_password(password)
+
+    def verify_master_password(self, password: str) -> bool:
+        """Verify the real master password, rejecting duress credentials."""
+        previous_duress_mode = self._ks.is_duress_mode
+        is_valid = self._ks.verify_password(password)
+        is_duress = self._ks.is_duress_mode
+        self._ks._duress_mode = previous_duress_mode
+        return bool(is_valid and not is_duress)

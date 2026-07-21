@@ -79,6 +79,7 @@ class EnigmaApp:
 
         from services.backup_service import BackupService
         self._backup_service = BackupService(self.ks)
+        self.service_orchestrator.set_backup_service(self._backup_service)
 
         self._setup_header()
         self._setup_tabs()
@@ -302,7 +303,7 @@ class EnigmaApp:
 
             # Restore keys and services
             self.ks = new_ks
-            self.auth_controller.ks = new_ks
+            self.auth_controller.set_key_store(new_ks)
             self.auth_controller.totp_service = new_totp
             self.totp_persistence.ks = new_ks
 
@@ -314,7 +315,8 @@ class EnigmaApp:
                 "secret": self.secret_tab,
                 "friends": self.friends_tab,
                 "trust": self.trust_tab,
-                "ntp": self.ntp_tab
+                "ntp": self.ntp_tab,
+                "about": self.about_tab,
             }
             self.service_orchestrator.rebuild_services(new_ks, tab_refs)
 
@@ -357,7 +359,7 @@ class EnigmaApp:
 
             # Restore keys and services
             self.ks = new_ks
-            self.auth_controller.ks = new_ks
+            self.auth_controller.set_key_store(new_ks)
             self.auth_controller.totp_service = new_totp
             self.totp_persistence.ks = new_ks
 
@@ -369,7 +371,8 @@ class EnigmaApp:
                 "secret": self.secret_tab,
                 "friends": self.friends_tab,
                 "trust": self.trust_tab,
-                "ntp": self.ntp_tab
+                "ntp": self.ntp_tab,
+                "about": self.about_tab,
             }
             self.service_orchestrator.rebuild_services(new_ks, tab_refs)
 
@@ -473,7 +476,7 @@ class EnigmaApp:
         backup reminder agent.
         """
         try:
-            self.service_orchestrator.set_backup_agent(self._backup_service)
+            self.service_orchestrator.set_backup_service(self._backup_service)
         except Exception as e:
             logger.warning("Could not initialize BackupService for agent: %s", e)
 
