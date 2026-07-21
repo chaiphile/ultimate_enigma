@@ -8,7 +8,7 @@ from src.secure_string import SecureString
 
 
 def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=None,
-                    enforce_strength=True, on_recover=None) -> SecureString | None:
+                    enforce_strength=True, on_recover=None, description=None) -> SecureString | None:
     """
     Show a modal password entry dialog.
     
@@ -26,6 +26,9 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         enforce_strength: If True, enforce password strength requirements
         on_recover: Optional callback invoked when "Recover" button is clicked.
             The dialog closes and returns None. Caller should handle recovery.
+        description: Optional descriptive text shown below the title and above the
+            first password field. Use this to explain what the password is for
+            (e.g. first-time setup guidance).
         
     Returns:
         SecureString containing the password, or None if cancelled/failed.
@@ -38,19 +41,31 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
     
     dlg = tk.Toplevel(parent, bg=dialog_bg)
     dlg.title(title)
-    # Dynamic sizing: base height + extra for confirm field + strength meter, capped at 600
-    if confirm and enforce_strength:
-        dlg_height = min(380, 600)
-    elif confirm:
-        dlg_height = min(310, 600)
-    else:
-        dlg_height = min(220, 600)
-    dlg.geometry(f"400x{dlg_height}")
+    # Dynamic sizing: base height + extra for confirm field + strength meter, capped at 750
+    dlg_height = 240
+    if confirm:
+        dlg_height += 80
+    if enforce_strength and confirm:
+        dlg_height += 45
+    if description:
+        dlg_height += 170
+    dlg_height = min(dlg_height, 750)
+    dlg.geometry(f"430x{dlg_height}")
     dlg.resizable(False, False)
     dlg.transient(parent)
     if topmost:
         dlg.attributes("-topmost", True)
     dlg.grab_set()
+
+    if description:
+        desc_frame = tk.Frame(dlg, bg="#1a3a5c")
+        desc_frame.pack(fill=tk.X, padx=15, pady=(12, 0))
+        ttk.Label(
+            desc_frame, text=description,
+            font=("Segoe UI", 9),
+            background="#1a3a5c", foreground="#e0e0e0",
+            wraplength=350, justify="left"
+        ).pack(padx=10, pady=8)
 
     ttk.Label(dlg, text="Enter password:",
               font=("Segoe UI", 10),

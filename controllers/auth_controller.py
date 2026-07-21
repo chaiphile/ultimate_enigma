@@ -31,9 +31,9 @@ class _DefaultUI:
     def __init__(self, root):
         self.root = root
 
-    def password_dialog(self, title, confirm=False, **kwargs):
+    def password_dialog(self, title, confirm=False, description=None, **kwargs):
         from views.dialogs import password_dialog
-        return password_dialog(self.root, title, confirm=confirm, **kwargs)
+        return password_dialog(self.root, title, confirm=confirm, description=description, **kwargs)
 
     def show_error(self, title, message):
         from tkinter import messagebox
@@ -95,7 +95,17 @@ class AuthController:
     def _first_run_setup(self) -> bool:
         from key_manager import init_db
         
-        pw = self._ui.password_dialog("Set Master Password", confirm=True)
+        pw = self._ui.password_dialog(
+            "Create Master Password",
+            confirm=True,
+            description=(
+                "Welcome! This is your first time using Ultimate Enigma.\n\n"
+                "Create a NEW master password below. This password will protect "
+                "all your encryption keys and messages. You will need it every "
+                "time you open the app.\n\n"
+                "⚠ You cannot recover this password if you forget it!"
+            ),
+        )
         if not pw:
             logger.warning("First run: user cancelled password dialog")
             return False
