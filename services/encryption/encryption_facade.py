@@ -8,7 +8,7 @@ from typing import Optional, Protocol, Tuple, runtime_checkable
 from services.encryption.legacy_strategy import LegacyEncryptionStrategy
 from services.encryption.ratchet_strategy import RatchetEncryptionStrategy
 from services.encryption.pqc_strategy import PqcEncryptionStrategy
-from models.envelope import identify_envelope_type
+from models.envelope import RatchetEnvelope, identify_envelope_type
 from src.exceptions import EncryptionError, DecryptionError
 
 logger = logging.getLogger(__name__)
@@ -36,11 +36,12 @@ class EncryptionService:
       ratchet session exists for the target friend
     """
 
-    def __init__(self, key_store):
+    def __init__(self, key_store, anomaly_service=None):
         self._ks = key_store
         self._ntp_time: Optional[float] = None
         self._last_encrypt_mode: Optional[str] = None
         self._last_decrypt_mode: Optional[str] = None
+        self._anomaly_service = anomaly_service
 
         ntp_provider = lambda: self._ntp_time
         self._legacy = LegacyEncryptionStrategy(key_store, ntp_provider)
@@ -95,14 +96,45 @@ class EncryptionService:
 
         if envelope_type == "pqc":
             self._last_decrypt_mode = "pqc"
-            return self._pqc.decrypt(packet)
+            plaintext = self._pqc.decrypt(packet)
+            self._score_anomaly(packet, "pqc")
+            return plaintext
 
         if envelope_type == "ratchet":
             self._last_decrypt_mode = "ratchet"
-            return self._ratchet.decrypt(packet)
+            plaintext = self._ratchet.decrypt(packet)
+            self._score_ratchet_anomaly(packet)
+            return plaintext
 
         self._last_decrypt_mode = "legacy"
-        return self._legacy.decrypt(packet)
+        plaintext = self._legacy.decrypt(packet)
+        self._score_anomaly(packet, "legacy")
+        return plaintext
+
+    # ------------------------------------------------------------------
+    # Anomaly detection integration
+    # ------------------------------------------------------------------
+
+    def _score_anomaly(self, packet: bytes, label: str) -> None:
+        """Score a non-ratchet packet via the anomaly service."""
+        svc = self._anomaly_service
+        if svc is None or not svc.enabled:
+            return
+        try:
+            svc.score_message(label, packet)
+        except Exception:
+            pass
+
+    def _score_ratchet_anomaly(self, packet: bytes) -> None:
+        """Parse sender name from a ratchet envelope and score it."""
+        svc = self._anomaly_service
+        if svc is None or not svc.enabled:
+            return
+        try:
+            env = RatchetEnvelope.parse(packet)
+            svc.score_message(env.sender_name, packet)
+        except Exception:
+            pass
 
     # ------------------------------------------------------------------
     # Properties

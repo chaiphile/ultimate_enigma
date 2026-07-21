@@ -7,6 +7,7 @@ Comprehensive documentation for every service in the `services/` directory. Cove
 ## Table of Contents
 
 - [EncryptionService](#encryptionservice)
+- [AnomalyDetectionService](#anomalydetectionservice)
 - [FileService](#fileservice)
 - [FriendsService](#friendsservice)
 - [GlobalSecretService](#globalsecretservice)
@@ -52,12 +53,13 @@ services/encryption/
 ### Constructor
 
 ```python
-EncryptionService(key_store)
+EncryptionService(key_store, anomaly_service=None)
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `key_store` | KeyStore | Must expose `global_secret`, `my_priv`, `friends`, `get_decryption_snapshot()`, and optionally `friends_capabilities`, `friends_pqc_combined_pub`, `pqc_decryption_bundle`, `my_name` |
+| `anomaly_service` | `Optional[AnomalyDetectionService]` | If provided, each decrypted message is scored for anomalous metadata |
 
 ### Properties
 
@@ -110,6 +112,55 @@ Handles Double Ratchet encryption/decryption. Wraps `RatchetService` and builds 
 **File:** `services/encryption/pqc_strategy.py`
 
 Handles Post-Quantum Hybrid KEM encryption/decryption. Wraps `HybridKEM` with timeout protection and builds `PQCEncvelope` structures.
+
+---
+
+## AnomalyDetectionService
+
+**File:** `services/anomaly_detection_service.py`
+
+Isolation Forest-based anomaly detector that scores incoming messages using metadata only (no plaintext access). Zero-knowledge design.
+
+### Constructor
+
+```python
+AnomalyDetectionService(model_path: Optional[str] = None)
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `model_path` | `Optional[str]` | Path to pre-trained `.pkl` model. Defaults to `anomaly_model.pkl` in project root. |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `enabled` | `bool` | Whether scoring is active (read/write) |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `is_available()` | `bool` | `True` if the model loaded successfully |
+| `score_message(friend_name, packet)` | `Optional[MessageScore]` | Score a message packet. Returns `MessageScore` if model is available, else `None`. Publishes `ANOMALY_DETECTED` event when anomaly is detected. |
+
+### Feature Extraction
+
+The service extracts a 7-element feature vector from raw packet metadata:
+
+| Index | Feature | Description |
+|-------|---------|-------------|
+| 0 | `packet_size` | Total packet size in bytes |
+| 1 | `name_length` | Length of the sender name string |
+| 2 | `env_type_code` | Envelope type: 0=ratchet, 1=pqc, 2=legacy, -1=unknown |
+| 3 | `header_len` | Parsed header/KEM ciphertext length |
+| 4 | `ct_len` | Parsed ciphertext length |
+| 5 | `hour_of_day` | Local hour (0–23) |
+| 6 | `day_of_week` | Local weekday (0=Monday, 6=Sunday) |
+
+### Integration
+
+`AnomalyDetectionService` is created by `ServiceOrchestrator` and injected into `EncryptionService`. After each successful decryption, the facade calls `score_message()` with the sender name and raw packet. If the score falls below the model's threshold, an `ANOMALY_DETECTED` event is published to the `EventBus`, which triggers a toast notification and red banner in the main UI.
 
 ---
 
@@ -307,7 +358,7 @@ ClipboardService(root, clear_delay=30)
 
 Thread-safe publish/subscribe singleton for decoupled cross-component communication.
 
-### Events Constants (37 total, `services/event_bus.py:28-82`)
+### Events Constants (38 total, `services/event_bus.py:28-83`)
 
 | Category | Constants |
 |----------|-----------|
@@ -317,6 +368,7 @@ Thread-safe publish/subscribe singleton for decoupled cross-component communicat
 | Service | `SERVICES_REBUILT`, `NTP_SYNCED`, `NTP_SYNC_FAILED` |
 | Data / Friend | `FRIEND_LIST_CHANGED`, `FRIEND_ADDED`, `FRIEND_REMOVED`, `RATCHET_INITIALIZED`, `RATCHET_RESET` |
 | Trust chain | `CERTIFICATE_ISSUED`, `CERTIFICATE_RECEIVED`, `CERTIFICATE_REVOKED`, `TRUST_LEVEL_CHANGED`, `RECOVERY_SHARE_CREATED`, `RECOVERY_KEY_RECONSTRUCTED` |
+| Security | `ANOMALY_DETECTED` |
 | Application lifecycle | `APP_STARTING`, `APP_SHUTDOWN` |
 | Background agent | `BACKUP_REMINDER`, `BACKUP_COMPLETED`, `RATCHET_LOCKS_CLEANED`, `RATCHET_DEADLOCK_DETECTED`, `RATCHET_LOCK_STATS`, `SYSTEM_STATUS`, `SYSTEM_HEALTH_OK`, `SYSTEM_HEALTH_DEGRADED`, `KEY_INFO`, `KEY_FINGERPRINT` |
 
@@ -812,7 +864,7 @@ Centralized manager for all business service instances. Handles creation, rebuil
 ServiceOrchestrator(root, key_store, crypto_queue=None)
 ```
 
-Creates: `EncryptionService`, `FileService`, `FriendsService`, `ClipboardService`, `GlobalSecretService`
+Creates: `EncryptionService` (with `AnomalyDetectionService`), `FileService`, `FriendsService`, `ClipboardService`, `GlobalSecretService`
 
 Also calls `configure_pqc_support()` to inject PQC dependencies into the model layer, avoiding upward model → service imports.
 

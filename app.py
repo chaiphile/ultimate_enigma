@@ -29,6 +29,7 @@ from services.event_bus import event_bus, Events
 from services.totp_persistence import TotpPersistence
 from builders.app_builder import AppBuilder, StartupCancelled
 from views.utils import friendly_error
+from ttkbootstrap.toast import ToastNotification
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class EnigmaApp:
         self.dark = built["dark"]
 
         self._is_locked = False
+        self._anomaly_banner = None
 
         from services.backup_service import BackupService
         self._backup_service = BackupService(self.ks)
@@ -109,6 +111,13 @@ class EnigmaApp:
         event_bus.unsubscribe_all(self._on_friend_list_changed)
         event_bus.unsubscribe_all(self._on_services_rebuilt)
         event_bus.unsubscribe_all(self._on_trust_changed)
+        event_bus.unsubscribe_all(self._on_anomaly_detected)
+        # Clean up any active anomaly banner
+        if hasattr(self, "_anomaly_banner") and self._anomaly_banner is not None:
+            try:
+                self._anomaly_banner.destroy()
+            except Exception:
+                pass
         self.root.destroy()
 
     # ------------------------------------------------------------------
@@ -436,6 +445,13 @@ class EnigmaApp:
             thread_safe=True
         )
 
+        # Anomaly detection alerts
+        event_bus.subscribe(
+            Events.ANOMALY_DETECTED,
+            self._on_anomaly_detected,
+            thread_safe=True
+        )
+
         logger.debug("Event subscriptions registered")
 
     def _on_friend_list_changed(self, **kwargs):
@@ -464,6 +480,93 @@ class EnigmaApp:
                 self.trust_tab.refresh_list()
         except Exception as e:
             logger.warning("Trust change handler error (non-critical): %s", e)
+
+    # ------------------------------------------------------------------
+    # Anomaly detection alerts
+    # ------------------------------------------------------------------
+    def _on_anomaly_detected(self, **kwargs):
+        """Handle anomaly detection event from background thread.
+
+        Schedules the UI update on the main thread via EventBus's
+        thread-safe dispatch, which calls root.after(0, ...).
+        """
+        score_obj = kwargs.get("score")
+        if score_obj is None:
+            return
+        try:
+            self._show_anomaly_alert(score_obj)
+        except Exception as e:
+            logger.warning("Anomaly alert handler error (non-critical): %s", e)
+
+    def _show_anomaly_alert(self, score_obj) -> None:
+        """Display a toast notification and red banner for anomalous messages."""
+        sender = getattr(score_obj, "friend_name", "unknown")
+        score_val = getattr(score_obj, "score", 0.0)
+        confidence = getattr(score_obj, "confidence", 0.0)
+        env_type = getattr(score_obj, "envelope_type", "unknown")
+        packet_size = getattr(score_obj, "packet_size", 0)
+
+        # Toast notification (non-blocking, auto-dismiss)
+        try:
+            ToastNotification(
+                title="Anomaly Detected",
+                message=(
+                    f"Suspicious message from {sender}\n"
+                    f"Score: {score_val:.3f} | Confidence: {confidence:.0%}\n"
+                    f"Type: {env_type} | Size: {packet_size} bytes"
+                ),
+                duration=8000,
+                bootstyle="danger",
+            ).show_toast()
+        except Exception:
+            logger.debug("ToastNotification unavailable", exc_info=True)
+
+        # Persistent red banner above the notebook (auto-dismiss after 10s)
+        try:
+            self._show_anomaly_banner(sender, score_val, confidence)
+        except Exception:
+            logger.debug("Anomaly banner failed", exc_info=True)
+
+        # Also flash the status bar for extra visibility
+        self._set_status(
+            f"Anomaly from {sender}: score={score_val:.3f}",
+            clear_after_ms=10000,
+        )
+
+    def _show_anomaly_banner(self, sender: str, score: float, confidence: float) -> None:
+        """Show a red warning banner that auto-dismisses after 10 seconds."""
+        # Remove any existing anomaly banner
+        if hasattr(self, "_anomaly_banner") and self._anomaly_banner is not None:
+            try:
+                self._anomaly_banner.destroy()
+            except Exception:
+                pass
+
+        banner = ttk.Label(
+            self.root,
+            text=(
+                f"Anomaly: Suspicious message from '{sender}' "
+                f"(score={score:.3f}, confidence={confidence:.0%})"
+            ),
+            bootstyle="danger",
+            anchor="center",
+            font=FONT_SUBTITLE,
+            padding=(10, 4),
+        )
+        # Pack just below the header and above the notebook
+        banner.pack(fill=tk.X, padx=0, pady=0, before=self._notebook.master)
+        self._anomaly_banner = banner
+
+        # Auto-dismiss after 10 seconds
+        def _dismiss():
+            try:
+                if self._anomaly_banner is banner:
+                    banner.destroy()
+                    self._anomaly_banner = None
+            except Exception:
+                pass
+        self._anomaly_banner = banner
+        self.root.after(10000, _dismiss)
 
     # ------------------------------------------------------------------
     # Background agents

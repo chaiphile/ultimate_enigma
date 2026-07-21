@@ -117,7 +117,7 @@ Core cryptographic operations. Decomposed into three strategy classes behind a f
 
 ```python
 class EncryptionService:
-    def __init__(self, key_store)
+    def __init__(self, key_store, anomaly_service=None)
     
     def encrypt(self, plaintext: str, friend_name: str = None,
                 mode: str = 'shared', sign: bool = True,
@@ -140,6 +140,29 @@ class EncryptionService:
     @property
     def last_decrypt_mode(self) -> str | None
         """Mode used by most recent decrypt(): 'ratchet', 'pqc', 'legacy', or None."""
+```
+
+### AnomalyDetectionService
+
+Isolation Forest anomaly scoring on message metadata.
+
+```python
+class AnomalyDetectionService:
+    def __init__(self, model_path: str = None)
+    
+    def is_available(self) -> bool
+        """Return True if the model loaded successfully."""
+    
+    def score_message(self, friend_name: str, packet: bytes) -> MessageScore | None
+        """Score a message packet. Returns MessageScore or None if model unavailable.
+        Publishes ANOMALY_DETECTED event when anomaly is detected."""
+    
+    @property
+    def enabled(self) -> bool
+        """Whether scoring is active."""
+    
+    @enabled.setter
+    def enabled(self, value: bool) -> None
 ```
 
 ### FileService
@@ -631,6 +654,9 @@ class Events:
     SYSTEM_HEALTH_DEGRADED = "system_health_degraded"
     KEY_INFO = "key_info"
     KEY_FINGERPRINT = "key_fingerprint"
+
+    # Security events
+    ANOMALY_DETECTED = "anomaly_detected"
 ```
 
 ---

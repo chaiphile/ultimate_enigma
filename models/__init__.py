@@ -13,6 +13,7 @@ from models.envelope import (
     PQC_ENVELOPE_MAGIC,
     identify_envelope_type,
 )
+from models.message_score import MessageScore
 
 __all__ = [
     "FriendProfile",
@@ -21,4 +22,5 @@ __all__ = [
     "RATCHET_ENVELOPE_MAGIC",
     "PQC_ENVELOPE_MAGIC",
     "identify_envelope_type",
+    "MessageScore",
 ]

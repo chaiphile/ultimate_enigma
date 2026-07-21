@@ -52,6 +52,7 @@ ultimate_enigma/
 ├── models/                 # Data Models
 │   ├── envelope.py         # Message envelope structures (RatchetEnvelope, PQCEncvelope)
 │   ├── friend_profile.py   # Friend/contact data model with capabilities
+│   ├── message_score.py    # Anomaly detection result dataclass
 │   └── trust_chain.py      # Trust certificates, revocation, and chain verification
 ├── services/               # Business Logic Services
 │   ├── encryption/                 # EncryptionService package (decomposed)
@@ -88,6 +89,7 @@ ultimate_enigma/
 │   ├── shamir_service.py          # Shamir's Secret Sharing over GF(256)
 │   ├── background_agents.py       # Background agent framework (backup, ratchet maintenance, monitoring)
 │   ├── ntp_client.py              # Multi-server NTP sync with outlier rejection
+│   ├── anomaly_detection_service.py # Isolation Forest anomaly scoring on message metadata
 │   └── event_bus.py               # Pub/sub event system
 ├── views/                  # View Layer (Tkinter UI)
 │   ├── __init__.py
@@ -222,11 +224,18 @@ Post-quantum cryptography:
 - Hybrid classical + PQC encryption
 - Future-proof key encapsulation
 
+### AnomalyDetectionService
+Isolation Forest-based anomaly detection on message metadata:
+- Scores incoming messages using a pre-trained scikit-learn model
+- Extracts 7-element feature vector from raw packet (no plaintext access)
+- Publishes `ANOMALY_DETECTED` event when score exceeds threshold
+- Thread-safe (read-only model after load)
+
 ### EventBus
 Decoupled communication system:
 - Thread-safe publish/subscribe pattern
 - Tkinter-aware main thread dispatch
-- Event types defined in `Events` class (37 events across 8 categories)
+- Event types defined in `Events` class (38 events across 9 categories)
 
 ### ECDHService
 Elliptic Curve Diffie-Hellman key exchange:
@@ -276,6 +285,8 @@ The EventBus enables loose coupling between components:
                                                   --> [Services]
 
 [AuthController] --SERVICES_REBUILT-> [EventBus] --> [All Tabs]
+
+[EncryptionSvc] --ANOMALY_DETECTED--> [EventBus] --> [App] (toast + banner)
 ```
 
 ### Available Events (37 total)
@@ -317,6 +328,7 @@ The EventBus enables loose coupling between components:
 | `SYSTEM_HEALTH_DEGRADED` | Background Agent | One or more health checks degraded |
 | `KEY_INFO` | Background Agent | Key metadata info event |
 | `KEY_FINGERPRINT` | Background Agent | Key fingerprint verification event |
+| `ANOMALY_DETECTED` | Security | Anomalous message metadata detected |
 | `APP_STARTING` | Lifecycle | Application starting up |
 | `APP_SHUTDOWN` | Lifecycle | Application closing |
 

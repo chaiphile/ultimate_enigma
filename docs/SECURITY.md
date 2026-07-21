@@ -230,6 +230,45 @@ Message → AES-GCM encrypt → Ciphertext
 - No telemetry or phone-home functionality
 - Users control all data transmission
 
+## Anomaly Detection
+
+### Overview
+The `AnomalyDetectionService` provides zero-knowledge anomaly scoring on incoming message metadata. It uses a pre-trained **Isolation Forest** model (scikit-learn) to detect statistically anomalous messages without ever accessing plaintext content.
+
+### Design Principles
+- **Zero-knowledge**: Only raw packet metadata is used (sizes, envelope type, timestamps). No decrypted content is accessed.
+- **Offline**: The model runs entirely locally. No network calls, no telemetry.
+- **Fail-open**: If the model fails to load or scoring raises an exception, the message is still delivered (no denial of service).
+- **Non-blocking**: Scoring runs after decryption completes and does not delay message delivery.
+
+### Feature Vector (7 elements)
+
+| Index | Feature | Source |
+|-------|---------|--------|
+| 0 | `packet_size` | Total packet bytes |
+| 1 | `name_length` | Sender name string length |
+| 2 | `env_type_code` | 0=ratchet, 1=pqc, 2=legacy, -1=unknown |
+| 3 | `header_len` | Parsed header/KEM ciphertext length |
+| 4 | `ct_len` | Parsed ciphertext length |
+| 5 | `hour_of_day` | Local hour (0–23) |
+| 6 | `day_of_week` | Local weekday (0=Monday, 6=Sunday) |
+
+### Integration
+1. `ServiceOrchestrator` creates `AnomalyDetectionService` and injects it into `EncryptionService`
+2. After each successful decryption, `EncryptionService` calls `score_message(sender_name, raw_packet)`
+3. If the Isolation Forest score falls below the model threshold, a `MessageScore` with `is_anomaly=True` is returned
+4. `AnomalyDetectionService` publishes an `ANOMALY_DETECTED` event to the `EventBus`
+5. `EnigmaApp` receives the event and displays:
+   - A toast notification (auto-dismiss after 8 seconds)
+   - A persistent red banner (auto-dismiss after 10 seconds)
+   - A status bar flash (auto-dismiss after 10 seconds)
+
+### Model
+- **File**: `anomaly_model.pkl` (pre-trained Isolation Forest, shipped with the application)
+- **Training**: Offline on synthetic metadata mimicking normal chat patterns
+- **Threshold**: Stored as `model.threshold_` attribute (default: -0.5)
+- **Thread-safe**: Model is read-only after load; concurrent scoring is safe
+
 ## Threat Model
 
 ### Protected Against
@@ -247,6 +286,7 @@ Message → AES-GCM encrypt → Ciphertext
 | Code injection / hooking | Import hook + Frida detection |
 | Swap file leakage | VirtualLock/mlock pins pages in RAM |
 | Core dumps | MADV_DONTDUMP + RLIMIT_CORE=0 + PR_SET_DUMPABLE=0 |
+| Anomalous message patterns | Isolation Forest metadata scoring |
 ### Known Limitations
 | Limitation | Notes |
 |------------|-------|

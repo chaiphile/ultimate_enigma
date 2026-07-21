@@ -21,6 +21,7 @@ from services.file_service import FileService
 from services.friends import FriendsService
 from services.clipboard_service import ClipboardService
 from services.global_secret_service import GlobalSecretService
+from services.anomaly_detection_service import AnomalyDetectionService
 from services.event_bus import event_bus, Events
 from services.background_agents import (
     BackupReminderAgent,
@@ -41,7 +42,8 @@ class ServiceOrchestrator:
         self._crypto_queue = crypto_queue
         
         # Initialize services with provided key store
-        self.encryption_service = EncryptionService(key_store)
+        self.anomaly_service = AnomalyDetectionService()
+        self.encryption_service = EncryptionService(key_store, anomaly_service=self.anomaly_service)
         self.file_service = FileService(key_store)
         self.friends_service = FriendsService(key_store)
         self.clipboard_service = ClipboardService(root)
@@ -179,8 +181,9 @@ class ServiceOrchestrator:
         """
         with self._service_lock:
             logger.info("Rebuilding services with restored keys")
-            
-            self.encryption_service = EncryptionService(new_key_store)
+
+            self.anomaly_service = AnomalyDetectionService()
+            self.encryption_service = EncryptionService(new_key_store, anomaly_service=self.anomaly_service)
             self.file_service = FileService(new_key_store)
             self.friends_service = FriendsService(new_key_store)
             self.clipboard_service = ClipboardService(self.root)

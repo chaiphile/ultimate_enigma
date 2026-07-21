@@ -9,6 +9,7 @@ Comprehensive documentation for all data models in the `models/` directory and c
 - [RatchetEnvelope](#ratchetenvelope)
 - [PQCEncvelope](#pqcencvelope)
 - [FriendProfile](#friendprofile)
+- [MessageScore](#messagescore)
 - [KeyStore (Runtime)](#keystore-runtime)
 - [TrustChain](#trustchain)
 - [Database Schema](#database-schema)
@@ -127,6 +128,32 @@ Immutable representation of a friend's profile and session state. Replaces scatt
 |--------|---------|-------------|
 | `from_database(friend_name)` | `Optional[FriendProfile]` | Load from DB by name |
 | `list_all()` | `list[FriendProfile]` | Load all profiles |
+
+---
+
+## MessageScore
+
+**File:** `models/message_score.py`
+
+Immutable dataclass holding the anomaly score and classification for a scored message. Produced by `AnomalyDetectionService` after each message is decrypted.
+
+### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `friend_name` | `str` | Sender/recipient of the scored message |
+| `score` | `float` | Raw Isolation Forest score (negative = anomalous, positive = normal) |
+| `is_anomaly` | `bool` | `True` if score falls below the threshold |
+| `threshold` | `float` | Cutoff value used for classification |
+| `envelope_type` | `str` | Type of envelope (`'ratchet'`, `'pqc'`, `'legacy'`, or `'unknown'`) |
+| `packet_size` | `int` | Size of the raw packet in bytes |
+| `timestamp` | `datetime` | When the scoring occurred (UTC) |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `confidence` | `float` | Normalized confidence (0–1). Lower scores (more anomalous) produce lower confidence. Computed as `(score - (-1.0)) / 2.0`, clamped to [0, 1]. |
 
 ---
 

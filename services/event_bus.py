@@ -81,6 +81,9 @@ class Events:
     KEY_INFO = "key_info"
     KEY_FINGERPRINT = "key_fingerprint"
 
+    # Security anomaly events
+    ANOMALY_DETECTED = "anomaly_detected"
+
 
 class EventBus:
     """Thread-safe publish/subscribe event bus.
