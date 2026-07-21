@@ -6,6 +6,7 @@ The build() method orchestrates all steps in order.
 
 import tkinter as tk
 import logging
+from pathlib import Path
 import ttkbootstrap as ttk
 
 import database
@@ -18,6 +19,27 @@ from services.totp_persistence import TotpPersistence
 from services.trust_chain_service import TrustChainService
 
 logger = logging.getLogger(__name__)
+
+
+def _db_has_keys(db_path: Path) -> bool:
+    """Check if the database at db_path has actual key material.
+
+    Returns True if the settings table exists and contains a
+    'private_key_encrypted' row, meaning keys were generated during
+    first-run setup. An empty schema-only DB is safe to delete.
+    """
+    try:
+        import sqlite3
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(
+                "SELECT 1 FROM settings WHERE key='private_key_encrypted'"
+            ).fetchone()
+            return row is not None
+        finally:
+            conn.close()
+    except Exception:
+        return False
 
 
 class StartupCancelled(Exception):
@@ -108,6 +130,18 @@ class AppBuilder:
             self.root.destroy()
         except Exception:
             pass
+
+        # If first-run setup was cancelled before any keys were generated, remove
+        # the empty DB file so the next launch still detects as first run instead
+        # of asking for a password that was never set.
+        if self.first_run:
+            try:
+                db_path = database.DB_PATH
+                if db_path.exists() and not _db_has_keys(db_path):
+                    db_path.unlink()
+                    logger.info("Removed empty database from cancelled first-run setup")
+            except Exception as e:
+                logger.warning("Could not remove first-run database: %s", e)
 
     def step6_init_services(self) -> bool:
         """Create ServiceOrchestrator, TrustChainService, wire them together."""
