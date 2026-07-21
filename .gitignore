@@ -95,6 +95,15 @@ Thumbs.db
 # Binary executables
 *.exe
 
+# Archives
+*.rar
+*.7z
+
+# Presentation build artifacts
+*.ttf
+*.mjs
+*.pptx
+
 # AI coding assistant artifacts
 .mimocode/
 
