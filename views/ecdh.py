@@ -53,7 +53,7 @@ def perform_ecdh(parent, purpose="friend"):
             parent.clipboard_append(pub_b64)
             flash_widget_text(copy_btn, "✓ Copied!", "Copy Public Key", ms=1500)
         except Exception:
-            messagebox.showerror("Copy Failed", "Could not access clipboard.", parent=dlg)
+            messagebox.showerror("کپی ناموفق", "دسترسی به کلیپ‌بورد امکان‌پذیر نیست.", parent=dlg)
 
     copy_btn.config(command=copy_pubkey)
 
@@ -95,20 +95,20 @@ def perform_ecdh(parent, purpose="friend"):
     def confirm():
         friend_b64 = friend_pub_var.get().strip()
         if not friend_b64:
-            messagebox.showerror("Error", "Please enter friend's public key.", parent=dlg)
+            messagebox.showerror("خطا", "لطفاً کلید عمومی دوست را وارد کنید.", parent=dlg)
             return
 
         try:
             friend_raw = ECDHService.decode_public_key(friend_b64)
         except ValueError as e:
-            messagebox.showerror("Error", f"Invalid public key: {e}", parent=dlg)
+            messagebox.showerror("خطا", f"کلید عمومی نامعتبر: {e}", parent=dlg)
             return
 
         # Manual fingerprint verification (use service fingerprint)
         friend_fp = ECDHService.fingerprint(friend_raw)
-        if not messagebox.askyesno("Verify Fingerprint",
-                                   f"Friend's X25519 key fingerprint:\n{friend_fp}\n\n"
-                                   "Have you verified this fingerprint with your friend through a secure channel?",
+        if not messagebox.askyesno("تأیید اثر انگشت",
+                                   f"اثر انگشت کلید X25519 دوست:\n{friend_fp}\n\n"
+                                   "آیا این اثر انگشت را از طریق یک کانال امن با دوست خود تأیید کرده‌اید؟",
                                    parent=dlg):
             return
 

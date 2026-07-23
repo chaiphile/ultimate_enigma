@@ -147,8 +147,8 @@ class RecoveryUnlockDialog:
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 share_index = payload.get("share_index", len(self._share_entries) + 1)
                 if not enc_b64:
-                    messagebox.showerror("Invalid File",
-                                         "No encrypted share found in file.",
+                    messagebox.showerror("فایل نامعتبر",
+                                         "هیچ اشتراک رمزنگاری شده‌ای در فایل یافت نشد.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -167,10 +167,10 @@ class RecoveryUnlockDialog:
                     except Exception as dec_err:
                         logger.exception("Share decryption failed")
                         messagebox.showerror(
-                            "Decryption Failed",
-                            "Could not decrypt this share with your RSA private "
-                            "key.\n\n" + friendly_error(dec_err) + "\n\n"
-                            "Make sure this share file was created for you.",
+                            "رمزگشایی ناموفق",
+                            "این اشتراک با کلید خصوصی RSA شما قابل رمزگشایی نبود."
+                            "\n\n" + friendly_error(dec_err) + "\n\n"
+                            "مطمئن شوید این فایل اشتراک برای شما ایجاد شده است.",
                             parent=dlg,
                         )
                         return
@@ -182,15 +182,15 @@ class RecoveryUnlockDialog:
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
-                    "Share Imported",
-                    f"Share #{share_index} added.\n"
-                    f"Owner: {payload.get('owner_name', 'unknown')}",
+                    "اشتراک وارد شد",
+                    f"اشتراک #{share_index} اضافه شد.\n"
+                    f"مالک: {payload.get('owner_name', 'unknown')}",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import share file")
-                messagebox.showerror("Import Failed",
-                                     "Failed to import share file.\n\n"
+                messagebox.showerror("واردات ناموفق",
+                                     "واردات فایل اشتراک ناموفق بود.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         ttk.Button(btn_row, text="Import .enigma-share File",
@@ -212,8 +212,8 @@ class RecoveryUnlockDialog:
                     raw_shares.append((idx_var.get(), val))
 
             if len(raw_shares) < 2:
-                messagebox.showwarning("Insufficient Shares",
-                                       "Provide at least 2 shares.", parent=dlg)
+                messagebox.showwarning("اشتراک‌های ناکافی",
+                                       "حداقل ۲ اشتراک ارائه دهید.", parent=dlg)
                 return
 
             try:
@@ -223,13 +223,13 @@ class RecoveryUnlockDialog:
                     parsed.append((share_idx, share_bytes))
             except Exception as e:
                 logger.exception("Invalid share encoding")
-                messagebox.showerror("Invalid Shares",
+                messagebox.showerror("اشتراک‌های نامعتبر",
                                      friendly_error(e), parent=dlg)
                 return
 
             if len(set(len(s[1]) for s in parsed)) != 1:
-                messagebox.showerror("Invalid Shares",
-                                     "All shares must have the same length.",
+                messagebox.showerror("اشتراک‌های نامعتبر",
+                                     "همه اشتراک‌ها باید طول یکسانی داشته باشند.",
                                      parent=dlg)
                 return
 
@@ -259,7 +259,7 @@ class RecoveryUnlockDialog:
                             break
 
             def _err(e):
-                messagebox.showerror("Reconstruction Failed",
+                messagebox.showerror("بازسازی ناموفق",
                                      friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
@@ -315,8 +315,8 @@ class RecoveryUnlockDialog:
 
         def apply_recovery():
             if self._reconstructed_state["key_bytes"] is None:
-                messagebox.showwarning("No Key",
-                                       "Reconstruct the recovery key first.",
+                messagebox.showwarning("بدون کلید",
+                                       "ابتدا کلید بازیابی را بازسازی کنید.",
                                        parent=dlg)
                 return
 
@@ -324,30 +324,30 @@ class RecoveryUnlockDialog:
             confirm_pw = self._confirm_pw_var.get()
 
             if not new_pw:
-                messagebox.showwarning("Empty Password",
-                                       "Enter a new master password.",
+                messagebox.showwarning("رمز عبور خالی",
+                                       "یک رمز عبور اصلی جدید وارد کنید.",
                                        parent=dlg)
                 return
 
             if new_pw != confirm_pw:
-                messagebox.showerror("Mismatch", "Passwords do not match.",
+                messagebox.showerror("عدم تطابق", "رمزهای عبور مطابقت ندارند.",
                                      parent=dlg)
                 return
 
             if len(new_pw) < 8:
-                messagebox.showwarning("Weak Password",
-                                       "Password must be at least 8 characters.",
+                messagebox.showwarning("رمز عبور ضعیف",
+                                       "رمز عبور باید حداقل ۸ کاراکتر باشد.",
                                        parent=dlg)
                 return
 
             confirm = messagebox.askyesno(
-                "Confirm Recovery",
-                "This will:\n"
-                "• Replace your master password\n"
-                "• Regenerate RSA, PQC, and signing keys\n"
-                "• Clear friend shared secrets\n"
-                "• Preserve friend public keys and certificates\n\n"
-                "Continue?",
+                "تأیید بازیابی",
+                "این کار:\n"
+                "• رمز عبور اصلی شما را جایگزین می‌کند\n"
+                "• کلیدهای RSA، PQC و امضا را بازتولید می‌کند\n"
+                "• اسرار مشترک دوستان را پاک می‌کند\n"
+                "• کلیدهای عمومی و گواهی‌های دوستان را حفظ می‌کند\n\n"
+                "ادامه می‌دهید؟",
                 icon="warning",
                 parent=dlg,
             )
@@ -364,7 +364,7 @@ class RecoveryUnlockDialog:
 
             def _err(e):
                 logger.exception("Recovery failed")
-                messagebox.showerror("Recovery Failed",
+                messagebox.showerror("بازیابی ناموفق",
                                      friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,

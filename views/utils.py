@@ -140,7 +140,7 @@ def run_busy(widget, work, on_done=None, on_error=None, busy_widgets=None) -> No
                 if on_error:
                     on_error(exc)
                 else:
-                    messagebox.showerror("Error", friendly_error(exc))
+                    messagebox.showerror("خطا", friendly_error(exc))
             widget.after(0, _fail)
 
     threading.Thread(target=_worker, daemon=True).start()

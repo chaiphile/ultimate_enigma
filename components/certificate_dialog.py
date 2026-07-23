@@ -34,9 +34,9 @@ class CertificateDialog:
             return
         if not self.friends_service.verify_master_password(pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
-                "Trust chain certificate management requires authentication.",
+                "دسترسی رد شد",
+                "رمز عبور اصلی نادرست است.\n"
+                "مدیریت گواهی زنجیره اعتماد نیاز به احراز هویت دارد.",
                 parent=self.parent,
             )
             return
@@ -98,8 +98,8 @@ class CertificateDialog:
             issue_status_var.set("")
             fname = issue_friend_var.get()
             if not fname:
-                messagebox.showwarning("No Selection",
-                                       "Please select a friend to issue a certificate for.",
+                messagebox.showwarning("هیچ انتخابی",
+                                       "لطفاً یک دوست برای صدور گواهی انتخاب کنید.",
                                        parent=dlg)
                 return
             try:
@@ -107,8 +107,8 @@ class CertificateDialog:
                 if days <= 0:
                     raise ValueError
             except ValueError:
-                messagebox.showwarning("Invalid Validity",
-                                       "Please enter a positive whole number of days.",
+                messagebox.showwarning("اعتبار نامعتبر",
+                                       "لطفاً یک عدد صحیح مثبت برای روزها وارد کنید.",
                                        parent=dlg)
                 return
             cert_type_label = cert_type_var.get()
@@ -127,15 +127,15 @@ class CertificateDialog:
             if not pw2:
                 return
             if not self.friends_service.verify_master_password(pw2):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
+                messagebox.showerror("رمز عبور اشتباه",
+                                     "رمز عبور اصلی نادرست است.", parent=dlg)
                 return
             subject_pub_b64 = self.friends_service.get_friend_hybrid_sig_pub_b64(fname)
             if not subject_pub_b64:
                 messagebox.showerror(
-                    "Missing Key",
-                    f"No hybrid signing public key stored for '{fname}'.\n"
-                    "Import their hybrid signing key first.",
+                    "کلید موجود نیست",
+                    f"کلید عمومی امضای ترکیبی برای '{fname}' ذخیره نشده است.\n"
+                    "ابتدا کلید امضای ترکیبی آن را وارد کنید.",
                     parent=dlg,
                 )
                 return
@@ -155,12 +155,12 @@ class CertificateDialog:
                     f"✅ Certificate issued for '{fname}' ({cert_type_label}, {days} days)"
                 )
                 messagebox.showinfo(
-                    "Success",
-                    f"Certificate issued successfully!\n\n"
-                    f"Subject: {fname}\n"
-                    f"Type: {cert_type_label}\n"
-                    f"Validity: {days} days\n"
-                    f"ID: {cert.cert_id[:12]}...",
+                    "موفقیت",
+                    f"گواهی با موفقیت صادر شد!\n\n"
+                    f"موضوع: {fname}\n"
+                    f"نوع: {cert_type_label}\n"
+                    f"اعتبار: {days} روز\n"
+                    f"شناسه: {cert.cert_id[:12]}...",
                     parent=dlg,
                 )
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog", friend_name=fname)
@@ -168,7 +168,7 @@ class CertificateDialog:
             def _err(e):
                 logger.exception("Failed to issue certificate")
                 issue_status_var.set("")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[issue_btn])
@@ -255,8 +255,8 @@ class CertificateDialog:
         def do_verify():
             sel = cert_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
-                                       "Please select a certificate to verify.",
+                messagebox.showwarning("هیچ انتخابی",
+                                       "لطفاً یک گواهی برای تأیید انتخاب کنید.",
                                        parent=dlg)
                 return
             cert_id = sel[0]
@@ -266,17 +266,17 @@ class CertificateDialog:
 
             def _done(result):
                 if result:
-                    messagebox.showinfo("Verification",
-                                        "Certificate is valid and trusted.",
+                    messagebox.showinfo("تأیید",
+                                        "گواهی معتبر و مورد اعتماد است.",
                                         parent=dlg)
                 else:
-                    messagebox.showwarning("Verification",
-                                           "Certificate verification failed.",
+                    messagebox.showwarning("تأیید",
+                                           "تأیید گواهی ناموفق بود.",
                                            parent=dlg)
 
             def _err(e):
                 logger.exception("Certificate verification error")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[verify_btn])
@@ -284,15 +284,15 @@ class CertificateDialog:
         def do_revoke():
             sel = cert_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
-                                       "Please select a certificate to revoke.",
+                messagebox.showwarning("هیچ انتخابی",
+                                       "لطفاً یک گواهی برای لغو انتخاب کنید.",
                                        parent=dlg)
                 return
             cert_id = sel[0]
             confirm = messagebox.askyesno(
-                "Confirm Revocation",
-                "Are you sure you want to revoke this certificate?\n\n"
-                "This action cannot be undone.",
+                "تأیید لغو",
+                "آیا مطمئن هستید که می‌خواهید این گواهی را لغو کنید؟\n\n"
+                "این عمل قابل بازگشت نیست.",
                 parent=dlg,
             )
             if not confirm:
@@ -305,8 +305,8 @@ class CertificateDialog:
             if not pw2:
                 return
             if not self.friends_service.verify_master_password(pw2):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
+                messagebox.showerror("رمز عبور اشتباه",
+                                     "رمز عبور اصلی نادرست است.", parent=dlg)
                 return
 
             def _work():
@@ -314,14 +314,14 @@ class CertificateDialog:
 
             def _done(_result):
                 load_certificates()
-                messagebox.showinfo("Revoked",
-                                    "Certificate has been revoked successfully.",
+                messagebox.showinfo("لغو شد",
+                                    "گواهی با موفقیت لغو شد.",
                                     parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
 
             def _err(e):
                 logger.exception("Failed to revoke certificate")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[revoke_btn])
@@ -329,8 +329,8 @@ class CertificateDialog:
         def do_export():
             sel = cert_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
-                                       "Please select a certificate to export.",
+                messagebox.showwarning("هیچ انتخابی",
+                                       "لطفاً یک گواهی برای صادرات انتخاب کنید.",
                                        parent=dlg)
                 return
             cert_id = sel[0]
@@ -346,19 +346,19 @@ class CertificateDialog:
                     return
                 with open(path, "w") as f:
                     json.dump(cert_dict, f, indent=2)
-                messagebox.showinfo("Exported",
-                                    f"Certificate exported to:\n{path}",
+                messagebox.showinfo("صادر شد",
+                                    f"گواهی صادر شد به:\n{path}",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Certificate export failed")
-                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطای صادرات", friendly_error(e), parent=dlg)
 
         def do_export_delegation():
             try:
                 bundle = self.trust_chain_service.export_delegation_certificates()
                 if not bundle["certificates"]:
-                    messagebox.showinfo("No Delegation Certs",
-                                        "No delegation certificates found in the local store.",
+                    messagebox.showinfo("بدون گواهی نمایندگی",
+                                        "هیچ گواهی نمایندگی در فروشگاه محلی یافت نشد.",
                                         parent=dlg)
                     return
                 path = filedialog.asksaveasfilename(
@@ -372,12 +372,12 @@ class CertificateDialog:
                 with open(path, "w") as f:
                     json.dump(bundle, f, indent=2)
                 count = len(bundle["certificates"])
-                messagebox.showinfo("Exported",
-                                    f"Exported {count} delegation certificate(s) to:\n{path}",
+                messagebox.showinfo("صادر شد",
+                                    f"{count} گواهی نمایندگی صادر شد به:\n{path}",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Delegation export failed")
-                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطای صادرات", friendly_error(e), parent=dlg)
 
         def do_export_all():
             try:
@@ -393,12 +393,12 @@ class CertificateDialog:
                 with open(path, "w") as f:
                     json.dump(bundle, f, indent=2)
                 count = len(bundle.get("certificates", []))
-                messagebox.showinfo("Exported",
-                                    f"Exported {count} certificate(s) to:\n{path}",
+                messagebox.showinfo("صادر شد",
+                                    f"{count} گواهی صادر شد به:\n{path}",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Export all certificates failed")
-                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطای صادرات", friendly_error(e), parent=dlg)
 
         def do_import():
             path = filedialog.askopenfilename(
@@ -418,20 +418,20 @@ class CertificateDialog:
                 rejected = total - count
                 if rejected > 0:
                     messagebox.showwarning(
-                        "Imported with rejections",
-                        f"Imported {count} of {total} certificate(s).\n\n"
-                        f"{rejected} were rejected because their signature could "
-                        f"not be verified or the issuer is not a known, added "
-                        f"contact. Add the issuer first, then re-import.",
+                        "واردات با رد",
+                        f"تعداد {count} از {total} گواهی وارد شد.\n\n"
+                        f"{rejected} مورد رد شد زیرا امضای آنها قابل تأیید "
+                        f"نبود یا صادرکننده یک تماس شناخته‌شده نیست. "
+                        f"ابتدا صادرکننده را اضافه کنید، سپس دوباره وارد کنید.",
                         parent=dlg)
                 else:
-                    messagebox.showinfo("Imported",
-                                        f"Imported {count} certificate(s).",
+                    messagebox.showinfo("وارد شد",
+                                        f"تعداد {count} گواهی وارد شد.",
                                         parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
             except Exception as e:
                 logger.exception("Certificate import failed")
-                messagebox.showerror("Import Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطای واردات", friendly_error(e), parent=dlg)
 
         # Export row
         ttk.Button(
@@ -610,8 +610,8 @@ class CertificateDialog:
             """Return delegator name from selected tree row, or None."""
             sel = del_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
-                                       "Select a delegation certificate first.",
+                messagebox.showwarning("هیچ انتخابی",
+                                       "ابتدا یک گواهی نمایندگی انتخاب کنید.",
                                        parent=dlg)
                 return None
             vals = del_tree.item(sel[0], "values")
@@ -654,9 +654,9 @@ class CertificateDialog:
             )
             if not pw2:
                 return None
-            if not self.friends_service.verify_master_password(pw2):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
+    if not self.friends_service.verify_master_password(pw2):
+                messagebox.showerror("رمز عبور اشتباه",
+                                     "رمز عبور اصلی نادرست است.", parent=dlg)
                 return None
             return pw2
 
@@ -677,14 +677,14 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_pub_key(name, new_b64, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"Hybrid signing key for '{name}' updated.",
+                messagebox.showinfo("کلید به‌روز شد",
+                                    f"کلید امضای ترکیبی برای '{name}' به‌روز شد.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator hybrid key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         def do_update_x25519():
             name = _get_delegator()
@@ -701,14 +701,14 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_x25519_key(name, new_b64, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"X25519 key for '{name}' updated.",
+                messagebox.showinfo("کلید به‌روز شد",
+                                    f"کلید X25519 برای '{name}' به‌روز شد.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator X25519 key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         def do_update_pem():
             name = _get_delegator()
@@ -725,14 +725,14 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_pem(name, new_pem, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"RSA public key (PEM) for '{name}' updated.",
+                messagebox.showinfo("کلید به‌روز شد",
+                                    f"کلید عمومی RSA (PEM) برای '{name}' به‌روز شد.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator RSA PEM")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         def do_update_pqc():
             name = _get_delegator()
@@ -749,24 +749,24 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_pqc_key(name, new_b64, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"PQC combined key for '{name}' updated.",
+                messagebox.showinfo("کلید به‌روز شد",
+                                    f"کلید ترکیبی PQC برای '{name}' به‌روز شد.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator PQC key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         def do_remove_all_keys():
             name = _get_delegator()
             if not name:
                 return
             if not messagebox.askyesno(
-                "Confirm Remove Keys",
-                f"Remove ALL optional public keys (X25519, PQC, Hybrid Signing) for '{name}'?\n\n"
-                "The RSA PEM identity key is preserved.\n"
-                "This cannot be undone.",
+                "تأیید حذف کلیدها",
+                f"همه کلیدهای عمومی اختیاری (X25519، PQC، امضای ترکیبی) برای '{name}' حذف شوند؟\n\n"
+                "کلید هویت RSA PEM حفظ می‌شود.\n"
+                "این عمل قابل بازگشت نیست.",
                 parent=dlg,
             ):
                 return
@@ -775,24 +775,24 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.remove_all_delegator_optional_keys(name, pw2)
-                messagebox.showinfo("Keys Removed",
-                                    f"All optional keys for '{name}' have been cleared.",
+                messagebox.showinfo("کلیدها حذف شدند",
+                                    f"همه کلیدهای اختیاری برای '{name}' پاک شدند.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to remove delegator optional keys")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         def do_revoke_all_delegator_certs():
             name = _get_delegator()
             if not name:
                 return
             if not messagebox.askyesno(
-                "Confirm Full Revocation",
-                f"Revoke ALL trust certificates for '{name}'?\n\n"
-                "Their trust level will reset to NONE.\n"
-                "This action cannot be undone.",
+                "تأیید لغو کامل",
+                f"همه گواهی‌های اعتماد برای '{name}' لغو شوند؟\n\n"
+                "سطح اعتماد آنها به NONE بازنشانی می‌شود.\n"
+                "این عمل قابل بازگشت نیست.",
                 parent=dlg,
             ):
                 return
@@ -801,37 +801,37 @@ class CertificateDialog:
                 return
             try:
                 count = self.trust_chain_service.revoke_all_certs_for_delegator(name)
-                messagebox.showinfo("Revocation Complete",
-                                    f"Revoked {count} certificate(s) for '{name}'.\n"
-                                    "Their trust level is now NONE.",
+                messagebox.showinfo("لغو کامل شد",
+                                    f"تعداد {count} گواهی برای '{name}' لغو شد.\n"
+                                    "سطح اعتماد آنها اکنون NONE است.",
                                     parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to revoke all delegator certs")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         def do_revoke_recovery_shares():
             name = _get_delegator()
             if not name:
                 return
             if not messagebox.askyesno(
-                "Confirm Share Revocation",
-                f"Delete all local recovery share records for '{name}'?\n\n"
-                "This removes shares they distributed as well as any copy\n"
-                "held locally on their behalf.\n"
-                "This action cannot be undone.",
+                "تأیید لغو اشتراک",
+                f"همه سوابق اشتراک بازیابی محلی برای '{name}' حذف شوند؟\n\n"
+                "این کار اشتراک‌هایی که توزیع کرده‌اند و همچنین هر کپی\n"
+                "که به نمایندگی از آنها محلی نگهداری می‌شود را حذف می‌کند.\n"
+                "این عمل قابل بازگشت نیست.",
                 parent=dlg,
             ):
                 return
             try:
                 count = self.trust_chain_service.revoke_delegator_recovery_shares(name)
-                messagebox.showinfo("Shares Revoked",
-                                    f"Deleted {count} recovery share record(s) for '{name}'.",
+                messagebox.showinfo("اشتراک‌ها لغو شدند",
+                                    f"تعداد {count} رکورد اشتراک بازیابی برای '{name}' حذف شد.",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Failed to revoke delegator recovery shares")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         # ---- button rows ---------------------------------------------------
 

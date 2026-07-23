@@ -173,7 +173,7 @@ class FileTab:
         try:
             self._validate_path(infile)
         except ValueError as e:
-            messagebox.showerror("Invalid Path", str(e))
+            messagebox.showerror("مسیر نامعتبر", str(e))
             return
         outfile = filedialog.asksaveasfilename(title="Save encrypted file as",
                                                defaultextension=".enc")
@@ -182,7 +182,7 @@ class FileTab:
         try:
             self._validate_path(outfile)
         except ValueError as e:
-            messagebox.showerror("Invalid Path", str(e))
+            messagebox.showerror("مسیر نامعتبر", str(e))
             return
 
         method = self.method_var.get()
@@ -199,21 +199,21 @@ class FileTab:
             password = pw
         elif method == "global":
             if not self.global_secret_service.has_secret():
-                messagebox.showerror("Error", "Global shared secret is not available.")
+                messagebox.showerror("خطا", "رمز اشتراکی سراسری در دسترس نیست.")
                 return
             desc = "Global Shared Secret"
         else:  # friend
             friend_name = self.friend_var.get()
             if not friend_name:
-                messagebox.showwarning("No Friend", "Please select a friend.")
+                messagebox.showwarning("بدون دوست", "لطفاً یک دوست انتخاب کنید.")
                 return
             if not self.friends_service.friend_has_secret(friend_name):
-                messagebox.showerror("Error", f"No shared secret for {friend_name}.")
+                messagebox.showerror("خطا", f"رمز اشتراکی برای {friend_name} وجود ندارد.")
                 return
             desc = f"Friend's Secret ({friend_name})"
 
-        if not messagebox.askyesno("Confirm Encryption Method",
-                                   f"You are about to encrypt with:\n{desc}\n\nProceed?"):
+        if not messagebox.askyesno("تأیید روش رمزنگاری",
+                                   f"شما در حال رمزنگاری با:\n{desc}\n\nآیا ادامه می‌دهید؟"):
             return
 
         def _do_encrypt():
@@ -232,8 +232,8 @@ class FileTab:
             """Handle successful encryption (runs on main thread)."""
             self._set_busy(False)
             messagebox.showinfo(
-                "Success",
-                f"File encrypted (your original file is unchanged):\n{result_path}"
+                "موفقیت",
+                f"فایل رمزنگاری شد (فایل اصلی شما تغییری نکرده است):\n{result_path}"
             )
 
         def _on_error(exc):
@@ -241,12 +241,11 @@ class FileTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "Timeout",
-                    "File encryption timed out. The file may be too large or "
-                    "the system is under heavy load. Please try again."
+                    "مدت زمان تمام شد",
+                    "رمزنگاری فایل زمان آن تمام شد. فایل ممکن است بیش از حد بزرگ باشد یا سیستم تحت بار سنگین باشد. لطفاً دوباره تلاش کنید."
                 )
             else:
-                messagebox.showerror("Encryption Error", friendly_error(exc))
+                messagebox.showerror("خطای رمزنگاری", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_encrypt, _on_success, _on_error)
@@ -259,7 +258,7 @@ class FileTab:
         try:
             self._validate_path(infile)
         except ValueError as e:
-            messagebox.showerror("Invalid Path", str(e))
+            messagebox.showerror("مسیر نامعتبر", str(e))
             return
         # Suggest a sensible output name (strip a trailing .enc)
         suggested = os.path.basename(infile)
@@ -272,7 +271,7 @@ class FileTab:
         try:
             self._validate_path(outfile)
         except ValueError as e:
-            messagebox.showerror("Invalid Path", str(e))
+            messagebox.showerror("مسیر نامعتبر", str(e))
             return
 
         def _do_decrypt():
@@ -291,9 +290,8 @@ class FileTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "Timeout",
-                    "File decryption timed out. The file may be too large or "
-                    "the system is under heavy load. Please try again."
+                    "مدت زمان تمام شد",
+                    "رمزگشایی فایل زمان آن تمام شد. فایل ممکن است بیش از حد بزرگ باشد یا سیستم تحت بار سنگین باشد. لطفاً دوباره تلاش کنید."
                 )
             elif isinstance(exc, SharedSecretDetected):
                 self._handle_shared_detected(infile, outfile, exc)
@@ -301,9 +299,9 @@ class FileTab:
                 if "password required" in str(exc).lower():
                     self._prompt_password_and_decrypt(infile, outfile)
                 else:
-                    messagebox.showerror("Decryption Error", friendly_error(exc))
+                    messagebox.showerror("خطای رمزگشایی", friendly_error(exc))
             else:
-                messagebox.showerror("Decryption Error", friendly_error(exc))
+                messagebox.showerror("خطای رمزگشایی", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_decrypt, _on_success, _on_error)
@@ -311,9 +309,9 @@ class FileTab:
     def _handle_shared_detected(self, infile: str, outfile: str, detection: SharedSecretDetected) -> None:
         """Ask user if they want to decrypt using the detected shared secret."""
         ok = messagebox.askyesno(
-            "Shared Secret Detected",
-            f"This file appears to be encrypted with the shared secret of '{detection.owner}'.\n\n"
-            "Do you want to decrypt it using that shared secret?"
+            "رمز اشتراکی تشخیص داده شد",
+            f"این فایل به نظر می‌رسد با رمز اشتراکی '{detection.owner}' رمزنگاری شده است.\n\n"
+            "آیا می‌خواهید با آن رمز اشتراکی رمزگشایی کنید؟"
         )
         if not ok:
             return
@@ -330,9 +328,9 @@ class FileTab:
         def _on_error(exc):
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
-                messagebox.showerror("Timeout", "File decryption timed out.")
+                messagebox.showerror("مدت زمان تمام شد", "رمزگشایی فایل زمان آن تمام شد.")
             else:
-                messagebox.showerror("Decryption Error", friendly_error(exc))
+                messagebox.showerror("خطای رمزگشایی", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_decrypt_shared, _on_success, _on_error)
@@ -357,9 +355,9 @@ class FileTab:
         def _on_error(exc):
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
-                messagebox.showerror("Timeout", "File decryption timed out.")
+                messagebox.showerror("مدت زمان تمام شد", "رمزگشایی فایل زمان آن تمام شد.")
             else:
-                messagebox.showerror("Decryption Error", friendly_error(exc))
+                messagebox.showerror("خطای رمزگشایی", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_decrypt_pw, _on_success, _on_error)
@@ -368,4 +366,4 @@ class FileTab:
         msg = f"File decrypted:\n{outfile}"
         if sig_msg:
             msg += f"\n\n{sig_msg}"
-        messagebox.showinfo("Success", msg)
+        messagebox.showinfo("موفقیت", msg)

@@ -26,9 +26,9 @@ class PqcExchangeDialog:
             return
         if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
-                "PQC key exchange requires authentication.",
+                "دسترسی رد شد",
+                "رمز عبور اصلی نادرست است.\n"
+                "تبادل کلید PQC نیاز به احراز هویت دارد.",
                 parent=self.parent,
             )
             return
@@ -90,7 +90,7 @@ class PqcExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
                                      parent=dlg)
                 return
 
@@ -100,15 +100,15 @@ class PqcExchangeDialog:
             def on_done(pub_b64):
                 load_my_pqc()
                 messagebox.showinfo(
-                    "Success",
-                    "PQC hybrid keys generated successfully!\n\n"
-                    "Share your combined public key with friends to enable\n"
-                    "quantum-resistant key exchange.",
+                    "موفقیت",
+                    "کلیدهای هیبریدی PQC با موفقیت تولید شدند!\n\n"
+                    "کلید عمومی ترکیبی خود را با دوستان به اشتراک بگذارید تا\n"
+                    "تبادل کلید مقاوم در برابر کوانتوم فعال شود.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -145,7 +145,7 @@ class PqcExchangeDialog:
         def do_encapsulate():
             fname = encap_friend_var.get()
             if not fname:
-                messagebox.showwarning("No Selection", "Please select a friend.",
+                messagebox.showwarning("هیچ انتخابی", "لطفاً یک دوست انتخاب کنید.",
                                        parent=dlg)
                 return
 
@@ -180,7 +180,7 @@ class PqcExchangeDialog:
                     )
 
             def on_error(exc):
-                messagebox.showerror("Encapsulation Failed", friendly_error(exc), parent=dlg)
+                messagebox.showerror("محصورسازی ناموفق", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -230,15 +230,15 @@ class PqcExchangeDialog:
         def do_decapsulate():
             ct_b64 = decap_input.get('1.0', tk.END).strip()
             if not ct_b64:
-                messagebox.showwarning("Empty Input",
-                                       "Please paste a ciphertext first.", parent=dlg)
+                messagebox.showwarning("ورودی خالی",
+                                       "لطفاً ابتدا یک متن رمز شده را جایگذاری کنید.", parent=dlg)
                 return
             pw = password_dialog(dlg, "Enter Master Password for PQC decapsulation",
                                  confirm=False)
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
                                      parent=dlg)
                 return
 
@@ -276,7 +276,7 @@ class PqcExchangeDialog:
                         )
 
             def on_error(exc):
-                messagebox.showerror("Decapsulation Failed", friendly_error(exc), parent=dlg)
+                messagebox.showerror("عدم محصورسازی ناموفق", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -314,12 +314,12 @@ class PqcExchangeDialog:
             fname = import_friend_var.get()
             key_b64 = import_key_text.get('1.0', tk.END).strip()
             if not fname:
-                messagebox.showwarning("No Selection", "Please select a friend.",
+                messagebox.showwarning("هیچ انتخابی", "لطفاً یک دوست انتخاب کنید.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("Empty Key",
-                                       "Please paste the PQC combined public key.",
+                messagebox.showwarning("کلید خالی",
+                                       "لطفاً کلید عمومی ترکیبی PQC را جایگذاری کنید.",
                                        parent=dlg)
                 return
             try:
@@ -327,7 +327,7 @@ class PqcExchangeDialog:
                 if len(raw) < 36:
                     raise ValueError("Too short")
             except Exception as e:
-                messagebox.showerror("Invalid Key",
+                messagebox.showerror("کلید نامعتبر",
                                      friendly_error(e),
                                      parent=dlg)
                 return
@@ -343,8 +343,8 @@ class PqcExchangeDialog:
                     if not pw:
                         return
                     if not self.friends_service.verify_master_password(pw):
-                        messagebox.showerror("Wrong Password",
-                                             "Master password incorrect.",
+                        messagebox.showerror("رمز عبور اشتباه",
+                                             "رمز عبور اصلی نادرست است.",
                                              parent=dlg)
                         return
                 self.friends_service.update_friend_pub_keys(
@@ -354,11 +354,11 @@ class PqcExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ PQC key imported for '{fname}'")
-                messagebox.showinfo("Success",
-                                    f"PQC combined public key saved for '{fname}'.",
+                messagebox.showinfo("موفقیت",
+                                    f"کلید عمومی ترکیبی PQC برای '{fname}' ذخیره شد.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
+                messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_import, text="💾 Import & Save PQC Key",
                    command=do_import_pqc_key, bootstyle="info").pack(anchor="w")

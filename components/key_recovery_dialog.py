@@ -44,9 +44,9 @@ class KeyRecoveryDialog:
             return
         if not self.friends_service.verify_master_password(master_pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
-                "Key recovery requires authentication.",
+                "دسترسی رد شد",
+                "رمز عبور اصلی نادرست است.\n"
+                "بازیابی کلید نیاز به احراز هویت دارد.",
                 parent=self.parent,
             )
             return
@@ -171,22 +171,22 @@ class KeyRecoveryDialog:
 
             selected_indices = friend_listbox.curselection()
             if not selected_indices:
-                messagebox.showwarning("No Friends Selected",
-                                       "Select at least one friend to hold shares.",
+                messagebox.showwarning("هیچ دوستی انتخاب نشد",
+                                       "حداقل یک دوست برای نگهداری اشتراک‌ها انتخاب کنید.",
                                        parent=dlg)
                 return
             n = n_var.get()
             k = k_var.get()
             if k > n:
-                messagebox.showwarning("Invalid Parameters",
-                                       "Threshold K cannot exceed total shares N.",
+                messagebox.showwarning("پارامترهای نامعتبر",
+                                       "آستانه K نمی‌تواند از تعداد کل اشتراک‌های N بیشتر باشد.",
                                        parent=dlg)
                 return
             if len(selected_indices) < n:
                 messagebox.showwarning(
-                    "Not Enough Friends",
-                    f"You selected {len(selected_indices)} friend(s) but need "
-                    f"{n} share holders.\nSelect more friends or reduce N.",
+                    "دوستان کافی نیست",
+                    f"شما {len(selected_indices)} دوست انتخاب کردید اما به "
+                    f"{n} دارنده اشتراک نیاز دارید.\nدوستان بیشتری انتخاب کنید یا N را کاهش دهید.",
                     parent=dlg,
                 )
                 return
@@ -198,10 +198,10 @@ class KeyRecoveryDialog:
                        if self.friends_service.get_friend_rsa_pub(n) is None]
             if missing:
                 messagebox.showerror(
-                    "Missing Public Keys",
-                    "These friends have no RSA public key loaded and cannot "
-                    f"receive an encrypted share:\n\n{', '.join(missing)}\n\n"
-                    "Re-add them so their public key is available.",
+                    "کلیدهای عمومی گم شده",
+                    "این دوستان کلید عمومی RSA بارگذاری شده ندارند و نمی‌توانند "
+                    f"اشتراک رمزنگاری شده دریافت کنند:\n\n{', '.join(missing)}\n\n"
+                    "دوباره آنها را اضافه کنید تا کلید عمومی آنها در دسترس باشد.",
                     parent=dlg,
                 )
                 return
@@ -275,8 +275,8 @@ class KeyRecoveryDialog:
                             with open(path, "w", encoding="utf-8") as f:
                                 json.dump(payload, f, indent=2)
                             messagebox.showinfo(
-                                "Exported",
-                                f"Share file saved.\nSend it securely to {holder_name}.",
+                                "صادر شد",
+                                f"فایل اشتراک ذخیره شد.\nآن را به صورت امن برای {holder_name} ارسال کنید.",
                                 parent=dlg,
                             )
                         return _export
@@ -291,17 +291,15 @@ class KeyRecoveryDialog:
                 event_bus.publish(Events.RECOVERY_SHARE_CREATED, n=n, k=k,
                                   holders=selected_names)
                 messagebox.showinfo(
-                    "Shares Created",
-                    f"Recovery key split into {n} shares (K={k}).\n\n"
-                    "Each share is RSA-encrypted to the recipient's public key.\n"
-                    "Use the export buttons to save a file for each friend.\n"
-                    "Friends can import their file in the 'Held Shares' tab.",
+                    "اشتراک‌های بازیابی",
+                    f"کلید بازیابی به {n} اشتراک تقسیم شد (آستانه: {k}).\n"
+                    "هر اشتراک را صادر کرده و به صورت امن توزیع کنید.",
                     parent=dlg,
                 )
 
             def _err(e):
                 logger.exception("Failed to split key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[split_btn])
@@ -396,8 +394,8 @@ class KeyRecoveryDialog:
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 share_index = payload.get("share_index", len(share_entries) + 1)
                 if not enc_b64:
-                    messagebox.showerror("Invalid File",
-                                         "No encrypted share found in file.",
+                    messagebox.showerror("فایل نامعتبر",
+                                         "اشتراک رمزنگاری شده در فایل یافت نشد.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -406,25 +404,25 @@ class KeyRecoveryDialog:
                 except Exception as dec_err:
                     logger.exception("Share decryption failed")
                     messagebox.showerror(
-                        "Decryption Failed",
-                        "Could not decrypt the share with your RSA private key.\n\n"
+                        "رمزگشایی ناموفق",
+                        "امکان رمزگشایی اشتراک با کلید خصوصی RSA شما وجود ندارد.\n\n"
                         + friendly_error(dec_err) + "\n\n"
-                        "Make sure this share file was created for you.",
+                        "مطمئن شوید این فایل اشتراک برای شما ایجاد شده است.",
                         parent=dlg,
                     )
                     return
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
-                    "Share Imported",
-                    f"Share #{share_index} decrypted and added.\n"
-                    f"Owner: {payload.get('owner_name', 'unknown')}",
+                    "اشتراک وارد شد",
+                    f"اشتراک #{share_index} رمزگشایی و اضافه شد.\n"
+                    f"مالک: {payload.get('owner_name', 'unknown')}",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import share file")
-                messagebox.showerror("Import Failed",
-                                     "Failed to import share file.\n\n"
+                messagebox.showerror("واردات ناموفق",
+                                     "واردات فایل اشتراک ناموفق بود.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         ttk.Button(btn_row, text="Import .enigma-share File",
@@ -446,8 +444,8 @@ class KeyRecoveryDialog:
                     raw_shares.append((idx_var.get(), val))
 
             if len(raw_shares) < 2:
-                messagebox.showwarning("Insufficient Shares",
-                                       "Provide at least 2 shares.", parent=dlg)
+                messagebox.showwarning("اشتراک‌های ناکافی",
+                                        "حداقل ۲ اشتراک ارائه دهید.", parent=dlg)
                 return
 
             try:
@@ -457,13 +455,13 @@ class KeyRecoveryDialog:
                     parsed.append((share_idx, share_bytes))
             except Exception as e:
                 logger.exception("Invalid share encoding")
-                messagebox.showerror("Invalid Shares",
+                messagebox.showerror("اشتراک‌های نامعتبر",
                                      friendly_error(e), parent=dlg)
                 return
 
             if len(set(len(s[1]) for s in parsed)) != 1:
-                messagebox.showerror("Invalid Shares",
-                                     "All shares must have the same length.",
+                messagebox.showerror("اشتراک‌های نامعتبر",
+                                     "همه اشتراک‌ها باید طول یکسانی داشته باشند.",
                                      parent=dlg)
                 return
 
@@ -474,7 +472,7 @@ class KeyRecoveryDialog:
 
             def _err(e):
                 logger.exception("Failed to reconstruct key")
-                messagebox.showerror("Reconstruction Failed",
+                messagebox.showerror("بازسازی ناموفق",
                                      friendly_error(e), parent=dlg)
 
             def _done(reconstructed):
@@ -523,10 +521,10 @@ class KeyRecoveryDialog:
                     dlg.after(30000, _auto_clear)
 
                     messagebox.showinfo(
-                        "Copied",
-                        "Recovery key copied to clipboard.\n"
-                        "Use it immediately. For your security the clipboard "
-                        "will be cleared automatically after 30 seconds.",
+                        "کپی شد",
+                        "کلید بازیابی در کلیپ‌بورد کپی شد.\n"
+                        "فوراً از آن استفاده کنید. برای امنیت شما، کلیپ‌بورد "
+                        "پس از ۳۰ ثانیه به طور خودکار پاک می‌شود.",
                         parent=dlg)
 
                 ttk.Button(action_frame, text="Copy to Clipboard",
@@ -547,17 +545,17 @@ class KeyRecoveryDialog:
                     return
                 if len(key_bytes) != 32:
                     messagebox.showerror(
-                        "Invalid Key Length",
-                        f"Reconstructed key is {len(key_bytes)} bytes; "
-                        "exactly 32 bytes required to set as master key.",
+                        "طول کلید نامعتبر",
+                        f"کلید بازسازی شده {len(key_bytes)} بایت است؛ "
+                        "دقیقاً ۳۲ بایت برای تنظیم به عنوان کلید اصلی نیاز است.",
                         parent=dlg,
                     )
                     return
                 confirmed = messagebox.askyesno(
-                    "Replace Master Key",
-                    "This will replace your current master key with the reconstructed key.\n\n"
-                    "Any data encrypted with the old key will need to be re-encrypted manually.\n\n"
-                    "Continue?",
+                    "جایگزینی کلید اصلی",
+                    "این کار کلید اصلی فعلی شما را با کلید بازسازی شده جایگزین می‌کند.\n\n"
+                    "هر داده رمزنگاری شده با کلید قدیمی باید به صورت دستی دوباره رمزنگاری شود.\n\n"
+                    "ادامه می‌دهید؟",
                     icon="warning",
                     parent=dlg,
                 )
@@ -569,15 +567,15 @@ class KeyRecoveryDialog:
 
                 def _ok(_result):
                     messagebox.showinfo(
-                        "Key Applied",
-                        "Master key has been replaced with the reconstructed recovery key.\n"
-                        "Your session is now using the recovered key.",
+                        "کلید اعمال شد",
+                        "کلید اصلی با کلید بازیابی بازسازی شده جایگزین شد.\n"
+                        "جلسه شما اکنون از کلید بازیابی شده استفاده می‌کند.",
                         parent=dlg,
                     )
 
                 def _fail(exc):
                     logger.exception("Failed to apply recovered key")
-                    messagebox.showerror("Apply Failed",
+                    messagebox.showerror("اعمال ناموفق",
                                          friendly_error(exc), parent=dlg)
 
                 run_busy(dlg, _work, on_done=_ok, on_error=_fail,
@@ -679,8 +677,8 @@ class KeyRecoveryDialog:
 
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 if not enc_b64:
-                    messagebox.showerror("Invalid File",
-                                         "No encrypted share data found in file.",
+                    messagebox.showerror("فایل نامعتبر",
+                                         "داده اشتراک رمزنگاری شده در فایل یافت نشد.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -689,11 +687,11 @@ class KeyRecoveryDialog:
                 except Exception as dec_err:
                     logger.exception("Held-share decryption failed")
                     messagebox.showerror(
-                        "Decryption Failed",
-                        "Could not decrypt the share.\n\n"
+                        "رمزگشایی ناموفق",
+                        "امکان رمزگشایی اشتراک وجود ندارد.\n\n"
                         + friendly_error(dec_err) + "\n\n"
-                        "This file may not have been encrypted for you, "
-                        "or your RSA key does not match.",
+                        "این فایل ممکن است برای شما رمزنگاری نشده باشد، "
+                        "یا کلید RSA شما مطابقت ندارد.",
                         parent=dlg,
                     )
                     return
@@ -715,23 +713,23 @@ class KeyRecoveryDialog:
                 database.save_held_share(held_dict)
                 load_held()
                 messagebox.showinfo(
-                    "Share Stored",
-                    f"Share #{payload.get('share_index', '?')} from "
-                    f"{payload.get('owner_name', 'unknown')} has been decrypted and stored.\n\n"
-                    "When they need to recover, use 'Export Back to Owner' to send it to them.",
+                    "اشتراک ذخیره شد",
+                    f"اشتراک #{payload.get('share_index', '?')} از "
+                    f"{payload.get('owner_name', 'unknown')} رمزگشایی و ذخیره شد.\n\n"
+                    "وقتی آنها نیاز به بازیابی دارند، از 'صادرات بازگشت به مالک' برای ارسال استفاده کنید.",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import held share")
-                messagebox.showerror("Import Failed",
-                                     "Failed to import share.\n\n"
+                messagebox.showerror("واردات ناموفق",
+                                     "واردات اشتراک ناموفق بود.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         def export_back():
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("Nothing Selected",
-                                       "Select a held share to export.", parent=dlg)
+                messagebox.showwarning("هیچ چیزی انتخاب نشد",
+                                        "یک اشتراک نگهداری شده برای صادرات انتخاب کنید.", parent=dlg)
                 return
             share_id = sel[0]
             row = next((r for r in _held if r["share_id"] == share_id), None)
@@ -760,24 +758,24 @@ class KeyRecoveryDialog:
                 # Exporting it as plaintext is dangerous, so require explicit,
                 # informed confirmation before doing so. Abort if declined.
                 proceed = messagebox.askyesno(
-                    "Export UNENCRYPTED Recovery Share?",
-                    f"'{owner}' is not in your friend list, so this recovery "
-                    "share cannot be encrypted to them.\n\n"
-                    "⚠ The share will be written to disk UNENCRYPTED. Anyone who "
-                    "obtains the file can use it toward reconstructing the "
-                    "owner's recovery key.\n\n"
-                    "Only continue if you will transfer the file over a secure "
-                    "channel and delete it afterwards.\n\n"
-                    "Export the share UNENCRYPTED anyway?",
+                    "صادرات اشتراک بازیابی رمزنگاری‌نشده؟",
+                    f"'{owner}' در لیست دوستان شما نیست، بنابراین این اشتراک "
+                    "بازیابی نمی‌تواند برای آنها رمزنگاری شود.\n\n"
+                    "⚠ اشتراک به صورت رمزنگاری‌نشده روی دیسک نوشته خواهد شد. هر کسی "
+                    "که فایل را به دست آورد می‌تواند از آن برای بازسازی "
+                    "کلید بازیابی مالک استفاده کند.\n\n"
+                    "فقط در صورتی ادامه دهید که فایل را از طریق یک کانال امن "
+                    "منتقل کرده و پس از آن حذف کنید.\n\n"
+                    "اشتراک را به صورت رمزنگاری‌نشده صادر کنیم؟",
                     icon="warning",
                     default="no",
                     parent=dlg,
                 )
                 if not proceed:
                     messagebox.showinfo(
-                        "Export Cancelled",
-                        "No file was written. Add the owner as a friend so the "
-                        "share can be encrypted to them, then export again.",
+                        "صادرات لغو شد",
+                        "هیچ فایلی نوشته نشد. مالک را به عنوان دوست اضافه کنید تا "
+                        "اشتراک بتواند برای آنها رمزنگاری شود، سپس دوباره صادر کنید.",
                         parent=dlg,
                     )
                     return
@@ -799,21 +797,21 @@ class KeyRecoveryDialog:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(export_payload, f, indent=2)
             messagebox.showinfo(
-                "Exported",
-                f"Share file saved ({note}).\nSend it securely to {owner}.",
+                "صادر شد",
+                f"فایل اشتراک ذخیره شد ({note}).\nآن را به صورت امن برای {owner} ارسال کنید.",
                 parent=dlg,
             )
 
         def delete_selected():
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("Nothing Selected",
-                                       "Select a share to delete.", parent=dlg)
+                messagebox.showwarning("هیچ چیزی انتخاب نشد",
+                                        "یک اشتراک برای حذف انتخاب کنید.", parent=dlg)
                 return
             confirmed = messagebox.askyesno(
-                "Delete Held Share",
-                "Delete this held share from your local storage?\n\n"
-                "The owner will no longer be able to request it from you.",
+                "حذف اشتراک نگهداری شده",
+                "این اشتراک نگهداری شده از حافظه محلی شما حذف شود؟\n\n"
+                "مالک دیگر نمی‌تواند آن را از شما درخواست کند.",
                 icon="warning",
                 parent=dlg,
             )

@@ -148,8 +148,8 @@ class EncryptTab:
         if not has_content:
             return
         if messagebox.askyesno(
-            "Clear Log",
-            "Clear the entire sent-messages history? This cannot be undone."
+            "پاک کردن تاریخچه",
+            "کل تاریخچه پیام‌های ارسال شده پاک شود؟ این عمل قابل بازگشت نیست."
         ):
             self.sent_log.configure(state='normal')
             self.sent_log.delete("1.0", tk.END)
@@ -194,16 +194,16 @@ class EncryptTab:
     def send_message(self) -> None:
         plaintext = self.msg_input.get("1.0", tk.END).strip()
         if not plaintext:
-            messagebox.showwarning("Empty", "Please type a message.")
+            messagebox.showwarning("خالی", "لطفاً یک پیام تایپ کنید.")
             return
         
         # Validate message size
         msg_size = len(plaintext.encode('utf-8'))
         if msg_size > MAX_MESSAGE_SIZE:
             messagebox.showwarning(
-                "Message Too Large",
-                f"Message size ({msg_size:,} bytes) exceeds maximum allowed "
-                f"({MAX_MESSAGE_SIZE:,} bytes).\nPlease reduce the message length."
+                "پیام بیش از حد بزرگ است",
+                f"اندازه پیام ({msg_size:,} بایت) از حداکثر مجاز "
+                f"({MAX_MESSAGE_SIZE:,} بایت) فراتر رفته است.\nلطفاً طول پیام را کاهش دهید."
             )
             return
 
@@ -259,12 +259,12 @@ class EncryptTab:
             logger.exception("Encryption failed")
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "Timeout",
-                    "Encryption timed out. The system may be under heavy load. "
-                    "Please try again."
+                    "انقضای زمان",
+                    "زمان رمزنگاری به پایان رسید. ممکن است سیستم تحت بار سنگین باشد. "
+                    "لطفاً دوباره تلاش کنید."
                 )
             else:
-                messagebox.showerror("Encryption Error", friendly_error(exc))
+                messagebox.showerror("خطای رمزنگاری", friendly_error(exc))
 
         # Determine timeout based on mode
         if mode == "pqc":
@@ -311,9 +311,9 @@ class EncryptTab:
                 flash_widget_text(self.copy_btn, "Copied ✓ (clears in 30s)",
                                   "Copy Last Sent")
             else:
-                messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+                messagebox.showerror("خطای کلیپ‌بورد", "دسترسی به کلیپ‌بورد امکان‌پذیر نیست.")
         else:
-            messagebox.showwarning("Nothing", "No message sent yet.")
+            messagebox.showwarning("هیچ", "هنوز پیامی ارسال نشده است.")
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self) -> None:

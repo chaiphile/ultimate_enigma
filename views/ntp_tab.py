@@ -176,8 +176,8 @@ class NtpTab:
         custom = self.custom_server_var.get().strip()
         if custom and not custom.replace(".", "").replace("-", "").isalnum():
             messagebox.showwarning(
-                "Invalid Hostname",
-                "Please enter a valid NTP server hostname (e.g., 'pool.ntp.org').",
+                "نام میزبان نامعتبر",
+                "لطفاً یک نام میزبان سرور NTP معتبر وارد کنید (مثلاً 'pool.ntp.org').",
                 parent=self.frame.winfo_toplevel()
             )
             return

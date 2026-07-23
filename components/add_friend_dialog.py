@@ -145,7 +145,7 @@ class AddFriendDialog:
             x_b64 = x25519_var.get().strip() or None
 
             if not name or not pem:
-                messagebox.showerror("Error", "Name and public key are required.", parent=dlg)
+                messagebox.showerror("خطا", "نام و کلید عمومی الزامی است.", parent=dlg)
                 return
 
             shared_secret = None
@@ -156,7 +156,7 @@ class AddFriendDialog:
                     if len(shared_secret) != 32:
                         raise ValueError("Shared secret must be exactly 32 bytes when Base64-decoded.")
                 except Exception as e:
-                    messagebox.showerror("Invalid Secret",
+                    messagebox.showerror("رمز نامعتبر",
                                          friendly_error(e), parent=dlg)
                     return
                 pw = password_dialog(dlg,
@@ -165,8 +165,8 @@ class AddFriendDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("Wrong Password",
-                                         "Master password incorrect.", parent=dlg)
+                    messagebox.showerror("رمز عبور اشتباه",
+                                         "رمز عبور اصلی نادرست است.", parent=dlg)
                     return
 
             pqc_b64 = pqc_var.get().strip() or None
@@ -189,10 +189,10 @@ class AddFriendDialog:
                 )
                 self.refresh_list()
                 dlg.destroy()
-                messagebox.showinfo("Success", f"Friend '{name}' added successfully.")
+                messagebox.showinfo("موفقیت", f"دوست '{name}' با موفقیت اضافه شد.")
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         save_btn = ttk.Button(btn_frame, text="💾 Save Friend", command=save,
                    bootstyle="success")

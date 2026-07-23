@@ -26,9 +26,9 @@ class HybridSigExchangeDialog:
             return
         if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
-                "Hybrid signature key exchange requires authentication.",
+                "دسترسی رد شد",
+                "رمز عبور اصلی نادرست است.\n"
+                "تبادل کلید امضای ترکیبی نیاز به احراز هویت دارد.",
                 parent=self.parent,
             )
             return
@@ -104,7 +104,7 @@ class HybridSigExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
                                      parent=dlg)
                 return
 
@@ -114,15 +114,15 @@ class HybridSigExchangeDialog:
             def on_done(pub_b64):
                 load_my_hybrid_sig()
                 messagebox.showinfo(
-                    "Success",
-                    "Hybrid signing keys generated successfully!\n\n"
-                    "Share your combined public key with friends so they can\n"
-                    "verify your post-quantum secure signatures.",
+                    "موفقیت",
+                    "کلیدهای امضای ترکیبی با موفقیت تولید شدند!\n\n"
+                    "کلید عمومی ترکیبی خود را با دوستان به اشتراک بگذارید تا بتوانند\n"
+                    "امضای امن پسا-کوانتومی شما را تأیید کنند.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -131,10 +131,10 @@ class HybridSigExchangeDialog:
             """Copy public key AND pending certificates to clipboard."""
             content = my_pub_text.get('1.0', tk.END).strip()
             if not content or content.startswith("("):
-                messagebox.showwarning("No Key", "Generate signing keys first.", parent=dlg)
+                messagebox.showwarning("بدون کلید", "ابتدا کلیدهای امضا تولید کنید.", parent=dlg)
                 return
             if self.trust_chain_service is None:
-                messagebox.showinfo("No Certificates", "Trust chain service not available.", parent=dlg)
+                messagebox.showinfo("بدون گواهی", "سرویس زنجیره اعتماد در دسترس نیست.", parent=dlg)
                 return
             pending = self.trust_chain_service.get_pending_certs_for_exchange()
             if not pending:
@@ -242,16 +242,16 @@ class HybridSigExchangeDialog:
                         else:
                             bundle_status_var.set(f"✅ Imported {count} certificate(s)")
                 except Exception as e:
-                    messagebox.showerror("Invalid Bundle", friendly_error(e), parent=dlg)
+                    messagebox.showerror("بسته نامعتبر", friendly_error(e), parent=dlg)
                     return
 
             if not fname:
-                messagebox.showwarning("No Selection", "Please select a friend.",
+                messagebox.showwarning("هیچ انتخابی", "لطفاً یک دوست انتخاب کنید.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("Empty Key",
-                                       "Please paste the hybrid signing combined public key.",
+                messagebox.showwarning("کلید خالی",
+                                       "لطفاً کلید عمومی ترکیبی امضای ترکیبی را جای‌گذاری کنید.",
                                        parent=dlg)
                 return
 
@@ -266,8 +266,8 @@ class HybridSigExchangeDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("Wrong Password",
-                                         "Master password incorrect.",
+                    messagebox.showerror("رمز عبور اشتباه",
+                                         "رمز عبور اصلی نادرست است.",
                                          parent=dlg)
                     return
             try:
@@ -278,13 +278,13 @@ class HybridSigExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ Hybrid signing key imported for '{fname}'")
-                messagebox.showinfo("Success",
-                                    f"Hybrid signing combined public key saved for '{fname}'.\n\n"
-                                    "Messages from this friend will now be verified with\n"
-                                    "both Ed25519 and Dilithium3.",
+                messagebox.showinfo("موفقیت",
+                                    f"کلید عمومی ترکیبی امضای ترکیبی برای '{fname}' ذخیره شد.\n\n"
+                                    "پیام‌های این دوست اکنون با\n"
+                                    "Ed25519 و Dilithium3 تأیید می‌شوند.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
+                messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_import, text="💾 Import & Save Signing Key",
                    command=do_import_hybrid_sig_key, bootstyle="success").pack(anchor="w")

@@ -68,30 +68,30 @@ class SecretTab:
         if not pw:
             return None
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.")
             return None
         return pw
 
     def export_global(self) -> None:
         if not self.service.has_secret():
-            messagebox.showwarning("No Secret", "No global secret available.")
+            messagebox.showwarning("بدون رمز", "هیچ رمز سراسری در دسترس نیست.")
             return
-        if not messagebox.askyesno("Warning", "This will expose your raw global shared secret. Continue?"):
+        if not messagebox.askyesno("هشدار", "این کار رمز اشتراکی خام سراسری شما را نمایش می‌دهد. ادامه می‌دهید؟"):
             return
         try:
             b64 = self.service.export_secret_b64()
             ok = self.clipboard_service.copy(b64)
             if ok:
                 messagebox.showinfo(
-                    "Exported",
-                    "Global shared secret copied to clipboard.\n"
-                    "Clipboard will be cleared automatically in 30 seconds."
+                    "صادر شد",
+                    "رمز اشتراکی سراسری در کلیپ‌بورد کپی شد.\n"
+                    "کلیپ‌بورد به‌طور خودکار در ۳۰ ثانیه پاک می‌شود."
                 )
             else:
-                messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+                messagebox.showerror("خطای کلیپ‌بورد", "دسترسی به کلیپ‌بورد امکان‌پذیر نیست.")
         except GlobalSecretServiceError as e:
             from views.utils import friendly_error
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("خطا", friendly_error(e))
 
     def import_global(self) -> None:
         from views.dialogs import password_dialog
@@ -117,24 +117,24 @@ class SecretTab:
         def submit():
             b64 = b64_var.get().strip()
             if not b64:
-                messagebox.showerror("Required", "Please paste the Base64 secret.", parent=dlg)
+                messagebox.showerror("الزامی", "لطفاً رمز Base64 را جای‌گذاری کنید.", parent=dlg)
                 return
 
             try:
                 new_key = self.service.validate_secret_b64(b64)
             except ValueError as e:
-                messagebox.showerror("Invalid", str(e), parent=dlg)
+                messagebox.showerror("نامعتبر", str(e), parent=dlg)
                 return
 
             fp = sha256_fingerprint(new_key)
 
             ok = messagebox.askyesno(
-                "⚠️ Replace Global Secret",
-                f"New secret fingerprint:\n{fp}\n\n"
-                "WARNING: This will permanently replace the current global secret.\n"
-                "All messages encrypted with the OLD secret will become UNREADABLE.\n"
-                "Make sure you have shared the new secret with trusted contacts.\n\n"
-                "Replace current global secret?",
+                "⚠️ جایگزینی رمز سراسری",
+                f"اثر انگشت رمز جدید:\n{fp}\n\n"
+                "هشدار: این کار رمز سراسری فعلی را برای همیشه جایگزین می‌کند.\n"
+                "همه پیام‌های رمزنگاری‌شده با رمز قدیمی غیرقابل خواندن خواهند شد.\n"
+                "مطمئن شوید که رمز جدید را با مخاطبان مورد اعتماد به اشتراک گذاشته‌اید.\n\n"
+                "رمز سراسری فعلی جایگزین شود؟",
                 parent=dlg
             )
             if not ok:
@@ -148,10 +148,10 @@ class SecretTab:
                 self.service.update_secret(new_key, pw)
                 self._update_display()
                 dlg.destroy()
-                messagebox.showinfo("Success", "Global shared secret updated.")
+                messagebox.showinfo("موفقیت", "رمز اشتراکی سراسری به‌روز شد.")
             except GlobalSecretServiceError as e:
                 from views.utils import friendly_error
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         ttk.Button(dlg, text="Submit", command=submit, bootstyle="success").pack(pady=(15, 5))
         ttk.Button(dlg, text="Cancel", command=dlg.destroy, bootstyle="secondary-outline").pack(pady=5)
@@ -170,6 +170,6 @@ class SecretTab:
                 try:
                     self.service.update_secret(new_key, pw)
                     self._update_display()
-                    messagebox.showinfo("Success", "Global secret updated via ECDH.")
+                    messagebox.showinfo("موفقیت", "رمز سراسری از طریق ECDH به‌روز شد.")
                 except GlobalSecretServiceError as e:
-                    messagebox.showerror("Error", str(e))
+                    messagebox.showerror("خطا", str(e))

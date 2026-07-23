@@ -105,23 +105,23 @@ class DecryptTab:
         text = self.decrypted_display.get("1.0", tk.END).strip()
         self.decrypted_display.configure(state='disabled')
         if not text:
-            messagebox.showwarning("Nothing", "No decrypted message to copy.")
+            messagebox.showwarning("هیچ", "پیام رمزگشایی شده‌ای برای کپی وجود ندارد.")
             return
         if self.clipboard_service.copy(text):
             flash_widget_text(self.copy_out_btn, "Copied ✓", "Copy Decrypted")
         else:
-            messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+            messagebox.showerror("خطای کلیپ‌بورد", "دسترسی به کلیپ‌بورد امکان‌پذیر نیست.")
 
     def paste_from_clipboard(self) -> None:
         text = self.clipboard_service.get()
         if text is None:
-            messagebox.showwarning("Clipboard",
-                                   "Clipboard is empty or not accessible.")
+            messagebox.showwarning("کلیپ‌بورد",
+                                   "کلیپ‌بورد خالی یا قابل دسترسی نیست.")
             return
         if self.recv_input.get("1.0", tk.END).strip():
             if not messagebox.askyesno(
-                "Replace input?",
-                "The input box already contains text. Replace it with the clipboard contents?"
+                "جایگزینی متن ورودی؟",
+                "جعبه ورودی حاوی متن است. با محتوای کلیپ‌بورد جایگزین شود؟"
             ):
                 return
         self.recv_input.delete("1.0", tk.END)
@@ -138,7 +138,7 @@ class DecryptTab:
     def receive_message(self) -> None:
         b64_text = self.recv_input.get("1.0", tk.END).strip()
         if not b64_text:
-            messagebox.showwarning("Empty", "Paste a Base64 message to decrypt.")
+            messagebox.showwarning("خالی", "یک پیام Base64 برای رمزگشایی جای‌گذاری کنید.")
             return
 
         def _do_decrypt():
@@ -156,9 +156,9 @@ class DecryptTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "Timeout",
-                    "Decryption timed out. The message may be too large or the "
-                    "system is under heavy load. Please try again."
+                    "انقضای زمان",
+                    "زمان رمزگشایی به پایان رسید. ممکن است پیام بیش از حد بزرگ یا "
+                    "سیستم تحت بار سنگین باشد. لطفاً دوباره تلاش کنید."
                 )
             elif isinstance(exc, DecryptionError):
                 err_msg = str(exc)
@@ -168,24 +168,24 @@ class DecryptTab:
                 )
                 if is_ratchet_missing:
                     messagebox.showerror(
-                        "Ratchet Session Missing",
-                        "No Double Ratchet session was found for this message.\n\n"
-                        "To fix this:\n"
-                        "1. Go to the Friends tab\n"
-                        "2. Select the sender and perform a new key exchange\n"
-                        "3. Both parties must complete the handshake\n\n"
-                        "The session may have been lost due to a database reset, "
-                        "app reinstall, or out-of-sync state."
+                        "نشست Ratchet یافت نشد",
+                        "هیچ نشست Double Ratchet برای این پیام یافت نشد.\n\n"
+                        "برای رفع این مشکل:\n"
+                        "1. به برگه دوستان بروید\n"
+                        "2. فرستنده را انتخاب کنید و یک تبادل کلید جدید انجام دهید\n"
+                        "3. هر دو طرف باید دست‌داد را کامل کنند\n\n"
+                        "ممکن است نشست به دلیل بازنشانی پایگاه داده، "
+                        "نصب مجدد برنامه یا ناهماهنگی وضعیت از دست رفته باشد."
                     )
                 else:
                     messagebox.showerror(
-                        "Decryption Error",
-                        "This message couldn't be decrypted. It may be corrupted, "
-                        "not addressed to you, or already expired."
+                        "خطای رمزگشایی",
+                        "این پیام قابل رمزگشایی نیست. ممکن است خراب شده، "
+                        "برای شما ارسال نشده باشد یا منقضی شده باشد."
                     )
             else:
                 logger.exception("Unexpected decryption error")
-                messagebox.showerror("Decryption Error", friendly_error(exc))
+                messagebox.showerror("خطای رمزگشایی", friendly_error(exc))
             self.mode_label.config(text="")
             self.sig_label.config(text="")
 

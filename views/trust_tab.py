@@ -361,8 +361,8 @@ class TrustTab:
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "Not Available",
-                "This feature requires additional components.",
+                "در دسترس نیست",
+                "این قابلیت نیاز به اجزای اضافی دارد.",
                 parent=parent,
             )
 
@@ -396,7 +396,7 @@ class TrustTab:
         def do_import():
             cert_data = cert_input.get("1.0", tk.END).strip()
             if not cert_data:
-                messagebox.showwarning("Empty", "Please paste a certificate bundle.", parent=dlg)
+                messagebox.showwarning("خالی", "لطفاً یک بسته گواهی را جای‌گذاری کنید.", parent=dlg)
                 return
             note = note_var.get().strip()
             try:
@@ -414,21 +414,21 @@ class TrustTab:
                 rejected = total - count
                 if rejected > 0:
                     messagebox.showwarning(
-                        "Imported with rejections",
-                        f"Imported {count} of {total} certificate(s).\n\n"
-                        f"{rejected} were rejected because their signature could "
-                        f"not be verified or the issuer is not a known, added "
-                        f"contact. Add the issuer first, then re-import.",
+                        "وارد شده با موارد رد شده",
+                        f"{count} از {total} گواهی وارد شد.\n\n"
+                        f"{rejected} مورد به دلیل تأیید نشدن امضا یا عدم شناسایی صادرکننده "
+                        f"به عنوان یک مخاطب شناخته شده رد شدند. "
+                        f"ابتدا صادرکننده را اضافه کنید، سپس دوباره وارد کنید.",
                         parent=parent,
                     )
                 else:
                     messagebox.showinfo(
-                        "Imported", f"Imported {count} certificate(s).", parent=parent
+                        "وارد شد", f"{count} گواهی وارد شد.", parent=parent
                     )
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
 
             except Exception as e:
-                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
+                messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
 
         ttk.Button(btn_frame, text="📥 Import", command=do_import,
                    bootstyle="info").pack(side=tk.RIGHT, padx=5)
@@ -452,12 +452,12 @@ class TrustTab:
             with open(path, "w") as f:
                 json.dump(bundle, f, indent=2)
             messagebox.showinfo(
-                "Exported",
-                f"Bundle exported to:\n{path}",
+                "صادر شد",
+                f"بسته صادر شد به:\n{path}",
                 parent=parent,
             )
         except Exception as e:
-            messagebox.showerror("Export Error", friendly_error(e), parent=parent)
+            messagebox.showerror("خطای صادرات", friendly_error(e), parent=parent)
 
     def import_cert_file_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -483,22 +483,22 @@ class TrustTab:
             rejected = total - count
             if rejected > 0:
                 messagebox.showwarning(
-                    "Imported with rejections",
-                    f"Imported {count} of {total} certificate(s) from file.\n\n"
-                    f"{rejected} were rejected because their signature could not "
-                    f"be verified or the issuer is not a known, added contact. "
-                    f"Add the issuer first, then re-import.",
+                    "وارد شده با موارد رد شده",
+                    f"{count} از {total} گواهی از فایل وارد شد.\n\n"
+                    f"{rejected} مورد به دلیل تأیید نشدن امضا یا عدم شناسایی صادرکننده "
+                    f"به عنوان یک مخاطب شناخته شده رد شدند. "
+                    f"ابتدا صادرکننده را اضافه کنید، سپس دوباره وارد کنید.",
                     parent=parent,
                 )
             else:
                 messagebox.showinfo(
-                    "Imported",
-                    f"Imported {count} certificate(s) from file.",
+                    "وارد شد",
+                    f"{count} گواهی از فایل وارد شد.",
                     parent=parent,
                 )
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
         except Exception as e:
-            messagebox.showerror("Import Error", friendly_error(e), parent=parent)
+            messagebox.showerror("خطای واردات", friendly_error(e), parent=parent)
 
     def split_key_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -510,8 +510,8 @@ class TrustTab:
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "Not Available",
-                "This feature requires additional components.",
+                "در دسترس نیست",
+                "این قابلیت نیاز به اجزای اضافی دارد.",
                 parent=parent,
             )
 
@@ -525,8 +525,8 @@ class TrustTab:
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "Not Available",
-                "This feature requires additional components.",
+                "در دسترس نیست",
+                "این قابلیت نیاز به اجزای اضافی دارد.",
                 parent=parent,
             )
 
@@ -537,7 +537,7 @@ class TrustTab:
         certs = self.trust_service.get_certs_for_friend(name)
         valid_certs = [c for c in certs if not c.revoked and not c.is_expired()]
         if not valid_certs:
-            messagebox.showinfo("No Certificates", f"No valid certificates found for '{name}'.")
+            messagebox.showinfo("بدون گواهی", f"گواهی معتبری برای '{name}' یافت نشد.")
             return
 
         if len(valid_certs) == 1:
@@ -548,21 +548,21 @@ class TrustTab:
                 return
 
         if not messagebox.askyesno(
-            "Revoke Certificate",
-            f"Are you sure you want to revoke this certificate for '{name}'?\n\n"
+            "لغو گواهی",
+            f"آیا مطمئن هستید که می‌خواهید این گواهی را برای '{name}' لغو کنید؟\n\n"
             f"{self._cert_summary(cert)}\n\n"
-            "This action cannot be undone."
+            "این اقدام قابل بازگشت نیست."
         ):
             return
         try:
             self.trust_service.revoke_certificate(cert.cert_id, reason="Revoked by user")
             self.refresh_list()
-            messagebox.showinfo("Revoked", f"Certificate for '{name}' revoked.")
+            messagebox.showinfo("لغو شد", f"گواهی برای '{name}' لغو شد.")
             event_bus.publish(Events.CERTIFICATE_REVOKED, source="trust_tab", friend_name=name)
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab", friend_name=name)
 
         except Exception as e:
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("خطا", friendly_error(e))
 
     @staticmethod
     def _cert_summary(cert) -> str:

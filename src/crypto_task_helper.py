@@ -59,7 +59,7 @@ def submit_crypto_task(
                         messagebox.showerror(title, msg or str(exc))
                     else:
                         from tkinter import messagebox
-                        messagebox.showerror("Error", str(exc))
+                        messagebox.showerror("خطا", f"خطای غیرمنتظره: {exc}")
                 if frame is not None:
                     frame.after(0, _show_error)
                 elif task_queue is not None:

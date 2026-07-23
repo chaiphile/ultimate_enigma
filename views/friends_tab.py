@@ -334,7 +334,7 @@ class FriendsTab:
             self.frame.winfo_toplevel().clipboard_append(details["ecdh_fingerprint"])
             self.status_var.set(f"Copied ECDH fingerprint for {name}")
         else:
-            messagebox.showinfo("No ECDH Key", f"No ECDH key set for {name}.")
+            messagebox.showinfo("بدون کلید ECDH", f"کلید ECDH برای {name} تنظیم نشده است.")
 
     # ---- Event handlers ----
     def on_select(self, event=None) -> None:
@@ -381,33 +381,33 @@ class FriendsTab:
     def remove_friend_dialog(self) -> None:
         name = self._get_selected_name()
         if not name:
-            messagebox.showinfo("No Selection",
-                                "Select a friend in the list to remove.")
+            messagebox.showinfo("هیچ انتخابی",
+                                "برای حذف، یک دوست از لیست انتخاب کنید.")
             return
 
         if not messagebox.askyesno(
-            "Confirm Removal",
-            f"Are you sure you want to remove '{name}'?"
+            "تأیید حذف",
+            f"آیا مطمئن هستید که می‌خواهید '{name}' را حذف کنید؟"
         ):
             return
         try:
             self.service.remove_friend(name)
         except FriendsServiceError as e:
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("خطا", friendly_error(e))
             return
         self.refresh_list()
-        messagebox.showinfo("Removed", f"Friend '{name}' removed.")
+        messagebox.showinfo("حذف شد", f"دوست '{name}' حذف شد.")
         event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
     def ecdh_with_selected(self) -> None:
         name = self._get_selected_name()
         if not name:
-            messagebox.showwarning("No Selection", "Please select a friend from the list first.")
+            messagebox.showwarning("هیچ انتخابی", "لطفاً ابتدا یک دوست از لیست انتخاب کنید.")
             return
 
         friend_details = self.service.get_friend_details(name)
         if not friend_details:
-            messagebox.showerror("Error", "Friend not found in database")
+            messagebox.showerror("خطا", "دوست در پایگاه داده یافت نشد")
             return
 
         from views.ecdh import perform_ecdh
@@ -426,7 +426,7 @@ class FriendsTab:
         if not pw:
             return
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.")
             return
 
         def work():
@@ -440,13 +440,13 @@ class FriendsTab:
         def on_done(_):
             self.refresh_list()
             messagebox.showinfo(
-                "Success",
-                f"Shared secret for {name} updated via ECDH.\n"
-                "ECDH public key saved."
+                "موفقیت",
+                f"راز مشترک برای {name} از طریق ECDH به‌روز شد.\n"
+                "کلید عمومی ECDH ذخیره شد."
             )
 
         def on_error(exc):
-            messagebox.showerror("Error", friendly_error(exc))
+            messagebox.showerror("خطا", friendly_error(exc))
 
         run_busy(self.frame, work, on_done=on_done, on_error=on_error)
 
@@ -454,7 +454,7 @@ class FriendsTab:
         try:
             info = self.service.get_my_public_info()
         except FriendsServiceError as e:
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("خطا", friendly_error(e))
             return
 
         pem = info["public_key_pem"]
@@ -462,7 +462,7 @@ class FriendsTab:
 
         parent = self.frame.winfo_toplevel()
         top = tk.Toplevel(parent)
-        top.title("My Public Key")
+        top.title("کلید عمومی من")
         top.geometry("700x600")
         top.resizable(True, True)
         top.minsize(500, 400)
@@ -474,12 +474,12 @@ class FriendsTab:
         def copy_pubkey():
             parent.clipboard_clear()
             parent.clipboard_append(pem)
-            messagebox.showinfo("Copied", "Public key copied to clipboard.", parent=top)
+            messagebox.showinfo("کپی شد", "کلید عمومی در کلیپ‌بورد کپی شد.", parent=top)
 
         def copy_fp():
             parent.clipboard_clear()
             parent.clipboard_append(fp)
-            messagebox.showinfo("Copied", "Fingerprint copied to clipboard.", parent=top)
+            messagebox.showinfo("کپی شد", "اثر انگشت در کلیپ‌بورد کپی شد.", parent=top)
 
         ttk.Button(btn_bar, text="📋 Copy Public Key", command=copy_pubkey,
                    bootstyle="info").pack(side=tk.LEFT, padx=5)
@@ -507,29 +507,29 @@ class FriendsTab:
         """Dialog to initialize a Double Ratchet session for the selected friend."""
         name = self._get_selected_name()
         if not name:
-            messagebox.showwarning("No Selection",
-                                   "Please select a friend from the list first.")
+            messagebox.showwarning("هیچ انتخابی",
+                                   "لطفاً ابتدا یک دوست از لیست انتخاب کنید.")
             return
 
         details = self.service.get_friend_details(name)
         if not details:
-            messagebox.showerror("Error", "Friend not found.")
+            messagebox.showerror("خطا", "دوست یافت نشد.")
             return
 
         # Check prerequisites
         if not details["has_shared_secret"]:
             messagebox.showwarning(
-                "Missing Shared Secret",
-                f"No shared secret configured for '{name}'.\n"
-                "Perform an ECDH exchange before initializing the ratchet."
+                "راز مشترک موجود نیست",
+                f"هیچ راز مشترکی برای '{name}' پیکربندی نشده است.\n"
+                "برای راه‌اندازی چرخ دنده، ابتدا یک تبادل ECDH انجام دهید."
             )
             return
 
         if not details.get("ecdh_fingerprint"):
             messagebox.showwarning(
-                "Missing X25519 Key",
-                f"No X25519 public key stored for '{name}'.\n"
-                "Perform an ECDH exchange before initializing the ratchet."
+                "کلید X25519 موجود نیست",
+                f"هیچ کلید عمومی X25519 برای '{name}' ذخیره نشده است.\n"
+                "برای راه‌اندازی چرخ دنده، ابتدا یک تبادل ECDH انجام دهید."
             )
             return
 
@@ -581,7 +581,7 @@ class FriendsTab:
             if not pw:
                 return
             if not self.service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
                                      parent=dlg)
                 return
             role = role_var.get()
@@ -593,15 +593,14 @@ class FriendsTab:
                 self.refresh_list()
                 dlg.destroy()
                 messagebox.showinfo(
-                    "Success",
-                    f"Double Ratchet session initialized as {role.upper()} "
-                    f"for '{name}'.\n\n"
-                    "Messages to/from this friend will now use forward-secret encryption."
+                    "موفقیت",
+                    f"نشست چرخ دنده دوگانه به عنوان {role.upper()} برای '{name}' راه‌اندازی شد.\n\n"
+                    "پیام‌های این دوست اکنون از رمزگذاری با محرمانگی رو به جلو استفاده خواهند کرد."
                 )
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
             def on_error(exc):
-                messagebox.showerror("Ratchet Init Failed", friendly_error(exc),
+                messagebox.showerror("راه‌اندازی چرخ دنده ناموفق", friendly_error(exc),
                                      parent=dlg)
 
             run_busy(dlg, work, on_done=on_done, on_error=on_error)
@@ -615,20 +614,19 @@ class FriendsTab:
         """Confirm and delete the Double Ratchet session for the selected friend."""
         name = self._get_selected_name()
         if not name:
-            messagebox.showwarning("No Selection",
-                                   "Please select a friend from the list first.")
+            messagebox.showwarning("هیچ انتخابی",
+                                   "لطفاً ابتدا یک دوست از لیست انتخاب کنید.")
             return
 
         if not self.service.has_active_ratchet(name):
-            messagebox.showinfo("No Ratchet",
-                                f"No active ratchet session for '{name}'.")
+            messagebox.showinfo("بدون چرخ دنده",
+                                f"هیچ نشست چرخ دنده فعالی برای '{name}' وجود ندارد.")
             return
 
         if not messagebox.askyesno(
-            "Reset Ratchet",
-            f"Are you sure you want to delete the Double Ratchet session for '{name}'?\n\n"
-            "This cannot be undone. Future messages will fall back to legacy encryption "
-            "until a new session is established."
+            "بازنشانی چرخ دنده",
+            f"آیا مطمئن هستید که می‌خواهید نشست چرخ دنده دوگانه را برای '{name}' حذف کنید؟\n\n"
+            "این عمل قابل بازگشت نیست. پیام‌های آینده تا زمان راه‌اندازی یک نشست جدید، به رمزگذاری قدیمی بازخواهند گشت."
         ):
             return
 
@@ -639,7 +637,7 @@ class FriendsTab:
         if not pw:
             return
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.")
             return
 
         def work():
@@ -647,12 +645,12 @@ class FriendsTab:
 
         def on_done(_):
             self.refresh_list()
-            messagebox.showinfo("Reset Complete",
-                                f"Ratchet session for '{name}' has been deleted.")
+            messagebox.showinfo("بازنشانی کامل شد",
+                                f"نشست چرخ دنده برای '{name}' حذف شد.")
             event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
         def on_error(exc):
-            messagebox.showerror("Error", friendly_error(exc))
+            messagebox.showerror("خطا", friendly_error(exc))
 
         run_busy(self.frame, work, on_done=on_done, on_error=on_error)
 
@@ -685,17 +683,17 @@ class FriendsTab:
         if new_name is not None:
             new_name = new_name.strip()
             if not new_name:
-                messagebox.showwarning("Empty Name", "Name cannot be empty.", parent=parent)
+                messagebox.showwarning("نام خالی", "نام نمی‌تواند خالی باشد.", parent=parent)
                 return
             self.service.set_my_name(new_name)
-            messagebox.showinfo("Success", f"Display name set to '{new_name}'.", parent=parent)
+            messagebox.showinfo("موفقیت", f"نام نمایشی به '{new_name}' تنظیم شد.", parent=parent)
 
     def update_friend_keys_dialog(self) -> None:
         """Open the unified Update Friend Keys dialog for the selected friend."""
         preselect = self._get_selected_name() or ""
         parent = self.frame.winfo_toplevel()
         if not self.service.get_friend_names():
-            messagebox.showinfo("No Friends", "Add a friend first before updating keys.")
+            messagebox.showinfo("بدون دوست", "ابتدا یک دوست اضافه کنید سپس کلیدها را به‌روز کنید.")
             return
         UpdateFriendKeysDialog(
             parent, self.service, self._bg, self.refresh_list, preselect

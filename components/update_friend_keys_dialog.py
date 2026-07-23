@@ -39,8 +39,8 @@ class UpdateFriendKeysDialog:
             return
         if not self.friends_service.verify_master_password(pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.",
+                "دسترسی رد شد",
+                "رمز عبور اصلی نادرست است.",
                 parent=self.parent,
             )
             return
@@ -135,22 +135,22 @@ class UpdateFriendKeysDialog:
         def do_update_rsa():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("بدون دوست", "ابتدا یک دوست انتخاب کنید.", parent=dlg)
                 return
             pem = rsa_text.get("1.0", tk.END).strip()
             if not pem:
-                messagebox.showwarning("Empty", "Paste the new RSA public key.", parent=dlg)
+                messagebox.showwarning("خالی", "کلید عمومی جدید RSA را جای‌گذاری کنید.", parent=dlg)
                 return
             try:
                 self.friends_service.update_friend_pub_keys(
                     name=fname, master_password=self._master_pw, new_rsa_pem=pem)
                 self.refresh_list()
                 status_var.set(f"✅ RSA key updated for '{fname}'")
-                messagebox.showinfo("Updated", f"RSA public key updated for '{fname}'.",
+                messagebox.showinfo("به‌روز شد", f"کلید عمومی RSA برای '{fname}' به‌روز شد.",
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_rsa, text="🔑 Update RSA Key", command=do_update_rsa,
                    bootstyle="primary").pack(anchor="w")
@@ -201,22 +201,22 @@ class UpdateFriendKeysDialog:
         def do_update_ecdh():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("بدون دوست", "ابتدا یک دوست انتخاب کنید.", parent=dlg)
                 return
             b64 = ecdh_var.get().strip()
             if not b64:
-                messagebox.showwarning("Empty", "Paste the new X25519 public key.", parent=dlg)
+                messagebox.showwarning("خالی", "کلید عمومی جدید X25519 را جای‌گذاری کنید.", parent=dlg)
                 return
             try:
                 self.friends_service.update_friend_pub_keys(
                     name=fname, master_password=self._master_pw, new_x25519_b64=b64)
                 self.refresh_list()
                 status_var.set(f"✅ ECDH key updated for '{fname}'")
-                messagebox.showinfo("Updated", f"ECDH (X25519) key updated for '{fname}'.",
+                messagebox.showinfo("به‌روز شد", f"کلید ECDH (X25519) برای '{fname}' به‌روز شد.",
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_ecdh, text="🔁 Update ECDH Key", command=do_update_ecdh,
                    bootstyle="secondary").pack(anchor="w")
@@ -267,11 +267,11 @@ class UpdateFriendKeysDialog:
         def do_update_pqc():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("بدون دوست", "ابتدا یک دوست انتخاب کنید.", parent=dlg)
                 return
             b64 = pqc_text.get("1.0", tk.END).strip()
             if not b64:
-                messagebox.showwarning("Empty", "Paste the new PQC combined public key.",
+                messagebox.showwarning("خالی", "کلید عمومی ترکیبی جدید PQC را جای‌گذاری کنید.",
                                        parent=dlg)
                 return
             try:
@@ -279,11 +279,11 @@ class UpdateFriendKeysDialog:
                     name=fname, master_password=self._master_pw, new_pqc_b64=b64)
                 self.refresh_list()
                 status_var.set(f"✅ PQC key updated for '{fname}'")
-                messagebox.showinfo("Updated", f"PQC combined public key updated for '{fname}'.",
+                messagebox.showinfo("به‌روز شد", f"کلید عمومی ترکیبی PQC برای '{fname}' به‌روز شد.",
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_pqc, text="🛡 Update PQC Key", command=do_update_pqc,
                    bootstyle="info").pack(anchor="w")
@@ -335,12 +335,12 @@ class UpdateFriendKeysDialog:
         def do_update_hsig():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("بدون دوست", "ابتدا یک دوست انتخاب کنید.", parent=dlg)
                 return
             b64 = hsig_text.get("1.0", tk.END).strip()
             if not b64:
-                messagebox.showwarning("Empty",
-                                       "Paste the new hybrid signing combined public key.",
+                messagebox.showwarning("خالی",
+                                       "کلید عمومی امضای ترکیبی جدید را جای‌گذاری کنید.",
                                        parent=dlg)
                 return
             try:
@@ -349,13 +349,13 @@ class UpdateFriendKeysDialog:
                 self.refresh_list()
                 status_var.set(f"✅ Hybrid signing key updated for '{fname}'")
                 messagebox.showinfo(
-                    "Updated",
-                    f"Hybrid signing combined public key updated for '{fname}'.\n\n"
-                    "Messages from this friend will be verified with the new key.",
+                    "به‌روز شد",
+                    f"کلید عمومی امضای ترکیبی برای '{fname}' به‌روز شد.\n\n"
+                    "پیام‌های این دوست با کلید جدید تأیید خواهند شد.",
                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         ttk.Button(tab_hsig, text="✍️ Update Hybrid Sig Key", command=do_update_hsig,
                    bootstyle="success").pack(anchor="w")

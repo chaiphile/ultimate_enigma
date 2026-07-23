@@ -125,7 +125,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         # Validation
         if confirm:
             if pw != confirm_pw:
-                messagebox.showerror("Mismatch", "Passwords do not match.", parent=dlg)
+                messagebox.showerror("عدم تطابق", "رمزهای عبور مطابقت ندارند.", parent=dlg)
                 pwd_var.set("")
                 confirm_var.set("")
                 pwd_entry.focus_set()
@@ -134,10 +134,10 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
                 is_valid, msg, score = validate_password_strength(pw)
                 if not is_valid:
                     messagebox.showwarning(
-                        "Weak Password",
-                        f"{msg}\n\nMinimum requirements:\n"
-                        f"• {MIN_PASSWORD_LENGTH}+ characters\n"
-                        f"• Uppercase + lowercase + digit + special character",
+                        "رمز عبور ضعیف",
+                        f"{msg}\n\nحداقل الزامات:\n"
+                        f"• {MIN_PASSWORD_LENGTH}+ کاراکتر\n"
+                        f"• حروف بزرگ + حروف کوچک + عدد + کاراکتر ویژه",
                         parent=dlg
                     )
                     pwd_var.set("")

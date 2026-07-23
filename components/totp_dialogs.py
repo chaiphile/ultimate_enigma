@@ -82,13 +82,13 @@ class TOTPVerifyDialog:
         def verify():
             code = totp_var.get().strip()
             if len(code) != 6 or not code.isdigit():
-                messagebox.showerror("Invalid", "Enter a 6-digit code.", parent=dlg)
+                messagebox.showerror("نامعتبر", "یک کد ۶ رقمی وارد کنید.", parent=dlg)
                 return
             if self.totp_service.verify(code):
                 self.result = True
                 dlg.destroy()
             else:
-                messagebox.showerror("Failed", "Invalid TOTP code.", parent=dlg)
+                messagebox.showerror("ناموفق", "کد TOTP نامعتبر است.", parent=dlg)
                 totp_var.set("")
 
         def cancel():
@@ -157,8 +157,8 @@ class TOTPSetupDialog:
                 # Update QR code if available
                 if qr_label is not None and HAS_QRCODE:
                     self._update_qr(qr_label, new_uri)
-                messagebox.showinfo("Regenerated", "New TOTP secret generated.\n"
-                                    "Please re-scan with your authenticator app.", parent=dlg)
+                messagebox.showinfo("تولید مجدد", "رمز TOTP جدید تولید شد.\n"
+                                    "لطفاً با برنامه احراز هویت خود دوباره اسکن کنید.", parent=dlg)
 
         # OK button
         ok_btn = ttk.Button(

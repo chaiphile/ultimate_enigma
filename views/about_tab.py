@@ -127,11 +127,11 @@ class AboutTab:
         try:
             data = self._backup_service.export_backup(pw)
         except BackupServiceError as exc:
-            messagebox.showerror("Export Failed", str(exc))
+            messagebox.showerror("صادرات ناموفق", str(exc))
             return
 
         path = filedialog.asksaveasfilename(
-            title="Save Backup",
+            title="ذخیره پشتیبان",
             defaultextension=".enigma-backup",
             filetypes=[("Enigma Backup", "*.enigma-backup"), ("All Files", "*.*")],
             initialfile="enigma_backup.enigma-backup",
@@ -143,9 +143,9 @@ class AboutTab:
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2, ensure_ascii=True)
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-            messagebox.showinfo("Success", f"Backup exported to:\n{path}")
+            messagebox.showinfo("موفقیت", f"پشتیبان به مسیر زیر صادر شد:\n{path}")
         except OSError as exc:
-            messagebox.showerror("Export Failed", f"Could not write file: {exc}")
+            messagebox.showerror("صادرات ناموفق", f"نمی‌توان فایل را نوشت: {exc}")
 
     # ------------------------------------------------------------------
     # Import
@@ -159,9 +159,9 @@ class AboutTab:
             return
 
         confirm = messagebox.askyesno(
-            "Confirm Import",
-            "⚠️  This will REPLACE all current keys, friends, and settings.\n\n"
-            "This action cannot be undone.\n\nContinue?",
+            "تأیید واردات",
+            "⚠️  این کار همه کلیدها، دوستان و تنظیمات فعلی را جایگزین خواهد کرد.\n\n"
+            "این عمل قابل بازگشت نیست.\n\nادامه می‌دهید؟",
             icon="warning",
         )
         if not confirm:
@@ -171,7 +171,7 @@ class AboutTab:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
-            messagebox.showerror("Import Failed", f"Cannot read backup file: {exc}")
+            messagebox.showerror("واردات ناموفق", f"نمی‌توان فایل پشتیبان را خواند: {exc}")
             return
 
         pw = password_dialog(self.frame.winfo_toplevel(),
@@ -182,8 +182,8 @@ class AboutTab:
         try:
             self._backup_service.import_backup(data, pw)
             messagebox.showinfo(
-                "Success",
-                "Backup imported successfully.\nKeys and friends have been restored.",
+                "موفقیت",
+                "پشتیبان با موفقیت وارد شد.\nکلیدها و دوستان بازیابی شدند.",
             )
         except BackupServiceError as exc:
-            messagebox.showerror("Import Failed", str(exc))
+            messagebox.showerror("واردات ناموفق", str(exc))
