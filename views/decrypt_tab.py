@@ -8,7 +8,7 @@ from queue import Queue
 from services.encryption import DecryptionError
 from src.exceptions import CryptoTimeoutError
 from src.crypto_task_helper import submit_crypto_task
-from views.utils import friendly_error, flash_widget_text
+from views.utils import friendly_error, flash_widget_text, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +49,26 @@ class DecryptTab:
         btn_bar = ttk.Frame(self.frame)
         btn_bar.pack(fill=tk.X, padx=10, pady=5)
 
-        ttk.Button(btn_bar, text="Paste from Clipboard",
-                   command=self.paste_from_clipboard,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_bar, text="Clear",
-                   command=self.clear,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+        paste_btn = ttk.Button(btn_bar, text="Paste from Clipboard",
+                               command=self.paste_from_clipboard,
+                               bootstyle="secondary-outline")
+        paste_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(paste_btn, "چسباندن متن رمز شده از کلیپ‌بورد")
+        clear_btn = ttk.Button(btn_bar, text="Clear",
+                               command=self.clear,
+                               bootstyle="secondary-outline")
+        clear_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(clear_btn, "پاک کردن متن ورودی و خروجی")
         self.copy_out_btn = ttk.Button(btn_bar, text="Copy Decrypted",
                                        command=self.copy_decrypted,
                                        bootstyle="info-outline")
         self.copy_out_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(self.copy_out_btn, "کپی متن رمزگشایی شده در کلیپ‌بورد")
         self.decrypt_btn = ttk.Button(btn_bar, text="Decrypt Message",
                                       command=self.receive_message,
                                       bootstyle="success")
         self.decrypt_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(self.decrypt_btn, "رمزگشایی پیام جایگذاری شده")
 
         # Output area
         out_frame = ttk.Labelframe(self.frame, text="Decrypted message",

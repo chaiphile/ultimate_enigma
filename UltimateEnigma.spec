@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[('C:\\Users\\Administrator\\_oqs\\bin\\oqs.dll', '.')],
-    datas=[('C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\oqs', 'oqs')],
+    datas=[('C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\oqs', 'oqs'), ('anomaly_model.pkl', '.')],
     hiddenimports=['oqs', 'src.anti_tamper'],
     hookspath=[],
     hooksconfig={},

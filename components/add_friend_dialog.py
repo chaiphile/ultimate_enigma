@@ -7,7 +7,7 @@ import base64
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
-from views.utils import init_modal, friendly_error
+from views.utils import init_modal, friendly_error, ToolTip
 
 
 class AddFriendDialog:
@@ -195,8 +195,11 @@ class AddFriendDialog:
                 messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
         save_btn = ttk.Button(btn_frame, text="💾 Save Friend", command=save,
-                   bootstyle="success")
+                              bootstyle="success")
         save_btn.pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+        ToolTip(save_btn, "ذخیره دوست جدید با اطلاعات وارد شده")
+        cancel_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                                bootstyle="secondary-outline")
+        cancel_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_btn, "انصراف و بستن پنجره")
         dlg.bind("<Return>", lambda e: save())

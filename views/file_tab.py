@@ -13,7 +13,7 @@ from pathlib import Path
 from queue import Queue
 
 from views.dialogs import password_dialog
-from views.utils import friendly_error
+from views.utils import friendly_error, ToolTip
 from services.file_service import FileServiceError, SharedSecretDetected
 from services.friends import FriendsService
 from services.global_secret_service import GlobalSecretService
@@ -97,10 +97,12 @@ class FileTab:
                                       command=self.encrypt_file,
                                       bootstyle="success", width=20)
         self.encrypt_btn.pack(pady=10, ipadx=20, ipady=10)
+        ToolTip(self.encrypt_btn, "انتخاب و رمزنگاری یک فایل با روش انتخاب شده")
         self.decrypt_btn = ttk.Button(btn_frame, text="🔓 Decrypt a File",
                                       command=self.decrypt_file,
                                       bootstyle="primary", width=20)
         self.decrypt_btn.pack(pady=10, ipadx=20, ipady=10)
+        ToolTip(self.decrypt_btn, "انتخاب و رمزگشایی یک فایل رمزنگاری شده")
 
     def _set_busy(self, busy: bool) -> None:
         try:

@@ -11,7 +11,7 @@ import database
 from services.event_bus import event_bus, Events
 from services.shamir_service import ShamirService, generate_recovery_key
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error
+from views.utils import init_modal, run_busy, friendly_error, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -307,6 +307,7 @@ class KeyRecoveryDialog:
         split_btn = ttk.Button(parent, text="Generate & Distribute Shares",
                                command=do_split, bootstyle="warning")
         split_btn.pack(anchor="w")
+        ToolTip(split_btn, "تولید اشتراک‌های کلید بازیابی و توزیع بین دوستان انتخاب شده")
 
     # ------------------------------------------------------------------
     # Recover tab
@@ -375,10 +376,14 @@ class KeyRecoveryDialog:
                 _, entry = share_entries.pop()
                 entry.master.destroy()
 
-        ttk.Button(btn_row, text="Add Share", command=add_share_entry,
-                   bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row, text="Remove Last", command=remove_last,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 12))
+        add_share_btn = ttk.Button(btn_row, text="Add Share", command=add_share_entry,
+                                   bootstyle="success-outline")
+        add_share_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(add_share_btn, "افزودن فیلد جدید برای وارد کردن اشتراک")
+        remove_share_btn = ttk.Button(btn_row, text="Remove Last", command=remove_last,
+                                      bootstyle="danger-outline")
+        remove_share_btn.pack(side=tk.LEFT, padx=(0, 12))
+        ToolTip(remove_share_btn, "حذف آخرین فیلد اشتراک")
 
         def import_share_file():
             path = filedialog.askopenfilename(
@@ -425,9 +430,11 @@ class KeyRecoveryDialog:
                                      "واردات فایل اشتراک ناموفق بود.\n\n"
                                      + friendly_error(e), parent=dlg)
 
-        ttk.Button(btn_row, text="Import .enigma-share File",
-                   command=import_share_file,
-                   bootstyle="info-outline").pack(side=tk.LEFT)
+        import_share_btn = ttk.Button(btn_row, text="Import .enigma-share File",
+                                      command=import_share_file,
+                                      bootstyle="info-outline")
+        import_share_btn.pack(side=tk.LEFT)
+        ToolTip(import_share_btn, "وارد کردن فایل اشتراک .enigma-share")
 
         result_var = tk.StringVar(value="")
         result_display = ttk.ScrolledText(parent, height=3, wrap=tk.WORD,
@@ -527,8 +534,10 @@ class KeyRecoveryDialog:
                         "پس از ۳۰ ثانیه به طور خودکار پاک می‌شود.",
                         parent=dlg)
 
-                ttk.Button(action_frame, text="Copy to Clipboard",
-                           command=copy_key, bootstyle="warning").pack(side=tk.LEFT, padx=(0, 8))
+                copy_key_btn = ttk.Button(action_frame, text="Copy to Clipboard",
+                                          command=copy_key, bootstyle="warning")
+                copy_key_btn.pack(side=tk.LEFT, padx=(0, 8))
+                ToolTip(copy_key_btn, "کپی کلید بازیابی در کلیپ‌بورد (پس از ۳۰ ثانیه پاک می‌شود)")
 
                 _build_apply_button(action_frame)
 
@@ -585,12 +594,14 @@ class KeyRecoveryDialog:
                                    command=apply_as_master_key,
                                    bootstyle="danger")
             apply_btn.pack(side=tk.LEFT)
+            ToolTip(apply_btn, "اعمال کلید بازیابی به عنوان کلید اصلی سراسری")
 
         ttk.Label(parent, textvariable=result_var,
                   font=("Segoe UI", 9), bootstyle="success").pack(anchor="w", pady=(0, 8))
         reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
                                      command=do_reconstruct, bootstyle="warning")
         reconstruct_btn.pack(anchor="w")
+        ToolTip(reconstruct_btn, "بازسازی کلید بازیابی از اشتراک‌های وارد شده")
 
     # ------------------------------------------------------------------
     # Held Shares tab  (shares this user is holding for others)
@@ -821,18 +832,26 @@ class KeyRecoveryDialog:
                 database.delete_held_share(share_id)
             load_held()
 
-        ttk.Button(btn_row, text="Import Share File",
-                   command=import_held_share,
-                   bootstyle="warning").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Export Back to Owner",
-                   command=export_back,
-                   bootstyle="success").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Delete Selected",
-                   command=delete_selected,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="🔄 Refresh",
-                   command=load_held,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT)
+        import_held_btn = ttk.Button(btn_row, text="Import Share File",
+                                     command=import_held_share,
+                                     bootstyle="warning")
+        import_held_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ToolTip(import_held_btn, "وارد کردن فایل اشتراک برای نگهداری")
+        export_back_btn = ttk.Button(btn_row, text="Export Back to Owner",
+                                     command=export_back,
+                                     bootstyle="success")
+        export_back_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ToolTip(export_back_btn, "صادرات اشتراک نگهداری شده به مالک اصلی")
+        delete_held_btn = ttk.Button(btn_row, text="Delete Selected",
+                                     command=delete_selected,
+                                     bootstyle="danger-outline")
+        delete_held_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ToolTip(delete_held_btn, "حذف اشتراک نگهداری شده انتخاب شده")
+        refresh_held_btn = ttk.Button(btn_row, text="🔄 Refresh",
+                                      command=load_held,
+                                      bootstyle="secondary-outline")
+        refresh_held_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_held_btn, "بروزرسانی لیست اشتراک‌های نگهداری شده")
 
     # ------------------------------------------------------------------
     # Status tab
@@ -907,5 +926,7 @@ class KeyRecoveryDialog:
 
         btn_frame = ttk.Frame(parent)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="🔄 Refresh", command=load_status,
-                   bootstyle="warning-outline").pack(side=tk.RIGHT)
+        refresh_status_btn = ttk.Button(btn_frame, text="🔄 Refresh", command=load_status,
+                                        bootstyle="warning-outline")
+        refresh_status_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_status_btn, "بروزرسانی وضعیت اشتراک‌های بازیابی")

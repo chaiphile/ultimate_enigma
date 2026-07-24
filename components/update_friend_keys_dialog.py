@@ -14,7 +14,7 @@ import base64
 from services.friends import FriendsService, FriendsServiceError
 from services.ecdh_service import ECDHService
 from views.dialogs import password_dialog
-from views.utils import init_modal, friendly_error
+from views.utils import init_modal, friendly_error, ToolTip
 from src.crypto_utils import pem_to_pubkey, pubkey_to_pem
 from crypto import sha256_fingerprint
 
@@ -152,8 +152,10 @@ class UpdateFriendKeysDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_rsa, text="🔑 Update RSA Key", command=do_update_rsa,
-                   bootstyle="primary").pack(anchor="w")
+        update_rsa_btn = ttk.Button(tab_rsa, text="🔑 Update RSA Key", command=do_update_rsa,
+                                    bootstyle="primary")
+        update_rsa_btn.pack(anchor="w")
+        ToolTip(update_rsa_btn, "به‌روزرسانی کلید عمومی RSA دوست")
 
         # ════════════════════════════════════════════════════════════════
         # TAB 2: ECDH (X25519)
@@ -218,8 +220,10 @@ class UpdateFriendKeysDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_ecdh, text="🔁 Update ECDH Key", command=do_update_ecdh,
-                   bootstyle="secondary").pack(anchor="w")
+        update_ecdh_btn = ttk.Button(tab_ecdh, text="🔁 Update ECDH Key", command=do_update_ecdh,
+                                     bootstyle="secondary")
+        update_ecdh_btn.pack(anchor="w")
+        ToolTip(update_ecdh_btn, "به‌روزرسانی کلید X25519 دوست")
 
         # ════════════════════════════════════════════════════════════════
         # TAB 3: PQC Hybrid Key
@@ -285,8 +289,10 @@ class UpdateFriendKeysDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_pqc, text="🛡 Update PQC Key", command=do_update_pqc,
-                   bootstyle="info").pack(anchor="w")
+        update_pqc_btn = ttk.Button(tab_pqc, text="🛡 Update PQC Key", command=do_update_pqc,
+                                    bootstyle="info")
+        update_pqc_btn.pack(anchor="w")
+        ToolTip(update_pqc_btn, "به‌روزرسانی کلید ترکیبی PQC دوست")
 
         # ════════════════════════════════════════════════════════════════
         # TAB 4: Hybrid Signature Key
@@ -357,8 +363,10 @@ class UpdateFriendKeysDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_hsig, text="✍️ Update Hybrid Sig Key", command=do_update_hsig,
-                   bootstyle="success").pack(anchor="w")
+        update_hsig_btn = ttk.Button(tab_hsig, text="✍️ Update Hybrid Sig Key", command=do_update_hsig,
+                                     bootstyle="success")
+        update_hsig_btn.pack(anchor="w")
+        ToolTip(update_hsig_btn, "به‌روزرسانی کلید امضای ترکیبی دوست")
 
         # ── Refresh current-key displays when friend selection changes ───
         def _refresh_current(fname: str = ""):
@@ -393,5 +401,7 @@ class UpdateFriendKeysDialog:
         # Populate initial display
         _refresh_current(friend_var.get())
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(4, 10))
+        close_update_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                      bootstyle="secondary-outline")
+        close_update_btn.pack(pady=(4, 10))
+        ToolTip(close_update_btn, "بستن پنجره به‌روزرسانی کلیدها")

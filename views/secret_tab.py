@@ -7,7 +7,7 @@ import ttkbootstrap as ttk
 from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
 from services.clipboard_service import ClipboardService
 from views.dialogs import password_dialog
-from views.utils import init_modal
+from views.utils import init_modal, ToolTip
 
 
 class SecretTab:
@@ -38,10 +38,14 @@ class SecretTab:
                   state='readonly', bootstyle="secondary").pack(anchor=tk.W, pady=(0, 15))
 
         # Export / Import buttons
-        ttk.Button(f, text="Export Global Secret (Copy)", command=self.export_global,
-                   bootstyle="secondary-outline").pack(anchor=tk.W, pady=5)
-        ttk.Button(f, text="Import Global Secret", command=self.import_global,
-                   bootstyle="secondary-outline").pack(anchor=tk.W, pady=5)
+        export_btn = ttk.Button(f, text="Export Global Secret (Copy)", command=self.export_global,
+                                bootstyle="secondary-outline")
+        export_btn.pack(anchor=tk.W, pady=5)
+        ToolTip(export_btn, "کپی رمز اشتراکی سراسری در کلیپ‌بورد (پس از ۳۰ ثانیه پاک می‌شود)")
+        import_btn = ttk.Button(f, text="Import Global Secret", command=self.import_global,
+                                bootstyle="secondary-outline")
+        import_btn.pack(anchor=tk.W, pady=5)
+        ToolTip(import_btn, "وارد کردن رمز اشتراکی سراسری جدید از کلیپ‌بورد")
 
         # Separator
         ttk.Separator(f, orient='horizontal', bootstyle="secondary").pack(fill=tk.X, pady=15)
@@ -49,8 +53,10 @@ class SecretTab:
         # ECDH section
         ttk.Label(f, text="ECDH Key Exchange", font=("Segoe UI", 10, "bold"),
                   bootstyle="inverse-primary").pack(anchor=tk.W, pady=(0, 5))
-        ttk.Button(f, text="Start ECDH for Global Secret", command=self.start_ecdh,
-                   bootstyle="info").pack(anchor=tk.W, pady=5)
+        ecdh_btn = ttk.Button(f, text="Start ECDH for Global Secret", command=self.start_ecdh,
+                              bootstyle="info")
+        ecdh_btn.pack(anchor=tk.W, pady=5)
+        ToolTip(ecdh_btn, "شروع تبادل کلید ECDH برای تولید رمز اشتراکی سراسری")
 
         self._update_display()
 

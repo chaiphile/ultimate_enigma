@@ -5,7 +5,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 
 from services.ecdh_service import ECDHService      # pure crypto service
-from views.utils import init_modal, flash_widget_text
+from views.utils import init_modal, flash_widget_text, ToolTip
 
 
 def perform_ecdh(parent, purpose="friend"):
@@ -46,6 +46,7 @@ def perform_ecdh(parent, purpose="friend"):
     copy_btn = ttk.Button(dlg, text="Copy Public Key",
                           bootstyle="secondary-outline")
     copy_btn.pack(pady=5)
+    ToolTip(copy_btn, "کپی کلید عمومی X25519 در کلیپ‌بورد برای ارسال به دوست")
 
     def copy_pubkey():
         try:
@@ -120,10 +121,14 @@ def perform_ecdh(parent, purpose="friend"):
         result["friend_b64"] = friend_b64
         dlg.destroy()
 
-    ttk.Button(dlg, text="Verify & Compute Shared Secret", command=confirm,
-               bootstyle="success").pack(pady=15)
-    ttk.Button(dlg, text="Cancel", command=dlg.destroy,
-               bootstyle="secondary-outline").pack()
+    verify_btn = ttk.Button(dlg, text="Verify & Compute Shared Secret", command=confirm,
+                            bootstyle="success")
+    verify_btn.pack(pady=15)
+    ToolTip(verify_btn, "تأیید اثر انگشت و محاسبه رمز اشتراکی ECDH")
+    cancel_btn = ttk.Button(dlg, text="Cancel", command=dlg.destroy,
+                            bootstyle="secondary-outline")
+    cancel_btn.pack()
+    ToolTip(cancel_btn, "لغو تبادل کلید ECDH")
 
     init_modal(dlg, parent, focus_widget=friend_pub_entry)
 

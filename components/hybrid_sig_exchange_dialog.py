@@ -5,7 +5,7 @@ from ttkbootstrap.constants import *
 
 from services.friends import FriendsService, FriendsServiceError
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error, flash_widget_text
+from views.utils import init_modal, run_busy, friendly_error, flash_widget_text, ToolTip
 
 
 class HybridSigExchangeDialog:
@@ -153,13 +153,19 @@ class HybridSigExchangeDialog:
             self.parent.clipboard_append(bundle_b64)
             flash_widget_text(my_pub_text, f"✓ Copied (+{len(pending)} certs)", my_pub_text.cget("state"))
 
-        ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
-                   bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
-                   command=generate_hybrid_sig,
-                   bootstyle="success").pack(side=tk.LEFT)
+        copy_sig_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
+                                  bootstyle="success-outline")
+        copy_sig_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(copy_sig_btn, "کپی کلید عمومی امضای ترکیبی در کلیپ‌بورد")
+        export_cert_btn = ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
+                                     bootstyle="info-outline")
+        export_cert_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(export_cert_btn, "صادر کردن کلید عمومی به همراه گواهی‌های زنجیره اعتماد")
+        gen_sig_btn = ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
+                                 command=generate_hybrid_sig,
+                                 bootstyle="success")
+        gen_sig_btn.pack(side=tk.LEFT)
+        ToolTip(gen_sig_btn, "تولید کلیدهای امضای ترکیبی جدید (Ed25519 + Dilithium3)")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -286,8 +292,10 @@ class HybridSigExchangeDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_import, text="💾 Import & Save Signing Key",
-                   command=do_import_hybrid_sig_key, bootstyle="success").pack(anchor="w")
+        import_sig_btn = ttk.Button(tab_import, text="💾 Import & Save Signing Key",
+                                    command=do_import_hybrid_sig_key, bootstyle="success")
+        import_sig_btn.pack(anchor="w")
+        ToolTip(import_sig_btn, "وارد کردن و ذخیره کلید امضای ترکیبی دوست")
 
         tab_status = ttk.Frame(notebook, padding=15)
         notebook.add(tab_status, text="  Status  ")
@@ -336,5 +344,7 @@ class HybridSigExchangeDialog:
                   text=f"Summary: {hybrid_sig_friends}/{total_friends} friends with hybrid signing keys",
                   font=("Segoe UI", 9)).pack(anchor="w")
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(0, 10))
+        close_sig_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                   bootstyle="secondary-outline")
+        close_sig_btn.pack(pady=(0, 10))
+        ToolTip(close_sig_btn, "بستن پنجره تبادل کلید امضای ترکیبی")

@@ -14,7 +14,7 @@ from services.clipboard_service import ClipboardService
 from services.pqc_service import is_pqc_available
 from src.exceptions import CryptoTimeoutError
 from src.crypto_task_helper import submit_crypto_task
-from views.utils import friendly_error, flash_widget_text
+from views.utils import friendly_error, flash_widget_text, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +97,14 @@ class EncryptTab:
         ttk.Frame(opts).grid(row=0, column=9, padx=5)
 
         # Buttons – always visible on the right
-        ttk.Button(opts, text="Clear", command=self.clear_input,
-                   bootstyle="secondary-outline").grid(row=0, column=11, padx=5, sticky=tk.E)
+        clear_btn = ttk.Button(opts, text="Clear", command=self.clear_input,
+                               bootstyle="secondary-outline")
+        clear_btn.grid(row=0, column=11, padx=5, sticky=tk.E)
+        ToolTip(clear_btn, "پاک کردن متن پیام")
         self.send_btn = ttk.Button(opts, text="Encrypt & Send", command=self.send_message,
                                    bootstyle="success")
         self.send_btn.grid(row=0, column=12, padx=5, sticky=tk.E)
+        ToolTip(self.send_btn, "رمزنگاری و ارسال پیام به دوست انتخاب شده")
 
         # Message input
         msg_frame = ttk.Labelframe(self.frame, text="Write your message",
@@ -131,8 +134,11 @@ class EncryptTab:
         self.copy_btn = ttk.Button(btn_bar, text="Copy Last Sent", command=self.copy_last_sent,
                                    bootstyle="info-outline")
         self.copy_btn.pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_bar, text="Clear Log", command=self.clear_log,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+        ToolTip(self.copy_btn, "کپی آخرین پیام ارسال شده در کلیپ‌بورد")
+        clear_log_btn = ttk.Button(btn_bar, text="Clear Log", command=self.clear_log,
+                                   bootstyle="secondary-outline")
+        clear_log_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(clear_log_btn, "پاک کردن تاریخچه پیام‌های ارسال شده")
 
     def _set_busy(self, busy: bool) -> None:
         try:

@@ -14,7 +14,7 @@ import ttkbootstrap as ttk
 
 from services.shamir_service import ShamirService
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error
+from views.utils import init_modal, run_busy, friendly_error, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -128,10 +128,14 @@ class RecoveryUnlockDialog:
                 _, entry = self._share_entries.pop()
                 entry.master.destroy()
 
-        ttk.Button(btn_row, text="Add Share", command=lambda: add_share_entry(),
-                   bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row, text="Remove Last", command=remove_last,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 12))
+        add_share_rec_btn = ttk.Button(btn_row, text="Add Share", command=lambda: add_share_entry(),
+                                        bootstyle="success-outline")
+        add_share_rec_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(add_share_rec_btn, "افزودن فیلد جدید برای وارد کردن اشتراک")
+        remove_share_rec_btn = ttk.Button(btn_row, text="Remove Last", command=remove_last,
+                                          bootstyle="danger-outline")
+        remove_share_rec_btn.pack(side=tk.LEFT, padx=(0, 12))
+        ToolTip(remove_share_rec_btn, "حذف آخرین فیلد اشتراک")
 
         def import_share_file():
             path = filedialog.askopenfilename(
@@ -193,9 +197,11 @@ class RecoveryUnlockDialog:
                                      "واردات فایل اشتراک ناموفق بود.\n\n"
                                      + friendly_error(e), parent=dlg)
 
-        ttk.Button(btn_row, text="Import .enigma-share File",
-                   command=import_share_file,
-                   bootstyle="info-outline").pack(side=tk.LEFT)
+        import_share_rec_btn = ttk.Button(btn_row, text="Import .enigma-share File",
+                                          command=import_share_file,
+                                          bootstyle="info-outline")
+        import_share_rec_btn.pack(side=tk.LEFT)
+        ToolTip(import_share_rec_btn, "وارد کردن فایل اشتراک .enigma-share")
 
         self._result_var = tk.StringVar(value="")
         self._result_display = ttk.ScrolledText(parent, height=3, wrap=tk.WORD,
@@ -270,6 +276,7 @@ class RecoveryUnlockDialog:
         reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
                                      command=do_reconstruct, bootstyle="warning")
         reconstruct_btn.pack(anchor="w")
+        ToolTip(reconstruct_btn, "بازسازی کلید بازیابی از اشتراک‌های وارد شده")
 
     def _build_set_password_tab(self, parent, dlg):
         ttk.Label(
@@ -373,3 +380,4 @@ class RecoveryUnlockDialog:
         apply_btn = ttk.Button(parent, text="Apply Recovery & Set New Password",
                                command=apply_recovery, bootstyle="danger")
         apply_btn.pack(anchor="w")
+        ToolTip(apply_btn, "اعمال بازیابی و تنظیم رمز عبور اصلی جدید")

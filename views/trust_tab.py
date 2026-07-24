@@ -20,7 +20,7 @@ from ttkbootstrap.dialogs import Messagebox
 
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
-from views.utils import init_modal, friendly_error
+from views.utils import init_modal, friendly_error, ToolTip
 
 
 class TrustTab:
@@ -58,17 +58,25 @@ class TrustTab:
         top_bar.pack(fill=tk.X)
 
         btn_specs = [
-            ("🎛 Certificate Control Panel", self.issue_cert_dialog, "success"),
-            ("📥 Import (Paste)", self.import_cert_dialog, "info"),
-            ("📂 Import from File", self.import_cert_file_dialog, "info"),
-            ("📤 Export Bundle", self.export_cert_bundle_dialog, "info"),
-            ("🔑 Split Recovery Key", self.split_key_dialog, "warning"),
-            ("🔓 Recover Key", self.recover_key_dialog, "danger"),
-            ("🔄 Refresh", self.refresh_list, "secondary-outline"),
+            ("🎛 Certificate Control Panel", self.issue_cert_dialog, "success",
+             "باز کردن پنجره مدیریت گواهی‌های زنجیره اعتماد"),
+            ("📥 Import (Paste)", self.import_cert_dialog, "info",
+             "وارد کردن گواهی با چسباندن متن JSON"),
+            ("📂 Import from File", self.import_cert_file_dialog, "info",
+             "وارد کردن گواهی از فایل JSON"),
+            ("📤 Export Bundle", self.export_cert_bundle_dialog, "info",
+             "صادر کردن همه گواهی‌ها به صورت یک بسته JSON"),
+            ("🔑 Split Recovery Key", self.split_key_dialog, "warning",
+             "تقسیم کلید بازیابی به اشتراک‌های متعدد"),
+            ("🔓 Recover Key", self.recover_key_dialog, "danger",
+             "بازیابی کلید از اشتراک‌ها"),
+            ("🔄 Refresh", self.refresh_list, "secondary-outline",
+             "بروزرسانی لیست گواهی‌ها"),
         ]
-        for text, cmd, style in btn_specs:
-            ttk.Button(top_bar, text=text, command=cmd,
-                       bootstyle=style).pack(side=tk.LEFT, padx=(0, 6))
+        for text, cmd, style, tip in btn_specs:
+            btn = ttk.Button(top_bar, text=text, command=cmd, bootstyle=style)
+            btn.pack(side=tk.LEFT, padx=(0, 6))
+            ToolTip(btn, tip)
 
         ttk.Frame(top_bar).pack(side=tk.LEFT, expand=True)
 
@@ -430,10 +438,14 @@ class TrustTab:
             except Exception as e:
                 messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
 
-        ttk.Button(btn_frame, text="📥 Import", command=do_import,
-                   bootstyle="info").pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+        import_trust_btn = ttk.Button(btn_frame, text="📥 Import", command=do_import,
+                                      bootstyle="info")
+        import_trust_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(import_trust_btn, "وارد کردن گواهی زنجیره اعتماد")
+        cancel_trust_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                                      bootstyle="secondary-outline")
+        cancel_trust_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_trust_btn, "انصراف از وارد کردن گواهی")
 
         init_modal(dlg, parent, focus_widget=cert_input)
 
@@ -604,10 +616,14 @@ class TrustTab:
             result["cert"] = certs[sel_var.get()]
             dlg.destroy()
 
-        ttk.Button(btn_frame, text="Select", command=do_select,
-                   bootstyle="danger").pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+        select_btn = ttk.Button(btn_frame, text="Select", command=do_select,
+                                bootstyle="danger")
+        select_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(select_btn, "انتخاب این گواهی برای لغو")
+        cancel_choose_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                                       bootstyle="secondary-outline")
+        cancel_choose_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_choose_btn, "انصراف")
 
         init_modal(dlg, parent)
         dlg.wait_window()

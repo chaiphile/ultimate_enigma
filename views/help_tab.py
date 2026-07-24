@@ -3,6 +3,7 @@
 import tkinter as tk
 import ttkbootstrap as ttk
 import webbrowser
+from views.utils import ToolTip
 
 
 _GUIDE_SECTIONS = [
@@ -190,16 +191,20 @@ class HelpTab:
         def _open_docs():
             webbrowser.open("https://github.com/chaiphile/ultimate_enigma/tree/main/docs")
 
-        ttk.Button(link_frame, text="مستندات Docs",
-                   command=_open_docs,
-                   bootstyle="info-link").pack(side=tk.RIGHT, padx=5)
+        docs_btn = ttk.Button(link_frame, text="مستندات Docs",
+                              command=_open_docs,
+                              bootstyle="info-link")
+        docs_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(docs_btn, "باز کردن مستندات کامل برنامه در مرورگر")
 
         def _open_repo():
             webbrowser.open("https://github.com/chaiphile/ultimate_enigma")
 
-        ttk.Button(link_frame, text="مخزن GitHub",
-                   command=_open_repo,
-                   bootstyle="info-link").pack(side=tk.RIGHT, padx=5)
+        repo_btn = ttk.Button(link_frame, text="مخزن GitHub",
+                              command=_open_repo,
+                              bootstyle="info-link")
+        repo_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(repo_btn, "باز کردن مخزن کد منبع در گیت‌هاب")
 
         ttk.Label(link_frame, text="🔗 منابع مفید:",
                   font=("Segoe UI", 9, "bold"),

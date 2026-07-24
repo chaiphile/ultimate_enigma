@@ -7,7 +7,7 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error
+from views.utils import init_modal, run_busy, friendly_error, ToolTip
 from services.event_bus import event_bus, Events
 from models.trust_chain import CertificateType, TrustLevel, RevocationStatus
 
@@ -178,6 +178,7 @@ class CertificateDialog:
             command=do_issue, bootstyle="info",
         )
         issue_btn.pack(anchor="w", pady=(10, 0))
+        ToolTip(issue_btn, "امضا و صدور گواهی اعتماد برای دوست انتخاب شده")
 
         tab_view = ttk.Frame(notebook, padding=15)
         notebook.add(tab_view, text="  View & Revoke  ")
@@ -434,32 +435,44 @@ class CertificateDialog:
                 messagebox.showerror("خطای واردات", friendly_error(e), parent=dlg)
 
         # Export row
-        ttk.Button(
+        export_sel_btn = ttk.Button(
             export_row, text="Export Selected",
             command=do_export, bootstyle="info-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        export_sel_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(export_sel_btn, "صادرات گواهی انتخاب شده به صورت فایل JSON")
+        export_del_btn = ttk.Button(
             export_row, text="Export Delegation Certs",
             command=do_export_delegation, bootstyle="info-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        export_del_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(export_del_btn, "صادرات گواهی‌های نمایندگی")
+        export_all_btn = ttk.Button(
             export_row, text="Export All Certs",
             command=do_export_all, bootstyle="info-outline",
-        ).pack(side=tk.LEFT)
+        )
+        export_all_btn.pack(side=tk.LEFT)
+        ToolTip(export_all_btn, "صادرات همه گواهی‌ها به صورت یک بسته")
 
         # Action row
-        ttk.Button(
+        import_btn = ttk.Button(
             action_row, text="Import",
             command=do_import, bootstyle="secondary-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        import_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(import_btn, "وارد کردن گواهی از فایل JSON")
+        verify_btn = ttk.Button(
             action_row, text="Verify Certificate",
             command=do_verify, bootstyle="info-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        verify_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(verify_btn, "تأیید اعتبار گواهی انتخاب شده")
+        revoke_btn = ttk.Button(
             action_row, text="Revoke Certificate",
             command=do_revoke, bootstyle="danger-outline",
-        ).pack(side=tk.LEFT)
+        )
+        revoke_btn.pack(side=tk.LEFT)
+        ToolTip(revoke_btn, "لغو اعتبار گواهی انتخاب شده (غیرقابل بازگشت)")
 
         tab_status = ttk.Frame(notebook, padding=15)
         notebook.add(tab_status, text="  Trust Status  ")
@@ -530,10 +543,12 @@ class CertificateDialog:
 
         btn_trust_frame = ttk.Frame(tab_status)
         btn_trust_frame.pack(fill=tk.X)
-        ttk.Button(
+        refresh_trust_btn = ttk.Button(
             btn_trust_frame, text="🔄 Refresh",
             command=load_trust_status, bootstyle="info-outline",
-        ).pack(side=tk.RIGHT)
+        )
+        refresh_trust_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_trust_btn, "بروزرسانی وضعیت اعتماد دوستان")
 
         # ------------------------------------------------------------------
         # Tab: Delegation Powers
@@ -654,7 +669,7 @@ class CertificateDialog:
             )
             if not pw2:
                 return None
-    if not self.friends_service.verify_master_password(pw2):
+            if not self.friends_service.verify_master_password(pw2):
                 messagebox.showerror("رمز عبور اشتباه",
                                      "رمز عبور اصلی نادرست است.", parent=dlg)
                 return None
@@ -843,38 +858,56 @@ class CertificateDialog:
         row1.pack(fill=tk.X, pady=(0, 4))
         ttk.Label(row1, text="Update Keys:", font=("Segoe UI", 9, "bold"),
                   width=12, anchor="e").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(row1, text="Hybrid Key",
-                   command=do_update_delegator_key,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="X25519 Key",
-                   command=do_update_x25519,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="RSA PEM",
-                   command=do_update_pem,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="PQC Key",
-                   command=do_update_pqc,
-                   bootstyle="info-outline").pack(side=tk.LEFT)
+        hyb_btn = ttk.Button(row1, text="Hybrid Key",
+                             command=do_update_delegator_key,
+                             bootstyle="info-outline")
+        hyb_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(hyb_btn, "به‌روزرسانی کلید امضای ترکیبی نماینده")
+        x25519_btn = ttk.Button(row1, text="X25519 Key",
+                                command=do_update_x25519,
+                                bootstyle="info-outline")
+        x25519_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(x25519_btn, "به‌روزرسانی کلید X25519 نماینده")
+        rsa_btn = ttk.Button(row1, text="RSA PEM",
+                             command=do_update_pem,
+                             bootstyle="info-outline")
+        rsa_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(rsa_btn, "به‌روزرسانی کلید عمومی RSA نماینده")
+        pqc_btn = ttk.Button(row1, text="PQC Key",
+                             command=do_update_pqc,
+                             bootstyle="info-outline")
+        pqc_btn.pack(side=tk.LEFT)
+        ToolTip(pqc_btn, "به‌روزرسانی کلید ترکیبی PQC نماینده")
 
         # Row 2 – Destructive actions + Refresh
         row2 = ttk.Frame(del_btn_frame)
         row2.pack(fill=tk.X)
         ttk.Label(row2, text="Actions:", font=("Segoe UI", 9, "bold"),
                   width=12, anchor="e").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(row2, text="Remove All Keys",
-                   command=do_remove_all_keys,
-                   bootstyle="warning-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row2, text="Revoke All Certs",
-                   command=do_revoke_all_delegator_certs,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row2, text="Revoke Recovery Shares",
-                   command=do_revoke_recovery_shares,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row2, text="Refresh",
-                   command=load_delegation_certs,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT)
+        remove_keys_btn = ttk.Button(row2, text="Remove All Keys",
+                                     command=do_remove_all_keys,
+                                     bootstyle="warning-outline")
+        remove_keys_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(remove_keys_btn, "حذف همه کلیدهای اختیاری نماینده (غیرقابل بازگشت)")
+        revoke_certs_btn = ttk.Button(row2, text="Revoke All Certs",
+                                      command=do_revoke_all_delegator_certs,
+                                      bootstyle="danger-outline")
+        revoke_certs_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(revoke_certs_btn, "لغو همه گواهی‌های اعتماد نماینده (غیرقابل بازگشت)")
+        revoke_shares_btn = ttk.Button(row2, text="Revoke Recovery Shares",
+                                       command=do_revoke_recovery_shares,
+                                       bootstyle="danger-outline")
+        revoke_shares_btn.pack(side=tk.LEFT, padx=(0, 4))
+        ToolTip(revoke_shares_btn, "لغو اشتراک‌های بازیابی نماینده")
+        refresh_del_btn = ttk.Button(row2, text="Refresh",
+                                     command=load_delegation_certs,
+                                     bootstyle="secondary-outline")
+        refresh_del_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_del_btn, "بروزرسانی لیست گواهی‌های نمایندگی")
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(0, 10))
+        close_cert_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                    bootstyle="secondary-outline")
+        close_cert_btn.pack(pady=(0, 10))
+        ToolTip(close_cert_btn, "بستن پنجره مدیریت گواهی‌ها")
 
         init_modal(dlg, self.parent, focus_widget=issue_friend_combo)

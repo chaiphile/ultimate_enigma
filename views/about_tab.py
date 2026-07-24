@@ -9,6 +9,7 @@ import ttkbootstrap as ttkb
 
 from services.backup_service import BackupService, BackupServiceError
 from views.dialogs import password_dialog
+from views.utils import ToolTip
 from controllers.auth_controller import AuthController
 from key_manager import KeyStore
 
@@ -73,15 +74,18 @@ class AboutTab:
         btn_frame = ttkb.Frame(f)
         btn_frame.pack()
 
-        ttkb.Button(btn_frame, text="📤 Export Backup",
-                   command=self._export_backup,
-                   bootstyle="warning",
-                   width=18).pack(side=tk.LEFT, padx=8)
-
-        ttkb.Button(btn_frame, text="📥 Import Backup",
-                   command=self._import_backup,
-                   bootstyle="danger",
-                   width=18).pack(side=tk.LEFT, padx=8)
+        export_btn = ttkb.Button(btn_frame, text="📤 Export Backup",
+                                 command=self._export_backup,
+                                 bootstyle="warning",
+                                 width=18)
+        export_btn.pack(side=tk.LEFT, padx=8)
+        ToolTip(export_btn, "صدور پشتیبان از همه کلیدها و تنظیمات")
+        import_btn = ttkb.Button(btn_frame, text="📥 Import Backup",
+                                 command=self._import_backup,
+                                 bootstyle="danger",
+                                 width=18)
+        import_btn.pack(side=tk.LEFT, padx=8)
+        ToolTip(import_btn, "وارد کردن پشتیبان و بازیابی کلیدها و تنظیمات")
 
         # ── Password Change section ───────────────────────────────
         sep2 = ttkb.Separator(f, orient="horizontal")
@@ -91,15 +95,18 @@ class AboutTab:
                   font=("Segoe UI", 12, "bold"),
                   bootstyle="inverse-primary").pack(pady=(0, 10))
 
-        ttkb.Button(f, text="🔑 Change Master Password",
-                   command=self._change_password,
-                   bootstyle="info",
-                   width=24).pack(pady=(0, 5))
-
-        ttkb.Button(f, text="🚨 Set Duress Password",
-                   command=self._set_duress_password,
-                   bootstyle="danger-outline",
-                   width=24).pack(pady=(0, 5))
+        change_pw_btn = ttkb.Button(f, text="🔑 Change Master Password",
+                                    command=self._change_password,
+                                    bootstyle="info",
+                                    width=24)
+        change_pw_btn.pack(pady=(0, 5))
+        ToolTip(change_pw_btn, "تغییر رمز عبور اصلی برنامه")
+        duress_btn = ttkb.Button(f, text="🚨 Set Duress Password",
+                                 command=self._set_duress_password,
+                                 bootstyle="danger-outline",
+                                 width=24)
+        duress_btn.pack(pady=(0, 5))
+        ToolTip(duress_btn, "تنظیم رمز عبور اجباری برای شرایط اضطرار")
 
     # ------------------------------------------------------------------
     # Change Password

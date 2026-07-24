@@ -5,6 +5,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 
 from src.secure_string import SecureString
+from views.utils import ToolTip
 
 
 def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=None,
@@ -161,17 +162,23 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
 
     btn_frame = tk.Frame(dlg, bg=dialog_bg)
     btn_frame.pack(pady=20)
-    ttk.Button(btn_frame, text="OK", command=ok,
-               bootstyle="success").pack(side=tk.LEFT, padx=5)
-    ttk.Button(btn_frame, text="Cancel", command=cancel,
-               bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+    ok_btn = ttk.Button(btn_frame, text="OK", command=ok,
+                        bootstyle="success")
+    ok_btn.pack(side=tk.LEFT, padx=5)
+    ToolTip(ok_btn, "تأیید و ادامه")
+    cancel_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
+                            bootstyle="secondary-outline")
+    cancel_btn.pack(side=tk.LEFT, padx=5)
+    ToolTip(cancel_btn, "انصراف")
 
     if on_recover is not None:
         def do_recover():
             dlg.destroy()
             on_recover()
-        ttk.Button(btn_frame, text="🔑 Recover", command=do_recover,
-                   bootstyle="warning-outline").pack(side=tk.LEFT, padx=(15, 0))
+        recover_btn = ttk.Button(btn_frame, text="🔑 Recover", command=do_recover,
+                                 bootstyle="warning-outline")
+        recover_btn.pack(side=tk.LEFT, padx=(15, 0))
+        ToolTip(recover_btn, "بازیابی دسترسی با کلید بازیابی (در صورت فراموشی رمز عبور)")
 
     dlg.bind("<Return>", lambda e: ok())
     dlg.bind("<Escape>", lambda e: cancel())

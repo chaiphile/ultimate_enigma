@@ -11,6 +11,7 @@ pyinstaller --onefile --windowed --noconsole ^
   --icon=enigma.ico ^
   --name="UltimateEnigma" ^
   --add-data "%OQS_PATH%;oqs" ^
+  --add-data "anomaly_model.pkl;." ^
   --add-binary "%OQS_DLL%;." ^
   --hidden-import=oqs ^
   --hidden-import=src.anti_tamper ^

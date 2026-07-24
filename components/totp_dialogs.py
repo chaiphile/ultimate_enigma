@@ -18,7 +18,7 @@ except ImportError:
     HAS_QRCODE = False
 
 from services.totp_service import TOTPService
-from views.utils import init_modal, flash_widget_text
+from views.utils import init_modal, flash_widget_text, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -96,10 +96,14 @@ class TOTPVerifyDialog:
 
         btn_frame = ttk.Frame(dlg)
         btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="✅ Verify", command=verify,
-                   bootstyle="success").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=cancel,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+        verify_totp_btn = ttk.Button(btn_frame, text="✅ Verify", command=verify,
+                                     bootstyle="success")
+        verify_totp_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(verify_totp_btn, "تأیید کد TOTP وارد شده")
+        cancel_totp_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
+                                     bootstyle="secondary-outline")
+        cancel_totp_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(cancel_totp_btn, "انصراف از تأیید TOTP")
 
         dlg.bind("<Return>", lambda e: verify())
         dlg.bind("<Escape>", lambda e: cancel())
@@ -166,6 +170,7 @@ class TOTPSetupDialog:
             command=ok_close, bootstyle="success"
         )
         ok_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(ok_btn, "تأیید و بستن - رمز TOTP ذخیره شده است")
 
         # Cancel button
         cancel_btn = ttk.Button(
@@ -173,6 +178,7 @@ class TOTPSetupDialog:
             command=dlg.destroy, bootstyle="secondary-outline"
         )
         cancel_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_btn, "انصراف")
 
         # Regenerate button
         if self.on_regenerate:
@@ -181,6 +187,7 @@ class TOTPSetupDialog:
                 command=regenerate, bootstyle="warning"
             )
             regen_btn.pack(side=tk.LEFT, padx=5)
+            ToolTip(regen_btn, "تولید مجدد رمز TOTP")
 
         # ── CONTENT ──
         content = ttk.Frame(dlg)
@@ -237,6 +244,7 @@ class TOTPSetupDialog:
         copy_uri_btn = ttk.Button(content, text="📋 Copy URI", command=copy_uri,
                                   bootstyle="info-outline")
         copy_uri_btn.pack(pady=(0, 8))
+        ToolTip(copy_uri_btn, "کپی URI در کلیپ‌بورد")
 
         # Base32 secret
         b32 = self.totp_service.get_b32_secret()
@@ -262,6 +270,7 @@ class TOTPSetupDialog:
         copy_secret_btn = ttk.Button(content, text="📋 Copy Secret", command=copy_secret,
                                      bootstyle="info-outline")
         copy_secret_btn.pack(pady=(0, 10))
+        ToolTip(copy_secret_btn, "کپی رمز Base32 در کلیپ‌بورد")
 
         # Live code preview – shows the CURRENT code that an authenticator
         # app would generate with the same secret.  Updates every 500 ms.

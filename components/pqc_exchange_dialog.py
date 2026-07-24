@@ -6,7 +6,7 @@ import base64
 
 from services.friends import FriendsService, FriendsServiceError
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error, flash_widget_text
+from views.utils import init_modal, run_busy, friendly_error, flash_widget_text, ToolTip
 
 
 class PqcExchangeDialog:
@@ -113,10 +113,14 @@ class PqcExchangeDialog:
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
 
-        ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row_keys, text="🔑 Generate New PQC Keys", command=generate_pqc,
-                   bootstyle="info").pack(side=tk.LEFT)
+        copy_pqc_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
+                                   bootstyle="info-outline")
+        copy_pqc_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(copy_pqc_btn, "کپی کلید عمومی ترکیبی PQC در کلیپ‌بورد")
+        gen_pqc_btn = ttk.Button(btn_row_keys, text="🔑 Generate New PQC Keys", command=generate_pqc,
+                                 bootstyle="info")
+        gen_pqc_btn.pack(side=tk.LEFT)
+        ToolTip(gen_pqc_btn, "تولید کلیدهای جدید مقاوم در برابر کوانتوم")
 
         tab_encap = ttk.Frame(notebook, padding=15)
         notebook.add(tab_encap, text="  Encapsulate (Send)  ")
@@ -205,10 +209,14 @@ class PqcExchangeDialog:
 
         encap_btn_row = ttk.Frame(tab_encap)
         encap_btn_row.pack(fill=tk.X)
-        ttk.Button(encap_btn_row, text="🔒 Encapsulate & Derive Secret",
-                   command=do_encapsulate, bootstyle="info").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(encap_btn_row, text="📋 Copy Ciphertext",
-                   command=copy_encap_result, bootstyle="info-outline").pack(side=tk.LEFT)
+        encap_btn = ttk.Button(encap_btn_row, text="🔒 Encapsulate & Derive Secret",
+                               command=do_encapsulate, bootstyle="info")
+        encap_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(encap_btn, "محصورسازی و استخراج رمز اشتراکی از کلید عمومی دوست")
+        copy_ct_btn = ttk.Button(encap_btn_row, text="📋 Copy Ciphertext",
+                                 command=copy_encap_result, bootstyle="info-outline")
+        copy_ct_btn.pack(side=tk.LEFT)
+        ToolTip(copy_ct_btn, "کپی متن رمز شده برای ارسال به دوست")
 
         tab_decap = ttk.Frame(notebook, padding=15)
         notebook.add(tab_decap, text="  Decapsulate (Receive)  ")
@@ -281,8 +289,10 @@ class PqcExchangeDialog:
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
 
-        ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
-                   command=do_decapsulate, bootstyle="info").pack(anchor="w")
+        decap_btn = ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
+                               command=do_decapsulate, bootstyle="info")
+        decap_btn.pack(anchor="w")
+        ToolTip(decap_btn, "بازگشایی و بازیابی رمز اشتراکی از متن رمز شده دریافتی")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -360,8 +370,12 @@ class PqcExchangeDialog:
             except FriendsServiceError as e:
                 messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_import, text="💾 Import & Save PQC Key",
-                   command=do_import_pqc_key, bootstyle="info").pack(anchor="w")
+        import_pqc_btn = ttk.Button(tab_import, text="💾 Import & Save PQC Key",
+                                    command=do_import_pqc_key, bootstyle="info")
+        import_pqc_btn.pack(anchor="w")
+        ToolTip(import_pqc_btn, "وارد کردن و ذخیره کلید عمومی PQC دوست")
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(0, 10))
+        close_pqc_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                   bootstyle="secondary-outline")
+        close_pqc_btn.pack(pady=(0, 10))
+        ToolTip(close_pqc_btn, "بستن پنجره تبادل کلید PQC")

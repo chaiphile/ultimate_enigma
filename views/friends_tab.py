@@ -16,7 +16,7 @@ import logging
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
-from views.utils import run_busy, friendly_error
+from views.utils import run_busy, friendly_error, ToolTip
 from components.add_friend_dialog import AddFriendDialog
 from components.pqc_exchange_dialog import PqcExchangeDialog
 from components.hybrid_sig_exchange_dialog import HybridSigExchangeDialog
@@ -59,19 +59,29 @@ class FriendsTab:
         top_bar.pack(fill=tk.X)
 
         btn_specs = [
-            ("➕ Add Friend", self.add_friend_dialog, "success"),
-            ("➖ Remove", self.remove_friend_dialog, "danger-outline"),
-            ("🔑 My Public Key", self.show_my_pubkey, "info-outline"),
-            ("✏️ Set My Name", self.set_my_name_dialog, "primary-outline"),
-            ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline"),
-            ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info"),
-            ("✍️ Hybrid Sig Exchange", self.hybrid_sig_exchange_dialog, "success"),
-            ("🔄 Update Keys", self.update_friend_keys_dialog, "warning"),
-            ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline"),
+            ("➕ Add Friend", self.add_friend_dialog, "success",
+             "افزودن دوست جدید با وارد کردن کلید عمومی"),
+            ("➖ Remove", self.remove_friend_dialog, "danger-outline",
+             "حذف دوست انتخاب شده از لیست"),
+            ("🔑 My Public Key", self.show_my_pubkey, "info-outline",
+             "نمایش کلید عمومی خود برای اشتراک‌گذاری"),
+            ("✏️ Set My Name", self.set_my_name_dialog, "primary-outline",
+             "تنظیم نام نمایشی برای پیام‌های چرخ دنده"),
+            ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline",
+             "تبادل کلید ECDH با دوست انتخاب شده"),
+            ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info",
+             "تبادل کلید مقاوم در برابر کوانتوم"),
+            ("✍️ Hybrid Sig Exchange", self.hybrid_sig_exchange_dialog, "success",
+             "تبادل کلید امضای ترکیبی (Ed25519 + Dilithium3)"),
+            ("🔄 Update Keys", self.update_friend_keys_dialog, "warning",
+             "به‌روزرسانی کلیدهای عمومی دوست"),
+            ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline",
+             "راه‌اندازی نشست چرخ دنده دوگانه"),
         ]
-        for text, cmd, style in btn_specs:
-            ttk.Button(top_bar, text=text, command=cmd,
-                       bootstyle=style).pack(side=tk.LEFT, padx=(0, 6))
+        for text, cmd, style, tip in btn_specs:
+            btn = ttk.Button(top_bar, text=text, command=cmd, bootstyle=style)
+            btn.pack(side=tk.LEFT, padx=(0, 6))
+            ToolTip(btn, tip)
 
         # Spacer pushes search to the right
         ttk.Frame(top_bar).pack(side=tk.LEFT, expand=True)
