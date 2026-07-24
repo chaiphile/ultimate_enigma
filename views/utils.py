@@ -3,6 +3,7 @@
 import logging
 import re
 import threading
+import tkinter as tk
 
 logger = logging.getLogger(__name__)
 
@@ -140,12 +141,58 @@ def run_busy(widget, work, on_done=None, on_error=None, busy_widgets=None) -> No
                 if on_error:
                     on_error(exc)
                 else:
-                    messagebox.showerror("Error", friendly_error(exc))
+                    messagebox.showerror("error", friendly_error(exc))
             widget.after(0, _fail)
 
     threading.Thread(target=_worker, daemon=True).start()
 
 
+class ToolTip:
+    """Hover tooltip for any tkinter/ttk widget.
+
+    Shows a small popup window with Persian (Farsi) text when the mouse
+    hovers over the widget, and hides it when the mouse leaves.
+    """
+
+    def __init__(self, widget, text: str, delay_ms: int = 400) -> None:
+        self.widget = widget
+        self.text = text
+        self.delay_ms = delay_ms
+        self._tip_window = None
+        self._after_id = None
+        widget.bind("<Enter>", self._schedule, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<Button>", self._hide, add="+")
+
+    def _schedule(self, event=None) -> None:
+        self._after_id = self.widget.after(self.delay_ms, self._show)
+
+    def _show(self) -> None:
+        if self._tip_window:
+            return
+        try:
+            x = self.widget.winfo_rootx() + self.widget.winfo_width() // 2
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        except Exception:
+            return
+        self._tip_window = tw = tk.Toplevel(self.widget)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)
+        label = tk.Label(tw, text=self.text, justify=tk.LEFT,
+                         background="#ffffcc", foreground="#000000",
+                         relief="solid", borderwidth=1,
+                         font=("Segoe UI", 9, "normal"),
+                         wraplength=300)
+        label.pack(ipadx=4, ipady=2)
+
+    def _hide(self, event=None) -> None:
+        if self._after_id:
+            self.widget.after_cancel(self._after_id)
+            self._after_id = None
+        if self._tip_window:
+            self._tip_window.destroy()
+            self._tip_window = None
 def flash_widget_text(widget, text: str, revert_to: str, ms: int = 1500) -> None:
     """Briefly change a widget's text (e.g. a copy button) then revert."""
     try:

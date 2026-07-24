@@ -8,7 +8,7 @@ from queue import Queue
 from services.encryption import DecryptionError
 from src.exceptions import CryptoTimeoutError
 from src.crypto_task_helper import submit_crypto_task
-from views.utils import friendly_error, flash_widget_text
+from views.utils import friendly_error, flash_widget_text, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -49,20 +49,26 @@ class DecryptTab:
         btn_bar = ttk.Frame(self.frame)
         btn_bar.pack(fill=tk.X, padx=10, pady=5)
 
-        ttk.Button(btn_bar, text="Paste from Clipboard",
-                   command=self.paste_from_clipboard,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_bar, text="Clear",
-                   command=self.clear,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+        paste_btn = ttk.Button(btn_bar, text="Paste from Clipboard",
+                               command=self.paste_from_clipboard,
+                               bootstyle="secondary-outline")
+        paste_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(paste_btn, "Paste encrypted text from clipboard")
+        clear_btn = ttk.Button(btn_bar, text="Clear",
+                               command=self.clear,
+                               bootstyle="secondary-outline")
+        clear_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(clear_btn, "Clear input and output text")
         self.copy_out_btn = ttk.Button(btn_bar, text="Copy Decrypted",
                                        command=self.copy_decrypted,
                                        bootstyle="info-outline")
         self.copy_out_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(self.copy_out_btn, "Copy the decrypted text to the clipboard")
         self.decrypt_btn = ttk.Button(btn_bar, text="Decrypt Message",
                                       command=self.receive_message,
                                       bootstyle="success")
         self.decrypt_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(self.decrypt_btn, "Decode the embedded message")
 
         # Output area
         out_frame = ttk.Labelframe(self.frame, text="Decrypted message",
@@ -105,23 +111,23 @@ class DecryptTab:
         text = self.decrypted_display.get("1.0", tk.END).strip()
         self.decrypted_display.configure(state='disabled')
         if not text:
-            messagebox.showwarning("Nothing", "No decrypted message to copy.")
+            messagebox.showwarning("nothing", "There is no decrypted message to copy.")
             return
         if self.clipboard_service.copy(text):
             flash_widget_text(self.copy_out_btn, "Copied ✓", "Copy Decrypted")
         else:
-            messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+            messagebox.showerror("Clipboard error", "Unable to access the clipboard.")
 
     def paste_from_clipboard(self) -> None:
         text = self.clipboard_service.get()
         if text is None:
-            messagebox.showwarning("Clipboard",
-                                   "Clipboard is empty or not accessible.")
+            messagebox.showwarning("clipboard",
+                                   "Clipboard is empty or inaccessible.")
             return
         if self.recv_input.get("1.0", tk.END).strip():
             if not messagebox.askyesno(
-                "Replace input?",
-                "The input box already contains text. Replace it with the clipboard contents?"
+                "Replace input text?",
+                "The input box contains text.Replace with clipboard content?"
             ):
                 return
         self.recv_input.delete("1.0", tk.END)
@@ -138,7 +144,7 @@ class DecryptTab:
     def receive_message(self) -> None:
         b64_text = self.recv_input.get("1.0", tk.END).strip()
         if not b64_text:
-            messagebox.showwarning("Empty", "Paste a Base64 message to decrypt.")
+            messagebox.showwarning("vacant", "Paste a Base64 message to decode.")
             return
 
         def _do_decrypt():
@@ -156,9 +162,9 @@ class DecryptTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "Timeout",
-                    "Decryption timed out. The message may be too large or the "
-                    "system is under heavy load. Please try again."
+                    "Expiration of time",
+                    "Decryption timed out.The message may be too large or"
+                    "The system is under heavy load.Please try again."
                 )
             elif isinstance(exc, DecryptionError):
                 err_msg = str(exc)
@@ -168,24 +174,24 @@ class DecryptTab:
                 )
                 if is_ratchet_missing:
                     messagebox.showerror(
-                        "Ratchet Session Missing",
-                        "No Double Ratchet session was found for this message.\n\n"
-                        "To fix this:\n"
-                        "1. Go to the Friends tab\n"
+                        "Ratchet session not found",
+                        "No Double Ratchet sessions were found for this message.\n\n"
+                        "To fix this problem:\n"
+                        "1. Go to friends tab\n"
                         "2. Select the sender and perform a new key exchange\n"
                         "3. Both parties must complete the handshake\n\n"
-                        "The session may have been lost due to a database reset, "
-                        "app reinstall, or out-of-sync state."
+                        "The session may be due to a database reset."
+                        "Reinstall the program or inconsistency is lost."
                     )
                 else:
                     messagebox.showerror(
-                        "Decryption Error",
-                        "This message couldn't be decrypted. It may be corrupted, "
-                        "not addressed to you, or already expired."
+                        "Decoding error",
+                        "This message cannot be decoded.may be broken"
+                        "has not been sent to you or has expired."
                     )
             else:
                 logger.exception("Unexpected decryption error")
-                messagebox.showerror("Decryption Error", friendly_error(exc))
+                messagebox.showerror("Decoding error", friendly_error(exc))
             self.mode_label.config(text="")
             self.sig_label.config(text="")
 

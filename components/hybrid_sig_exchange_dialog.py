@@ -5,7 +5,7 @@ from ttkbootstrap.constants import *
 
 from services.friends import FriendsService, FriendsServiceError
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error, flash_widget_text
+from views.utils import init_modal, run_busy, friendly_error, flash_widget_text, ToolTip
 
 
 class HybridSigExchangeDialog:
@@ -26,9 +26,9 @@ class HybridSigExchangeDialog:
             return
         if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
-                "Hybrid signature key exchange requires authentication.",
+                "Access denied",
+                "The master password is incorrect.\n"
+                "Mixed signing key exchange requires authentication.",
                 parent=self.parent,
             )
             return
@@ -104,7 +104,7 @@ class HybridSigExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -114,15 +114,15 @@ class HybridSigExchangeDialog:
             def on_done(pub_b64):
                 load_my_hybrid_sig()
                 messagebox.showinfo(
-                    "Success",
-                    "Hybrid signing keys generated successfully!\n\n"
-                    "Share your combined public key with friends so they can\n"
-                    "verify your post-quantum secure signatures.",
+                    "success",
+                    "Combination signing keys successfully generated!\n\n"
+                    "Share your public key combination with friends so they can\n"
+                    "Verify your secure post-quantum signature.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
+                messagebox.showerror("error", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -131,10 +131,10 @@ class HybridSigExchangeDialog:
             """Copy public key AND pending certificates to clipboard."""
             content = my_pub_text.get('1.0', tk.END).strip()
             if not content or content.startswith("("):
-                messagebox.showwarning("No Key", "Generate signing keys first.", parent=dlg)
+                messagebox.showwarning("No key", "First generate signing keys.", parent=dlg)
                 return
             if self.trust_chain_service is None:
-                messagebox.showinfo("No Certificates", "Trust chain service not available.", parent=dlg)
+                messagebox.showinfo("No certificate", "The chain of trust service is not available.", parent=dlg)
                 return
             pending = self.trust_chain_service.get_pending_certs_for_exchange()
             if not pending:
@@ -153,13 +153,19 @@ class HybridSigExchangeDialog:
             self.parent.clipboard_append(bundle_b64)
             flash_widget_text(my_pub_text, f"✓ Copied (+{len(pending)} certs)", my_pub_text.cget("state"))
 
-        ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
-                   bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
-                   command=generate_hybrid_sig,
-                   bootstyle="success").pack(side=tk.LEFT)
+        copy_sig_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
+                                  bootstyle="success-outline")
+        copy_sig_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(copy_sig_btn, "Copy the public key of the combined signature to the clipboard")
+        export_cert_btn = ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
+                                     bootstyle="info-outline")
+        export_cert_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(export_cert_btn, "Issuing public key along with chain of trust certificates")
+        gen_sig_btn = ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
+                                 command=generate_hybrid_sig,
+                                 bootstyle="success")
+        gen_sig_btn.pack(side=tk.LEFT)
+        ToolTip(gen_sig_btn, "Generation of new hybrid signature keys (Ed25519 + Dilithium3)")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -242,16 +248,16 @@ class HybridSigExchangeDialog:
                         else:
                             bundle_status_var.set(f"✅ Imported {count} certificate(s)")
                 except Exception as e:
-                    messagebox.showerror("Invalid Bundle", friendly_error(e), parent=dlg)
+                    messagebox.showerror("Invalid package", friendly_error(e), parent=dlg)
                     return
 
             if not fname:
-                messagebox.showwarning("No Selection", "Please select a friend.",
+                messagebox.showwarning("No choice", "Please select a friend.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("Empty Key",
-                                       "Please paste the hybrid signing combined public key.",
+                messagebox.showwarning("empty key",
+                                       "Please paste the public key of the combined signature.",
                                        parent=dlg)
                 return
 
@@ -266,8 +272,8 @@ class HybridSigExchangeDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("Wrong Password",
-                                         "Master password incorrect.",
+                    messagebox.showerror("Wrong password",
+                                         "The master password is incorrect.",
                                          parent=dlg)
                     return
             try:
@@ -278,16 +284,18 @@ class HybridSigExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ Hybrid signing key imported for '{fname}'")
-                messagebox.showinfo("Success",
-                                    f"Hybrid signing combined public key saved for '{fname}'.\n\n"
-                                    "Messages from this friend will now be verified with\n"
-                                    "both Ed25519 and Dilithium3.",
+                messagebox.showinfo("success",
+                                    f"The combined public key of the combined signature was saved for '{fname}'.\n\n"
+                                    "This friend's messages are now with\n"
+                                    "Ed25519 and Dilithium3 are confirmed.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_import, text="💾 Import & Save Signing Key",
-                   command=do_import_hybrid_sig_key, bootstyle="success").pack(anchor="w")
+        import_sig_btn = ttk.Button(tab_import, text="💾 Import & Save Signing Key",
+                                    command=do_import_hybrid_sig_key, bootstyle="success")
+        import_sig_btn.pack(anchor="w")
+        ToolTip(import_sig_btn, "Import and save a friend's signature combination key")
 
         tab_status = ttk.Frame(notebook, padding=15)
         notebook.add(tab_status, text="  Status  ")
@@ -336,5 +344,7 @@ class HybridSigExchangeDialog:
                   text=f"Summary: {hybrid_sig_friends}/{total_friends} friends with hybrid signing keys",
                   font=("Segoe UI", 9)).pack(anchor="w")
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(0, 10))
+        close_sig_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                   bootstyle="secondary-outline")
+        close_sig_btn.pack(pady=(0, 10))
+        ToolTip(close_sig_btn, "Close the combined signature key exchange window")

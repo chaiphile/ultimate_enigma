@@ -7,7 +7,7 @@ from ttkbootstrap.constants import *
 from ttkbootstrap.dialogs import Messagebox
 
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error
+from views.utils import init_modal, run_busy, friendly_error, ToolTip
 from services.event_bus import event_bus, Events
 from models.trust_chain import CertificateType, TrustLevel, RevocationStatus
 
@@ -34,9 +34,9 @@ class CertificateDialog:
             return
         if not self.friends_service.verify_master_password(pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
-                "Trust chain certificate management requires authentication.",
+                "Access denied",
+                "The master password is incorrect.\n"
+                "Chain of trust certificate management requires authentication.",
                 parent=self.parent,
             )
             return
@@ -98,8 +98,8 @@ class CertificateDialog:
             issue_status_var.set("")
             fname = issue_friend_var.get()
             if not fname:
-                messagebox.showwarning("No Selection",
-                                       "Please select a friend to issue a certificate for.",
+                messagebox.showwarning("No choice",
+                                       "Please select a friend to issue the certificate.",
                                        parent=dlg)
                 return
             try:
@@ -107,8 +107,8 @@ class CertificateDialog:
                 if days <= 0:
                     raise ValueError
             except ValueError:
-                messagebox.showwarning("Invalid Validity",
-                                       "Please enter a positive whole number of days.",
+                messagebox.showwarning("Invalid credit",
+                                       "Please enter a positive integer for days.",
                                        parent=dlg)
                 return
             cert_type_label = cert_type_var.get()
@@ -127,15 +127,15 @@ class CertificateDialog:
             if not pw2:
                 return
             if not self.friends_service.verify_master_password(pw2):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
+                messagebox.showerror("Wrong password",
+                                     "The master password is incorrect.", parent=dlg)
                 return
             subject_pub_b64 = self.friends_service.get_friend_hybrid_sig_pub_b64(fname)
             if not subject_pub_b64:
                 messagebox.showerror(
-                    "Missing Key",
-                    f"No hybrid signing public key stored for '{fname}'.\n"
-                    "Import their hybrid signing key first.",
+                    "The key is not available",
+                    f"The public key of the signature combination for '{fname}' has not been saved.\n"
+                    "First, enter its combined signature key.",
                     parent=dlg,
                 )
                 return
@@ -155,7 +155,7 @@ class CertificateDialog:
                     f"✅ Certificate issued for '{fname}' ({cert_type_label}, {days} days)"
                 )
                 messagebox.showinfo(
-                    "Success",
+                    "success",
                     f"Certificate issued successfully!\n\n"
                     f"Subject: {fname}\n"
                     f"Type: {cert_type_label}\n"
@@ -168,7 +168,7 @@ class CertificateDialog:
             def _err(e):
                 logger.exception("Failed to issue certificate")
                 issue_status_var.set("")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[issue_btn])
@@ -178,6 +178,7 @@ class CertificateDialog:
             command=do_issue, bootstyle="info",
         )
         issue_btn.pack(anchor="w", pady=(10, 0))
+        ToolTip(issue_btn, "Signing and issuing a certificate of trust for the selected friend")
 
         tab_view = ttk.Frame(notebook, padding=15)
         notebook.add(tab_view, text="  View & Revoke  ")
@@ -255,7 +256,7 @@ class CertificateDialog:
         def do_verify():
             sel = cert_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
+                messagebox.showwarning("No choice",
                                        "Please select a certificate to verify.",
                                        parent=dlg)
                 return
@@ -266,17 +267,17 @@ class CertificateDialog:
 
             def _done(result):
                 if result:
-                    messagebox.showinfo("Verification",
-                                        "Certificate is valid and trusted.",
+                    messagebox.showinfo("confirmation",
+                                        "The certificate is valid and trusted.",
                                         parent=dlg)
                 else:
-                    messagebox.showwarning("Verification",
+                    messagebox.showwarning("confirmation",
                                            "Certificate verification failed.",
                                            parent=dlg)
 
             def _err(e):
                 logger.exception("Certificate verification error")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[verify_btn])
@@ -284,15 +285,15 @@ class CertificateDialog:
         def do_revoke():
             sel = cert_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
-                                       "Please select a certificate to revoke.",
+                messagebox.showwarning("No choice",
+                                       "Please select a certificate to cancel.",
                                        parent=dlg)
                 return
             cert_id = sel[0]
             confirm = messagebox.askyesno(
-                "Confirm Revocation",
+                "Cancel confirmation",
                 "Are you sure you want to revoke this certificate?\n\n"
-                "This action cannot be undone.",
+                "This action cannot be reversed.",
                 parent=dlg,
             )
             if not confirm:
@@ -305,8 +306,8 @@ class CertificateDialog:
             if not pw2:
                 return
             if not self.friends_service.verify_master_password(pw2):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
+                messagebox.showerror("Wrong password",
+                                     "The master password is incorrect.", parent=dlg)
                 return
 
             def _work():
@@ -314,14 +315,14 @@ class CertificateDialog:
 
             def _done(_result):
                 load_certificates()
-                messagebox.showinfo("Revoked",
-                                    "Certificate has been revoked successfully.",
+                messagebox.showinfo("canceled",
+                                    "Certificate revoked successfully.",
                                     parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
 
             def _err(e):
                 logger.exception("Failed to revoke certificate")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[revoke_btn])
@@ -329,7 +330,7 @@ class CertificateDialog:
         def do_export():
             sel = cert_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
+                messagebox.showwarning("No choice",
                                        "Please select a certificate to export.",
                                        parent=dlg)
                 return
@@ -346,19 +347,19 @@ class CertificateDialog:
                     return
                 with open(path, "w") as f:
                     json.dump(cert_dict, f, indent=2)
-                messagebox.showinfo("Exported",
-                                    f"Certificate exported to:\n{path}",
+                messagebox.showinfo("was issued",
+                                    f"Certificate issued to:\n{path}",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Certificate export failed")
-                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("Export error", friendly_error(e), parent=dlg)
 
         def do_export_delegation():
             try:
                 bundle = self.trust_chain_service.export_delegation_certificates()
                 if not bundle["certificates"]:
-                    messagebox.showinfo("No Delegation Certs",
-                                        "No delegation certificates found in the local store.",
+                    messagebox.showinfo("No representation certificate",
+                                        "No dealer certificate found in local store.",
                                         parent=dlg)
                     return
                 path = filedialog.asksaveasfilename(
@@ -372,12 +373,12 @@ class CertificateDialog:
                 with open(path, "w") as f:
                     json.dump(bundle, f, indent=2)
                 count = len(bundle["certificates"])
-                messagebox.showinfo("Exported",
-                                    f"Exported {count} delegation certificate(s) to:\n{path}",
+                messagebox.showinfo("was issued",
+                                    f"{count} proxy certificate issued to:\n{path}",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Delegation export failed")
-                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("Export error", friendly_error(e), parent=dlg)
 
         def do_export_all():
             try:
@@ -393,12 +394,12 @@ class CertificateDialog:
                 with open(path, "w") as f:
                     json.dump(bundle, f, indent=2)
                 count = len(bundle.get("certificates", []))
-                messagebox.showinfo("Exported",
-                                    f"Exported {count} certificate(s) to:\n{path}",
+                messagebox.showinfo("was issued",
+                                    f"{count} certificate issued to:\n{path}",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Export all certificates failed")
-                messagebox.showerror("Export Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("Export error", friendly_error(e), parent=dlg)
 
         def do_import():
             path = filedialog.askopenfilename(
@@ -418,48 +419,60 @@ class CertificateDialog:
                 rejected = total - count
                 if rejected > 0:
                     messagebox.showwarning(
-                        "Imported with rejections",
-                        f"Imported {count} of {total} certificate(s).\n\n"
-                        f"{rejected} were rejected because their signature could "
-                        f"not be verified or the issuer is not a known, added "
-                        f"contact. Add the issuer first, then re-import.",
+                        "Import with rejection",
+                        f"{count} of {total} certificates entered.\n\n"
+                        f"{rejected} The item was rejected because their signature could not be verified"
+                        f"Missing or the sender of a call is not known."
+                        f"Add the exporter first, then import again.",
                         parent=dlg)
                 else:
-                    messagebox.showinfo("Imported",
-                                        f"Imported {count} certificate(s).",
+                    messagebox.showinfo("entered",
+                                        f"{count} number of certificates entered.",
                                         parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="certificate_dialog")
             except Exception as e:
                 logger.exception("Certificate import failed")
-                messagebox.showerror("Import Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import error", friendly_error(e), parent=dlg)
 
         # Export row
-        ttk.Button(
+        export_sel_btn = ttk.Button(
             export_row, text="Export Selected",
             command=do_export, bootstyle="info-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        export_sel_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(export_sel_btn, "Export the selected certificate as a JSON file")
+        export_del_btn = ttk.Button(
             export_row, text="Export Delegation Certs",
             command=do_export_delegation, bootstyle="info-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        export_del_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(export_del_btn, "Export of agency certificates")
+        export_all_btn = ttk.Button(
             export_row, text="Export All Certs",
             command=do_export_all, bootstyle="info-outline",
-        ).pack(side=tk.LEFT)
+        )
+        export_all_btn.pack(side=tk.LEFT)
+        ToolTip(export_all_btn, "Export all certificates as one package")
 
         # Action row
-        ttk.Button(
+        import_btn = ttk.Button(
             action_row, text="Import",
             command=do_import, bootstyle="secondary-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        import_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(import_btn, "Import certificate from JSON file")
+        verify_btn = ttk.Button(
             action_row, text="Verify Certificate",
             command=do_verify, bootstyle="info-outline",
-        ).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(
+        )
+        verify_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(verify_btn, "Validate the selected certificate")
+        revoke_btn = ttk.Button(
             action_row, text="Revoke Certificate",
             command=do_revoke, bootstyle="danger-outline",
-        ).pack(side=tk.LEFT)
+        )
+        revoke_btn.pack(side=tk.LEFT)
+        ToolTip(revoke_btn, "Revoke the validity of the selected certificate (non-refundable).")
 
         tab_status = ttk.Frame(notebook, padding=15)
         notebook.add(tab_status, text="  Trust Status  ")
@@ -530,10 +543,12 @@ class CertificateDialog:
 
         btn_trust_frame = ttk.Frame(tab_status)
         btn_trust_frame.pack(fill=tk.X)
-        ttk.Button(
+        refresh_trust_btn = ttk.Button(
             btn_trust_frame, text="🔄 Refresh",
             command=load_trust_status, bootstyle="info-outline",
-        ).pack(side=tk.RIGHT)
+        )
+        refresh_trust_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_trust_btn, "Update the trust status of friends")
 
         # ------------------------------------------------------------------
         # Tab: Delegation Powers
@@ -542,40 +557,58 @@ class CertificateDialog:
         tab_delegation = ttk.Frame(notebook, padding=15)
         notebook.add(tab_delegation, text="  Delegation Powers  ")
 
+        # Make tab_delegation responsive
+        tab_delegation.grid_rowconfigure(2, weight=1)
+        tab_delegation.grid_columnconfigure(0, weight=1)
+
         ttk.Label(
             tab_delegation,
             text="Delegation Certificates Held by You",
             font=("Segoe UI", 11, "bold"),
-        ).pack(anchor="w", pady=(0, 4))
-        ttk.Label(
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+
+        # Description label with dynamic wraplength
+        desc_label = ttk.Label(
             tab_delegation,
             text="Valid delegation certs others have issued to you, "
                  "granting authority to update their key or revoke their trust certificates.",
             font=("Segoe UI", 9),
-            wraplength=620,
             justify="left",
-        ).pack(anchor="w", pady=(0, 10))
+        )
+        desc_label.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        # Update wraplength when tab resizes
+        def _update_wraplength(event=None):
+            desc_label.configure(wraplength=max(200, tab_delegation.winfo_width() - 30))
+        tab_delegation.bind("<Configure>", _update_wraplength)
+
+        # Treeview frame with grid layout for proper resizing
+        tree_frame = ttk.Frame(tab_delegation)
+        tree_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
 
         del_columns = ("delegator", "expires", "cert_id_short")
         del_tree = ttk.Treeview(
-            tab_delegation, columns=del_columns, show="headings",
-            height=8, bootstyle="info",
+            tree_frame, columns=del_columns, show="headings",
+            bootstyle="info",
         )
         del_tree.heading("delegator", text="Delegator (Issuer)")
         del_tree.heading("expires", text="Expires")
         del_tree.heading("cert_id_short", text="Cert ID")
-        del_tree.column("delegator", width=200)
-        del_tree.column("expires", width=160)
-        del_tree.column("cert_id_short", width=120)
-        del_scroll = ttk.Scrollbar(tab_delegation, orient=tk.VERTICAL,
+        del_tree.column("delegator", width=200, minwidth=120, anchor="w")
+        del_tree.column("expires", width=160, minwidth=120, anchor="center")
+        del_tree.column("cert_id_short", width=120, minwidth=80, anchor="center")
+
+        del_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL,
                                     command=del_tree.yview, bootstyle="info-round")
-        del_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         del_tree.configure(yscrollcommand=del_scroll.set)
-        del_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        del_tree.grid(row=0, column=0, sticky="nsew")
+        del_scroll.grid(row=0, column=1, sticky="ns")
 
         del_load_status_var = tk.StringVar(value="")
         ttk.Label(tab_delegation, textvariable=del_load_status_var,
-                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+                  font=("Segoe UI", 9), bootstyle="danger").grid(row=3, column=0, sticky="w", pady=(0, 4))
 
         def load_delegation_certs():
             for item in del_tree.get_children():
@@ -610,8 +643,8 @@ class CertificateDialog:
             """Return delegator name from selected tree row, or None."""
             sel = del_tree.selection()
             if not sel:
-                messagebox.showwarning("No Selection",
-                                       "Select a delegation certificate first.",
+                messagebox.showwarning("No choice",
+                                       "First, choose a representative certificate.",
                                        parent=dlg)
                 return None
             vals = del_tree.item(sel[0], "values")
@@ -655,8 +688,8 @@ class CertificateDialog:
             if not pw2:
                 return None
             if not self.friends_service.verify_master_password(pw2):
-                messagebox.showerror("Wrong Password",
-                                     "Master password incorrect.", parent=dlg)
+                messagebox.showerror("Wrong password",
+                                     "The master password is incorrect.", parent=dlg)
                 return None
             return pw2
 
@@ -677,14 +710,14 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_pub_key(name, new_b64, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"Hybrid signing key for '{name}' updated.",
+                messagebox.showinfo("The key has been updated",
+                                    f"Updated signing key combination for '{name}'.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator hybrid key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         def do_update_x25519():
             name = _get_delegator()
@@ -701,14 +734,14 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_x25519_key(name, new_b64, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"X25519 key for '{name}' updated.",
+                messagebox.showinfo("The key has been updated",
+                                    f"Updated key X25519 for '{name}'.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator X25519 key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         def do_update_pem():
             name = _get_delegator()
@@ -725,14 +758,14 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_pem(name, new_pem, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"RSA public key (PEM) for '{name}' updated.",
+                messagebox.showinfo("The key has been updated",
+                                    f"Updated RSA public key (PEM) for '{name}'.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator RSA PEM")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         def do_update_pqc():
             name = _get_delegator()
@@ -749,24 +782,24 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.update_delegator_pqc_key(name, new_b64, pw2)
-                messagebox.showinfo("Key Updated",
-                                    f"PQC combined key for '{name}' updated.",
+                messagebox.showinfo("The key has been updated",
+                                    f"Updated PQC key combination for '{name}'.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to update delegator PQC key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         def do_remove_all_keys():
             name = _get_delegator()
             if not name:
                 return
             if not messagebox.askyesno(
-                "Confirm Remove Keys",
-                f"Remove ALL optional public keys (X25519, PQC, Hybrid Signing) for '{name}'?\n\n"
+                "Confirm deletion of keys",
+                f"Remove all optional public keys (X25519, PQC, hybrid signature) for '{name}'?\n\n"
                 "The RSA PEM identity key is preserved.\n"
-                "This cannot be undone.",
+                "This action cannot be reversed.",
                 parent=dlg,
             ):
                 return
@@ -775,24 +808,24 @@ class CertificateDialog:
                 return
             try:
                 self.trust_chain_service.remove_all_delegator_optional_keys(name, pw2)
-                messagebox.showinfo("Keys Removed",
+                messagebox.showinfo("The keys have been removed",
                                     f"All optional keys for '{name}' have been cleared.",
                                     parent=dlg)
                 event_bus.publish(Events.FRIEND_LIST_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to remove delegator optional keys")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         def do_revoke_all_delegator_certs():
             name = _get_delegator()
             if not name:
                 return
             if not messagebox.askyesno(
-                "Confirm Full Revocation",
-                f"Revoke ALL trust certificates for '{name}'?\n\n"
-                "Their trust level will reset to NONE.\n"
-                "This action cannot be undone.",
+                "Complete cancellation confirmation",
+                f"Revoke all trust certificates for '{name}'?\n\n"
+                "Their trust level will be reset to NONE.\n"
+                "This action cannot be reversed.",
                 parent=dlg,
             ):
                 return
@@ -801,80 +834,109 @@ class CertificateDialog:
                 return
             try:
                 count = self.trust_chain_service.revoke_all_certs_for_delegator(name)
-                messagebox.showinfo("Revocation Complete",
-                                    f"Revoked {count} certificate(s) for '{name}'.\n"
+                messagebox.showinfo("Cancellation is complete",
+                                    f"{count} number of certificates for '{name}' have been revoked.\n"
                                     "Their trust level is now NONE.",
                                     parent=dlg)
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED,
                                   source="certificate_dialog", friend_name=name)
             except Exception as e:
                 logger.exception("Failed to revoke all delegator certs")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         def do_revoke_recovery_shares():
             name = _get_delegator()
             if not name:
                 return
             if not messagebox.askyesno(
-                "Confirm Share Revocation",
-                f"Delete all local recovery share records for '{name}'?\n\n"
-                "This removes shares they distributed as well as any copy\n"
-                "held locally on their behalf.\n"
-                "This action cannot be undone.",
+                "Confirm unsubscribe",
+                f"Delete all local recovery subscription records for '{name}'?\n\n"
+                "This includes the subscriptions they have distributed as well as any copies\n"
+                "which is maintained locally on their behalf.\n"
+                "This action cannot be reversed.",
                 parent=dlg,
             ):
                 return
             try:
                 count = self.trust_chain_service.revoke_delegator_recovery_shares(name)
-                messagebox.showinfo("Shares Revoked",
-                                    f"Deleted {count} recovery share record(s) for '{name}'.",
+                messagebox.showinfo("Subscriptions have been cancelled",
+                                    f"{count} number of recovery subscription records deleted for '{name}'.",
                                     parent=dlg)
             except Exception as e:
                 logger.exception("Failed to revoke delegator recovery shares")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
-        # ---- button rows ---------------------------------------------------
+        # ---- button rows (using grid for consistent layout) ---------------------------------------------------
 
-        del_btn_frame = ttk.Frame(tab_delegation)
-        del_btn_frame.pack(fill=tk.X, pady=(2, 0))
+        # Configure tab_delegation rows for buttons
+        tab_delegation.grid_rowconfigure(4, weight=0)  # Row 1 buttons
+        tab_delegation.grid_rowconfigure(5, weight=0)  # Row 2 buttons
+        tab_delegation.grid_rowconfigure(6, weight=0)  # Close button
 
         # Row 1 – Update keys
-        row1 = ttk.Frame(del_btn_frame)
-        row1.pack(fill=tk.X, pady=(0, 4))
+        row1 = ttk.Frame(tab_delegation)
+        row1.grid(row=4, column=0, sticky="ew", pady=(2, 4))
+        row1.grid_columnconfigure(1, weight=1)
+        row1.grid_columnconfigure(2, weight=1)
+        row1.grid_columnconfigure(3, weight=1)
+        row1.grid_columnconfigure(4, weight=1)
         ttk.Label(row1, text="Update Keys:", font=("Segoe UI", 9, "bold"),
-                  width=12, anchor="e").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(row1, text="Hybrid Key",
-                   command=do_update_delegator_key,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="X25519 Key",
-                   command=do_update_x25519,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="RSA PEM",
-                   command=do_update_pem,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row1, text="PQC Key",
-                   command=do_update_pqc,
-                   bootstyle="info-outline").pack(side=tk.LEFT)
+                  anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 6))
+        hyb_btn = ttk.Button(row1, text="Hybrid Key",
+                             command=do_update_delegator_key,
+                             bootstyle="info-outline")
+        hyb_btn.grid(row=0, column=1, sticky="ew", padx=(0, 4))
+        ToolTip(hyb_btn, "Update agent's hybrid signing key")
+        x25519_btn = ttk.Button(row1, text="X25519 Key",
+                                command=do_update_x25519,
+                                bootstyle="info-outline")
+        x25519_btn.grid(row=0, column=2, sticky="ew", padx=(0, 4))
+        ToolTip(x25519_btn, "Agent X25519 key update")
+        rsa_btn = ttk.Button(row1, text="RSA PEM",
+                             command=do_update_pem,
+                             bootstyle="info-outline")
+        rsa_btn.grid(row=0, column=3, sticky="ew", padx=(0, 4))
+        ToolTip(rsa_btn, "Update the agent's RSA public key")
+        pqc_btn = ttk.Button(row1, text="PQC Key",
+                             command=do_update_pqc,
+                             bootstyle="info-outline")
+        pqc_btn.grid(row=0, column=4, sticky="ew")
+        ToolTip(pqc_btn, "Update agent PQC combination key")
 
         # Row 2 – Destructive actions + Refresh
-        row2 = ttk.Frame(del_btn_frame)
-        row2.pack(fill=tk.X)
+        row2 = ttk.Frame(tab_delegation)
+        row2.grid(row=5, column=0, sticky="ew", pady=(0, 4))
+        row2.grid_columnconfigure(1, weight=1)
+        row2.grid_columnconfigure(2, weight=1)
+        row2.grid_columnconfigure(3, weight=1)
+        row2.grid_columnconfigure(4, weight=1)
         ttk.Label(row2, text="Actions:", font=("Segoe UI", 9, "bold"),
-                  width=12, anchor="e").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(row2, text="Remove All Keys",
-                   command=do_remove_all_keys,
-                   bootstyle="warning-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row2, text="Revoke All Certs",
-                   command=do_revoke_all_delegator_certs,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row2, text="Revoke Recovery Shares",
-                   command=do_revoke_recovery_shares,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 4))
-        ttk.Button(row2, text="Refresh",
-                   command=load_delegation_certs,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT)
+                  anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 6))
+        remove_keys_btn = ttk.Button(row2, text="Remove All Keys",
+                                     command=do_remove_all_keys,
+                                     bootstyle="warning-outline")
+        remove_keys_btn.grid(row=0, column=1, sticky="ew", padx=(0, 4))
+        ToolTip(remove_keys_btn, "Remove all optional delegate keys (irreversible)")
+        revoke_certs_btn = ttk.Button(row2, text="Revoke All Certs",
+                                      command=do_revoke_all_delegator_certs,
+                                      bootstyle="danger-outline")
+        revoke_certs_btn.grid(row=0, column=2, sticky="ew", padx=(0, 4))
+        ToolTip(revoke_certs_btn, "Revoke all proxy trust certificates (irrevocable)")
+        revoke_shares_btn = ttk.Button(row2, text="Revoke Recovery Shares",
+                                       command=do_revoke_recovery_shares,
+                                       bootstyle="danger-outline")
+        revoke_shares_btn.grid(row=0, column=3, sticky="ew", padx=(0, 4))
+        ToolTip(revoke_shares_btn, "Cancel agent recovery subscriptions")
+        refresh_del_btn = ttk.Button(row2, text="Refresh",
+                                     command=load_delegation_certs,
+                                     bootstyle="secondary-outline")
+        refresh_del_btn.grid(row=0, column=4, sticky="ew")
+        ToolTip(refresh_del_btn, "Updating the list of agency certificates")
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(0, 10))
+        # Close button
+        close_cert_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                    bootstyle="secondary-outline")
+        close_cert_btn.grid(row=7, column=0, pady=(4, 10), sticky="e")
+        ToolTip(close_cert_btn, "Close the certificate management window")
 
         init_modal(dlg, self.parent, focus_widget=issue_friend_combo)

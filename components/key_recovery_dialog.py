@@ -11,7 +11,7 @@ import database
 from services.event_bus import event_bus, Events
 from services.shamir_service import ShamirService, generate_recovery_key
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error
+from views.utils import init_modal, run_busy, friendly_error, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,8 @@ class KeyRecoveryDialog:
             return
         if not self.friends_service.verify_master_password(master_pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
+                "Access denied",
+                "The master password is incorrect.\n"
                 "Key recovery requires authentication.",
                 parent=self.parent,
             )
@@ -171,22 +171,22 @@ class KeyRecoveryDialog:
 
             selected_indices = friend_listbox.curselection()
             if not selected_indices:
-                messagebox.showwarning("No Friends Selected",
-                                       "Select at least one friend to hold shares.",
+                messagebox.showwarning("No friends were selected",
+                                       "Choose at least one friend to keep subscriptions.",
                                        parent=dlg)
                 return
             n = n_var.get()
             k = k_var.get()
             if k > n:
-                messagebox.showwarning("Invalid Parameters",
-                                       "Threshold K cannot exceed total shares N.",
+                messagebox.showwarning("Invalid parameters",
+                                       "The threshold K cannot exceed the total number of subscriptions N.",
                                        parent=dlg)
                 return
             if len(selected_indices) < n:
                 messagebox.showwarning(
-                    "Not Enough Friends",
-                    f"You selected {len(selected_indices)} friend(s) but need "
-                    f"{n} share holders.\nSelect more friends or reduce N.",
+                    "Not enough friends",
+                    f"You selected {len(selected_indices)} friends but to"
+                    f"You need {n} subscribers.\nChoose more friends or reduce N.",
                     parent=dlg,
                 )
                 return
@@ -198,10 +198,10 @@ class KeyRecoveryDialog:
                        if self.friends_service.get_friend_rsa_pub(n) is None]
             if missing:
                 messagebox.showerror(
-                    "Missing Public Keys",
-                    "These friends have no RSA public key loaded and cannot "
-                    f"receive an encrypted share:\n\n{', '.join(missing)}\n\n"
-                    "Re-add them so their public key is available.",
+                    "Missing public keys",
+                    "These friends do not and cannot have the RSA public key uploaded"
+                    f"Receive encrypted subscription:\n\n{', '.join(missing)}\n\n"
+                    "Add them again so their public key is available.",
                     parent=dlg,
                 )
                 return
@@ -275,8 +275,8 @@ class KeyRecoveryDialog:
                             with open(path, "w", encoding="utf-8") as f:
                                 json.dump(payload, f, indent=2)
                             messagebox.showinfo(
-                                "Exported",
-                                f"Share file saved.\nSend it securely to {holder_name}.",
+                                "was issued",
+                                f"Subscription file saved.\nSend it securely to {holder_name}.",
                                 parent=dlg,
                             )
                         return _export
@@ -291,17 +291,15 @@ class KeyRecoveryDialog:
                 event_bus.publish(Events.RECOVERY_SHARE_CREATED, n=n, k=k,
                                   holders=selected_names)
                 messagebox.showinfo(
-                    "Shares Created",
-                    f"Recovery key split into {n} shares (K={k}).\n\n"
-                    "Each share is RSA-encrypted to the recipient's public key.\n"
-                    "Use the export buttons to save a file for each friend.\n"
-                    "Friends can import their file in the 'Held Shares' tab.",
+                    "Recovery subscriptions",
+                    f"Recovery key split into {n} shares (threshold: {k}).\n"
+                    "Export and distribute any subscription securely.",
                     parent=dlg,
                 )
 
             def _err(e):
                 logger.exception("Failed to split key")
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[split_btn])
@@ -309,6 +307,7 @@ class KeyRecoveryDialog:
         split_btn = ttk.Button(parent, text="Generate & Distribute Shares",
                                command=do_split, bootstyle="warning")
         split_btn.pack(anchor="w")
+        ToolTip(split_btn, "Generate recovery key shares and distribute to selected friends")
 
     # ------------------------------------------------------------------
     # Recover tab
@@ -377,10 +376,14 @@ class KeyRecoveryDialog:
                 _, entry = share_entries.pop()
                 entry.master.destroy()
 
-        ttk.Button(btn_row, text="Add Share", command=add_share_entry,
-                   bootstyle="success-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row, text="Remove Last", command=remove_last,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 12))
+        add_share_btn = ttk.Button(btn_row, text="Add Share", command=add_share_entry,
+                                   bootstyle="success-outline")
+        add_share_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(add_share_btn, "Add new field to enter subscription")
+        remove_share_btn = ttk.Button(btn_row, text="Remove Last", command=remove_last,
+                                      bootstyle="danger-outline")
+        remove_share_btn.pack(side=tk.LEFT, padx=(0, 12))
+        ToolTip(remove_share_btn, "Delete the last subscription field")
 
         def import_share_file():
             path = filedialog.askopenfilename(
@@ -396,8 +399,8 @@ class KeyRecoveryDialog:
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 share_index = payload.get("share_index", len(share_entries) + 1)
                 if not enc_b64:
-                    messagebox.showerror("Invalid File",
-                                         "No encrypted share found in file.",
+                    messagebox.showerror("Invalid file",
+                                         "Encrypted subscription not found in file.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -406,30 +409,32 @@ class KeyRecoveryDialog:
                 except Exception as dec_err:
                     logger.exception("Share decryption failed")
                     messagebox.showerror(
-                        "Decryption Failed",
-                        "Could not decrypt the share with your RSA private key.\n\n"
+                        "Decryption failed",
+                        "Unable to decrypt the subscription with your RSA private key.\n\n"
                         + friendly_error(dec_err) + "\n\n"
-                        "Make sure this share file was created for you.",
+                        "Make sure this subscription file is created for you.",
                         parent=dlg,
                     )
                     return
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
-                    "Share Imported",
-                    f"Share #{share_index} decrypted and added.\n"
+                    "Subscription entered",
+                    f"Share #{share_index} decoded and added.\n"
                     f"Owner: {payload.get('owner_name', 'unknown')}",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import share file")
-                messagebox.showerror("Import Failed",
+                messagebox.showerror("Import failed",
                                      "Failed to import share file.\n\n"
                                      + friendly_error(e), parent=dlg)
 
-        ttk.Button(btn_row, text="Import .enigma-share File",
-                   command=import_share_file,
-                   bootstyle="info-outline").pack(side=tk.LEFT)
+        import_share_btn = ttk.Button(btn_row, text="Import .enigma-share File",
+                                      command=import_share_file,
+                                      bootstyle="info-outline")
+        import_share_btn.pack(side=tk.LEFT)
+        ToolTip(import_share_btn, "Import the .enigma-share share file")
 
         result_var = tk.StringVar(value="")
         result_display = ttk.ScrolledText(parent, height=3, wrap=tk.WORD,
@@ -446,8 +451,8 @@ class KeyRecoveryDialog:
                     raw_shares.append((idx_var.get(), val))
 
             if len(raw_shares) < 2:
-                messagebox.showwarning("Insufficient Shares",
-                                       "Provide at least 2 shares.", parent=dlg)
+                messagebox.showwarning("Insufficient subscriptions",
+                                        "Offer at least 2 subscriptions.", parent=dlg)
                 return
 
             try:
@@ -457,13 +462,13 @@ class KeyRecoveryDialog:
                     parsed.append((share_idx, share_bytes))
             except Exception as e:
                 logger.exception("Invalid share encoding")
-                messagebox.showerror("Invalid Shares",
+                messagebox.showerror("Invalid subscriptions",
                                      friendly_error(e), parent=dlg)
                 return
 
             if len(set(len(s[1]) for s in parsed)) != 1:
-                messagebox.showerror("Invalid Shares",
-                                     "All shares must have the same length.",
+                messagebox.showerror("Invalid subscriptions",
+                                     "All subscriptions must be the same length.",
                                      parent=dlg)
                 return
 
@@ -474,7 +479,7 @@ class KeyRecoveryDialog:
 
             def _err(e):
                 logger.exception("Failed to reconstruct key")
-                messagebox.showerror("Reconstruction Failed",
+                messagebox.showerror("Rebuild failed",
                                      friendly_error(e), parent=dlg)
 
             def _done(reconstructed):
@@ -523,14 +528,16 @@ class KeyRecoveryDialog:
                     dlg.after(30000, _auto_clear)
 
                     messagebox.showinfo(
-                        "Copied",
-                        "Recovery key copied to clipboard.\n"
-                        "Use it immediately. For your security the clipboard "
-                        "will be cleared automatically after 30 seconds.",
+                        "copied",
+                        "The recovery key was copied to the clipboard.\n"
+                        "Use it immediately.For your safety, clipboard"
+                        "It will be deleted automatically after 30 seconds.",
                         parent=dlg)
 
-                ttk.Button(action_frame, text="Copy to Clipboard",
-                           command=copy_key, bootstyle="warning").pack(side=tk.LEFT, padx=(0, 8))
+                copy_key_btn = ttk.Button(action_frame, text="Copy to Clipboard",
+                                          command=copy_key, bootstyle="warning")
+                copy_key_btn.pack(side=tk.LEFT, padx=(0, 8))
+                ToolTip(copy_key_btn, "Copy the recovery key to the clipboard (deleted after 30 seconds)")
 
                 _build_apply_button(action_frame)
 
@@ -547,17 +554,17 @@ class KeyRecoveryDialog:
                     return
                 if len(key_bytes) != 32:
                     messagebox.showerror(
-                        "Invalid Key Length",
-                        f"Reconstructed key is {len(key_bytes)} bytes; "
-                        "exactly 32 bytes required to set as master key.",
+                        "Invalid key length",
+                        f"The regenerated key is {len(key_bytes)} bytes;"
+                        "Exactly 32 bytes are required to set as primary key.",
                         parent=dlg,
                     )
                     return
                 confirmed = messagebox.askyesno(
-                    "Replace Master Key",
-                    "This will replace your current master key with the reconstructed key.\n\n"
-                    "Any data encrypted with the old key will need to be re-encrypted manually.\n\n"
-                    "Continue?",
+                    "Replace the master key",
+                    "This will replace your current master key with the regenerated key.\n\n"
+                    "Any data encrypted with the old key must be manually re-encrypted.\n\n"
+                    "do you continue",
                     icon="warning",
                     parent=dlg,
                 )
@@ -569,15 +576,15 @@ class KeyRecoveryDialog:
 
                 def _ok(_result):
                     messagebox.showinfo(
-                        "Key Applied",
-                        "Master key has been replaced with the reconstructed recovery key.\n"
-                        "Your session is now using the recovered key.",
+                        "Key applied",
+                        "The original key was replaced with a regenerated recovery key.\n"
+                        "Your session will now use the recovered key.",
                         parent=dlg,
                     )
 
                 def _fail(exc):
                     logger.exception("Failed to apply recovered key")
-                    messagebox.showerror("Apply Failed",
+                    messagebox.showerror("Unsuccessful actions",
                                          friendly_error(exc), parent=dlg)
 
                 run_busy(dlg, _work, on_done=_ok, on_error=_fail,
@@ -587,12 +594,14 @@ class KeyRecoveryDialog:
                                    command=apply_as_master_key,
                                    bootstyle="danger")
             apply_btn.pack(side=tk.LEFT)
+            ToolTip(apply_btn, "Apply recovery key as global master key")
 
         ttk.Label(parent, textvariable=result_var,
                   font=("Segoe UI", 9), bootstyle="success").pack(anchor="w", pady=(0, 8))
         reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
                                      command=do_reconstruct, bootstyle="warning")
         reconstruct_btn.pack(anchor="w")
+        ToolTip(reconstruct_btn, "Regenerate the recovery key from imported subscriptions")
 
     # ------------------------------------------------------------------
     # Held Shares tab  (shares this user is holding for others)
@@ -679,8 +688,8 @@ class KeyRecoveryDialog:
 
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 if not enc_b64:
-                    messagebox.showerror("Invalid File",
-                                         "No encrypted share data found in file.",
+                    messagebox.showerror("Invalid file",
+                                         "Encrypted subscription data was not found in the file.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -689,11 +698,11 @@ class KeyRecoveryDialog:
                 except Exception as dec_err:
                     logger.exception("Held-share decryption failed")
                     messagebox.showerror(
-                        "Decryption Failed",
-                        "Could not decrypt the share.\n\n"
+                        "Decryption failed",
+                        "It is not possible to decrypt the subscription.\n\n"
                         + friendly_error(dec_err) + "\n\n"
-                        "This file may not have been encrypted for you, "
-                        "or your RSA key does not match.",
+                        "This file may not be encrypted for you."
+                        "Or your RSA key doesn't match.",
                         parent=dlg,
                     )
                     return
@@ -715,23 +724,23 @@ class KeyRecoveryDialog:
                 database.save_held_share(held_dict)
                 load_held()
                 messagebox.showinfo(
-                    "Share Stored",
-                    f"Share #{payload.get('share_index', '?')} from "
-                    f"{payload.get('owner_name', 'unknown')} has been decrypted and stored.\n\n"
-                    "When they need to recover, use 'Export Back to Owner' to send it to them.",
+                    "Subscription saved",
+                    f"share #{payload.get('share_index', '?')} from"
+                    f"{payload.get('owner_name', 'unknown')} Decrypted and saved.\n\n"
+                    "When they need to be retrieved, use 'Export Return to Owner' to send them."",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import held share")
-                messagebox.showerror("Import Failed",
-                                     "Failed to import share.\n\n"
+                messagebox.showerror("Import failed",
+                                     "Subscription import failed.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         def export_back():
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("Nothing Selected",
-                                       "Select a held share to export.", parent=dlg)
+                messagebox.showwarning("Nothing was selected",
+                                        "Select a maintained subscription to export.", parent=dlg)
                 return
             share_id = sel[0]
             row = next((r for r in _held if r["share_id"] == share_id), None)
@@ -760,24 +769,24 @@ class KeyRecoveryDialog:
                 # Exporting it as plaintext is dangerous, so require explicit,
                 # informed confirmation before doing so. Abort if declined.
                 proceed = messagebox.askyesno(
-                    "Export UNENCRYPTED Recovery Share?",
-                    f"'{owner}' is not in your friend list, so this recovery "
-                    "share cannot be encrypted to them.\n\n"
-                    "⚠ The share will be written to disk UNENCRYPTED. Anyone who "
-                    "obtains the file can use it toward reconstructing the "
-                    "owner's recovery key.\n\n"
-                    "Only continue if you will transfer the file over a secure "
-                    "channel and delete it afterwards.\n\n"
-                    "Export the share UNENCRYPTED anyway?",
+                    "Export encrypted recovery subscription?",
+                    f"'{owner}' is not on your friends list, so this subscription"
+                    "Recovery cannot be encrypted for them.\n\n"
+                    "⚠ The subscription will be encrypted on the disk.anyone"
+                    "which obtained the file can be used for reconstruction"
+                    "Use owner recovery key.\n\n"
+                    "Only proceed if the file is sent through a secure channel"
+                    "Move and then delete.\n\n"
+                    "Export the subscription encrypted?",
                     icon="warning",
                     default="no",
                     parent=dlg,
                 )
                 if not proceed:
                     messagebox.showinfo(
-                        "Export Cancelled",
-                        "No file was written. Add the owner as a friend so the "
-                        "share can be encrypted to them, then export again.",
+                        "Export was canceled",
+                        "No files were written.Add the owner as a friend to"
+                        "Subscriptions can be encrypted for them, then re-issued.",
                         parent=dlg,
                     )
                     return
@@ -799,21 +808,21 @@ class KeyRecoveryDialog:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(export_payload, f, indent=2)
             messagebox.showinfo(
-                "Exported",
-                f"Share file saved ({note}).\nSend it securely to {owner}.",
+                "was issued",
+                f"Subscription file saved ({note}).\nSend it securely to {owner}.",
                 parent=dlg,
             )
 
         def delete_selected():
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("Nothing Selected",
-                                       "Select a share to delete.", parent=dlg)
+                messagebox.showwarning("Nothing was selected",
+                                        "Select a subscription to delete.", parent=dlg)
                 return
             confirmed = messagebox.askyesno(
-                "Delete Held Share",
-                "Delete this held share from your local storage?\n\n"
-                "The owner will no longer be able to request it from you.",
+                "Delete a maintained subscription",
+                "Delete this saved subscription from your local storage?\n\n"
+                "The owner can no longer claim it from you.",
                 icon="warning",
                 parent=dlg,
             )
@@ -823,18 +832,26 @@ class KeyRecoveryDialog:
                 database.delete_held_share(share_id)
             load_held()
 
-        ttk.Button(btn_row, text="Import Share File",
-                   command=import_held_share,
-                   bootstyle="warning").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Export Back to Owner",
-                   command=export_back,
-                   bootstyle="success").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="Delete Selected",
-                   command=delete_selected,
-                   bootstyle="danger-outline").pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Button(btn_row, text="🔄 Refresh",
-                   command=load_held,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT)
+        import_held_btn = ttk.Button(btn_row, text="Import Share File",
+                                     command=import_held_share,
+                                     bootstyle="warning")
+        import_held_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ToolTip(import_held_btn, "Import subscription file for maintenance")
+        export_back_btn = ttk.Button(btn_row, text="Export Back to Owner",
+                                     command=export_back,
+                                     bootstyle="success")
+        export_back_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ToolTip(export_back_btn, "Export the maintained subscription to the original owner")
+        delete_held_btn = ttk.Button(btn_row, text="Delete Selected",
+                                     command=delete_selected,
+                                     bootstyle="danger-outline")
+        delete_held_btn.pack(side=tk.LEFT, padx=(0, 6))
+        ToolTip(delete_held_btn, "Delete the selected maintained subscription")
+        refresh_held_btn = ttk.Button(btn_row, text="🔄 Refresh",
+                                      command=load_held,
+                                      bootstyle="secondary-outline")
+        refresh_held_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_held_btn, "Update the list of maintained subscriptions")
 
     # ------------------------------------------------------------------
     # Status tab
@@ -909,5 +926,7 @@ class KeyRecoveryDialog:
 
         btn_frame = ttk.Frame(parent)
         btn_frame.pack(fill=tk.X)
-        ttk.Button(btn_frame, text="🔄 Refresh", command=load_status,
-                   bootstyle="warning-outline").pack(side=tk.RIGHT)
+        refresh_status_btn = ttk.Button(btn_frame, text="🔄 Refresh", command=load_status,
+                                        bootstyle="warning-outline")
+        refresh_status_btn.pack(side=tk.RIGHT)
+        ToolTip(refresh_status_btn, "Update the status of recovery subscriptions")

@@ -6,7 +6,7 @@ import base64
 
 from services.friends import FriendsService, FriendsServiceError
 from views.dialogs import password_dialog
-from views.utils import init_modal, run_busy, friendly_error, flash_widget_text
+from views.utils import init_modal, run_busy, friendly_error, flash_widget_text, ToolTip
 
 
 class PqcExchangeDialog:
@@ -26,8 +26,8 @@ class PqcExchangeDialog:
             return
         if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.\n"
+                "Access denied",
+                "The master password is incorrect.\n"
                 "PQC key exchange requires authentication.",
                 parent=self.parent,
             )
@@ -90,7 +90,7 @@ class PqcExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -100,23 +100,27 @@ class PqcExchangeDialog:
             def on_done(pub_b64):
                 load_my_pqc()
                 messagebox.showinfo(
-                    "Success",
-                    "PQC hybrid keys generated successfully!\n\n"
-                    "Share your combined public key with friends to enable\n"
-                    "quantum-resistant key exchange.",
+                    "success",
+                    "PQC hybrid keys have been successfully generated!\n\n"
+                    "Share your public key combination with friends to\n"
+                    "Enable quantum-resistant key exchange.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
+                messagebox.showerror("error", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
 
-        ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
-                   bootstyle="info-outline").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(btn_row_keys, text="🔑 Generate New PQC Keys", command=generate_pqc,
-                   bootstyle="info").pack(side=tk.LEFT)
+        copy_pqc_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
+                                   bootstyle="info-outline")
+        copy_pqc_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(copy_pqc_btn, "Copy the PQC public key combination to the clipboard")
+        gen_pqc_btn = ttk.Button(btn_row_keys, text="🔑 Generate New PQC Keys", command=generate_pqc,
+                                 bootstyle="info")
+        gen_pqc_btn.pack(side=tk.LEFT)
+        ToolTip(gen_pqc_btn, "Production of new quantum resistant keys")
 
         tab_encap = ttk.Frame(notebook, padding=15)
         notebook.add(tab_encap, text="  Encapsulate (Send)  ")
@@ -145,7 +149,7 @@ class PqcExchangeDialog:
         def do_encapsulate():
             fname = encap_friend_var.get()
             if not fname:
-                messagebox.showwarning("No Selection", "Please select a friend.",
+                messagebox.showwarning("No choice", "Please select a friend.",
                                        parent=dlg)
                 return
 
@@ -180,7 +184,7 @@ class PqcExchangeDialog:
                     )
 
             def on_error(exc):
-                messagebox.showerror("Encapsulation Failed", friendly_error(exc), parent=dlg)
+                messagebox.showerror("Unsuccessful enclosure", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -205,10 +209,14 @@ class PqcExchangeDialog:
 
         encap_btn_row = ttk.Frame(tab_encap)
         encap_btn_row.pack(fill=tk.X)
-        ttk.Button(encap_btn_row, text="🔒 Encapsulate & Derive Secret",
-                   command=do_encapsulate, bootstyle="info").pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(encap_btn_row, text="📋 Copy Ciphertext",
-                   command=copy_encap_result, bootstyle="info-outline").pack(side=tk.LEFT)
+        encap_btn = ttk.Button(encap_btn_row, text="🔒 Encapsulate & Derive Secret",
+                               command=do_encapsulate, bootstyle="info")
+        encap_btn.pack(side=tk.LEFT, padx=(0, 5))
+        ToolTip(encap_btn, "Encrypting and extracting the shared password from the friend's public key")
+        copy_ct_btn = ttk.Button(encap_btn_row, text="📋 Copy Ciphertext",
+                                 command=copy_encap_result, bootstyle="info-outline")
+        copy_ct_btn.pack(side=tk.LEFT)
+        ToolTip(copy_ct_btn, "Copy the encrypted text to send to a friend")
 
         tab_decap = ttk.Frame(notebook, padding=15)
         notebook.add(tab_decap, text="  Decapsulate (Receive)  ")
@@ -230,15 +238,15 @@ class PqcExchangeDialog:
         def do_decapsulate():
             ct_b64 = decap_input.get('1.0', tk.END).strip()
             if not ct_b64:
-                messagebox.showwarning("Empty Input",
-                                       "Please paste a ciphertext first.", parent=dlg)
+                messagebox.showwarning("Empty entry",
+                                       "Please paste an encrypted text first.", parent=dlg)
                 return
             pw = password_dialog(dlg, "Enter Master Password for PQC decapsulation",
                                  confirm=False)
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -276,13 +284,15 @@ class PqcExchangeDialog:
                         )
 
             def on_error(exc):
-                messagebox.showerror("Decapsulation Failed", friendly_error(exc), parent=dlg)
+                messagebox.showerror("Failed enclosure", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
 
-        ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
-                   command=do_decapsulate, bootstyle="info").pack(anchor="w")
+        decap_btn = ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
+                               command=do_decapsulate, bootstyle="info")
+        decap_btn.pack(anchor="w")
+        ToolTip(decap_btn, "Decrypting and recovering the shared password from the received encrypted text")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -314,12 +324,12 @@ class PqcExchangeDialog:
             fname = import_friend_var.get()
             key_b64 = import_key_text.get('1.0', tk.END).strip()
             if not fname:
-                messagebox.showwarning("No Selection", "Please select a friend.",
+                messagebox.showwarning("No choice", "Please select a friend.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("Empty Key",
-                                       "Please paste the PQC combined public key.",
+                messagebox.showwarning("empty key",
+                                       "Please paste the PQC public key combination.",
                                        parent=dlg)
                 return
             try:
@@ -327,7 +337,7 @@ class PqcExchangeDialog:
                 if len(raw) < 36:
                     raise ValueError("Too short")
             except Exception as e:
-                messagebox.showerror("Invalid Key",
+                messagebox.showerror("Invalid key",
                                      friendly_error(e),
                                      parent=dlg)
                 return
@@ -343,8 +353,8 @@ class PqcExchangeDialog:
                     if not pw:
                         return
                     if not self.friends_service.verify_master_password(pw):
-                        messagebox.showerror("Wrong Password",
-                                             "Master password incorrect.",
+                        messagebox.showerror("Wrong password",
+                                             "The master password is incorrect.",
                                              parent=dlg)
                         return
                 self.friends_service.update_friend_pub_keys(
@@ -354,14 +364,18 @@ class PqcExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ PQC key imported for '{fname}'")
-                messagebox.showinfo("Success",
-                                    f"PQC combined public key saved for '{fname}'.",
+                messagebox.showinfo("success",
+                                    f"PQC public key combination saved for '{fname}'.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_import, text="💾 Import & Save PQC Key",
-                   command=do_import_pqc_key, bootstyle="info").pack(anchor="w")
+        import_pqc_btn = ttk.Button(tab_import, text="💾 Import & Save PQC Key",
+                                    command=do_import_pqc_key, bootstyle="info")
+        import_pqc_btn.pack(anchor="w")
+        ToolTip(import_pqc_btn, "Import and save your friend's PQC public key")
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(0, 10))
+        close_pqc_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                   bootstyle="secondary-outline")
+        close_pqc_btn.pack(pady=(0, 10))
+        ToolTip(close_pqc_btn, "Close the PQC key exchange window")

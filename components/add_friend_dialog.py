@@ -7,7 +7,7 @@ import base64
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
-from views.utils import init_modal, friendly_error
+from views.utils import init_modal, friendly_error, ToolTip
 
 
 class AddFriendDialog:
@@ -145,7 +145,7 @@ class AddFriendDialog:
             x_b64 = x25519_var.get().strip() or None
 
             if not name or not pem:
-                messagebox.showerror("Error", "Name and public key are required.", parent=dlg)
+                messagebox.showerror("error", "Name and public key are required.", parent=dlg)
                 return
 
             shared_secret = None
@@ -156,7 +156,7 @@ class AddFriendDialog:
                     if len(shared_secret) != 32:
                         raise ValueError("Shared secret must be exactly 32 bytes when Base64-decoded.")
                 except Exception as e:
-                    messagebox.showerror("Invalid Secret",
+                    messagebox.showerror("Invalid password",
                                          friendly_error(e), parent=dlg)
                     return
                 pw = password_dialog(dlg,
@@ -165,8 +165,8 @@ class AddFriendDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("Wrong Password",
-                                         "Master password incorrect.", parent=dlg)
+                    messagebox.showerror("Wrong password",
+                                         "The master password is incorrect.", parent=dlg)
                     return
 
             pqc_b64 = pqc_var.get().strip() or None
@@ -189,14 +189,17 @@ class AddFriendDialog:
                 )
                 self.refresh_list()
                 dlg.destroy()
-                messagebox.showinfo("Success", f"Friend '{name}' added successfully.")
+                messagebox.showinfo("success", f"Friend '{name}' added successfully.")
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         save_btn = ttk.Button(btn_frame, text="💾 Save Friend", command=save,
-                   bootstyle="success")
+                              bootstyle="success")
         save_btn.pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+        ToolTip(save_btn, "Save the new friend with the entered information")
+        cancel_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                                bootstyle="secondary-outline")
+        cancel_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_btn, "Cancel and close the window")
         dlg.bind("<Return>", lambda e: save())

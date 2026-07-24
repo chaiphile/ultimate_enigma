@@ -5,7 +5,7 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 
 from services.ecdh_service import ECDHService      # pure crypto service
-from views.utils import init_modal, flash_widget_text
+from views.utils import init_modal, flash_widget_text, ToolTip
 
 
 def perform_ecdh(parent, purpose="friend"):
@@ -46,6 +46,7 @@ def perform_ecdh(parent, purpose="friend"):
     copy_btn = ttk.Button(dlg, text="Copy Public Key",
                           bootstyle="secondary-outline")
     copy_btn.pack(pady=5)
+    ToolTip(copy_btn, "Copy public key X25519 to clipboard to send to friend")
 
     def copy_pubkey():
         try:
@@ -53,7 +54,7 @@ def perform_ecdh(parent, purpose="friend"):
             parent.clipboard_append(pub_b64)
             flash_widget_text(copy_btn, "✓ Copied!", "Copy Public Key", ms=1500)
         except Exception:
-            messagebox.showerror("Copy Failed", "Could not access clipboard.", parent=dlg)
+            messagebox.showerror("Copy failed", "Unable to access the clipboard.", parent=dlg)
 
     copy_btn.config(command=copy_pubkey)
 
@@ -95,19 +96,19 @@ def perform_ecdh(parent, purpose="friend"):
     def confirm():
         friend_b64 = friend_pub_var.get().strip()
         if not friend_b64:
-            messagebox.showerror("Error", "Please enter friend's public key.", parent=dlg)
+            messagebox.showerror("error", "Please enter your friend's public key.", parent=dlg)
             return
 
         try:
             friend_raw = ECDHService.decode_public_key(friend_b64)
         except ValueError as e:
-            messagebox.showerror("Error", f"Invalid public key: {e}", parent=dlg)
+            messagebox.showerror("error", f"Invalid public key: {e}", parent=dlg)
             return
 
         # Manual fingerprint verification (use service fingerprint)
         friend_fp = ECDHService.fingerprint(friend_raw)
-        if not messagebox.askyesno("Verify Fingerprint",
-                                   f"Friend's X25519 key fingerprint:\n{friend_fp}\n\n"
+        if not messagebox.askyesno("Fingerprint verification",
+                                   f"X25519 key fingerprint friend:\n{friend_fp}\n\n"
                                    "Have you verified this fingerprint with your friend through a secure channel?",
                                    parent=dlg):
             return
@@ -120,10 +121,14 @@ def perform_ecdh(parent, purpose="friend"):
         result["friend_b64"] = friend_b64
         dlg.destroy()
 
-    ttk.Button(dlg, text="Verify & Compute Shared Secret", command=confirm,
-               bootstyle="success").pack(pady=15)
-    ttk.Button(dlg, text="Cancel", command=dlg.destroy,
-               bootstyle="secondary-outline").pack()
+    verify_btn = ttk.Button(dlg, text="Verify & Compute Shared Secret", command=confirm,
+                            bootstyle="success")
+    verify_btn.pack(pady=15)
+    ToolTip(verify_btn, "Fingerprint verification and ECDH shared password calculation")
+    cancel_btn = ttk.Button(dlg, text="Cancel", command=dlg.destroy,
+                            bootstyle="secondary-outline")
+    cancel_btn.pack()
+    ToolTip(cancel_btn, "Cancel ECDH key exchange")
 
     init_modal(dlg, parent, focus_widget=friend_pub_entry)
 

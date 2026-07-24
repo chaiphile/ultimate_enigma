@@ -14,7 +14,7 @@ import base64
 from services.friends import FriendsService, FriendsServiceError
 from services.ecdh_service import ECDHService
 from views.dialogs import password_dialog
-from views.utils import init_modal, friendly_error
+from views.utils import init_modal, friendly_error, ToolTip
 from src.crypto_utils import pem_to_pubkey, pubkey_to_pem
 from crypto import sha256_fingerprint
 
@@ -39,8 +39,8 @@ class UpdateFriendKeysDialog:
             return
         if not self.friends_service.verify_master_password(pw):
             messagebox.showerror(
-                "Access Denied",
-                "Incorrect master password.",
+                "Access denied",
+                "The master password is incorrect.",
                 parent=self.parent,
             )
             return
@@ -135,25 +135,27 @@ class UpdateFriendKeysDialog:
         def do_update_rsa():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("without friends", "First choose a friend.", parent=dlg)
                 return
             pem = rsa_text.get("1.0", tk.END).strip()
             if not pem:
-                messagebox.showwarning("Empty", "Paste the new RSA public key.", parent=dlg)
+                messagebox.showwarning("vacant", "Paste the new RSA public key.", parent=dlg)
                 return
             try:
                 self.friends_service.update_friend_pub_keys(
                     name=fname, master_password=self._master_pw, new_rsa_pem=pem)
                 self.refresh_list()
                 status_var.set(f"✅ RSA key updated for '{fname}'")
-                messagebox.showinfo("Updated", f"RSA public key updated for '{fname}'.",
+                messagebox.showinfo("updated", f"Updated RSA public key for '{fname}'.",
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_rsa, text="🔑 Update RSA Key", command=do_update_rsa,
-                   bootstyle="primary").pack(anchor="w")
+        update_rsa_btn = ttk.Button(tab_rsa, text="🔑 Update RSA Key", command=do_update_rsa,
+                                    bootstyle="primary")
+        update_rsa_btn.pack(anchor="w")
+        ToolTip(update_rsa_btn, "Update your friend's RSA public key")
 
         # ════════════════════════════════════════════════════════════════
         # TAB 2: ECDH (X25519)
@@ -201,25 +203,27 @@ class UpdateFriendKeysDialog:
         def do_update_ecdh():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("without friends", "First choose a friend.", parent=dlg)
                 return
             b64 = ecdh_var.get().strip()
             if not b64:
-                messagebox.showwarning("Empty", "Paste the new X25519 public key.", parent=dlg)
+                messagebox.showwarning("vacant", "Paste the new public key X25519.", parent=dlg)
                 return
             try:
                 self.friends_service.update_friend_pub_keys(
                     name=fname, master_password=self._master_pw, new_x25519_b64=b64)
                 self.refresh_list()
                 status_var.set(f"✅ ECDH key updated for '{fname}'")
-                messagebox.showinfo("Updated", f"ECDH (X25519) key updated for '{fname}'.",
+                messagebox.showinfo("updated", f"Updated ECDH key (X25519) for '{fname}'.",
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_ecdh, text="🔁 Update ECDH Key", command=do_update_ecdh,
-                   bootstyle="secondary").pack(anchor="w")
+        update_ecdh_btn = ttk.Button(tab_ecdh, text="🔁 Update ECDH Key", command=do_update_ecdh,
+                                     bootstyle="secondary")
+        update_ecdh_btn.pack(anchor="w")
+        ToolTip(update_ecdh_btn, "X25519 key update friend")
 
         # ════════════════════════════════════════════════════════════════
         # TAB 3: PQC Hybrid Key
@@ -267,11 +271,11 @@ class UpdateFriendKeysDialog:
         def do_update_pqc():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("without friends", "First choose a friend.", parent=dlg)
                 return
             b64 = pqc_text.get("1.0", tk.END).strip()
             if not b64:
-                messagebox.showwarning("Empty", "Paste the new PQC combined public key.",
+                messagebox.showwarning("vacant", "Paste the new PQC public key combination.",
                                        parent=dlg)
                 return
             try:
@@ -279,14 +283,16 @@ class UpdateFriendKeysDialog:
                     name=fname, master_password=self._master_pw, new_pqc_b64=b64)
                 self.refresh_list()
                 status_var.set(f"✅ PQC key updated for '{fname}'")
-                messagebox.showinfo("Updated", f"PQC combined public key updated for '{fname}'.",
+                messagebox.showinfo("updated", f"Updated PQC public key combination for '{fname}'.",
                                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_pqc, text="🛡 Update PQC Key", command=do_update_pqc,
-                   bootstyle="info").pack(anchor="w")
+        update_pqc_btn = ttk.Button(tab_pqc, text="🛡 Update PQC Key", command=do_update_pqc,
+                                    bootstyle="info")
+        update_pqc_btn.pack(anchor="w")
+        ToolTip(update_pqc_btn, "Update your PQC combination key")
 
         # ════════════════════════════════════════════════════════════════
         # TAB 4: Hybrid Signature Key
@@ -335,12 +341,12 @@ class UpdateFriendKeysDialog:
         def do_update_hsig():
             fname = friend_var.get()
             if not fname:
-                messagebox.showwarning("No Friend", "Select a friend first.", parent=dlg)
+                messagebox.showwarning("without friends", "First choose a friend.", parent=dlg)
                 return
             b64 = hsig_text.get("1.0", tk.END).strip()
             if not b64:
-                messagebox.showwarning("Empty",
-                                       "Paste the new hybrid signing combined public key.",
+                messagebox.showwarning("vacant",
+                                       "Paste the new composite signature public key.",
                                        parent=dlg)
                 return
             try:
@@ -349,16 +355,18 @@ class UpdateFriendKeysDialog:
                 self.refresh_list()
                 status_var.set(f"✅ Hybrid signing key updated for '{fname}'")
                 messagebox.showinfo(
-                    "Updated",
-                    f"Hybrid signing combined public key updated for '{fname}'.\n\n"
-                    "Messages from this friend will be verified with the new key.",
+                    "updated",
+                    f"Updated public key combination signature for '{fname}'.\n\n"
+                    "This friend's messages will be verified with the new key.",
                     parent=dlg)
                 _refresh_current(fname)
             except FriendsServiceError as e:
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
-        ttk.Button(tab_hsig, text="✍️ Update Hybrid Sig Key", command=do_update_hsig,
-                   bootstyle="success").pack(anchor="w")
+        update_hsig_btn = ttk.Button(tab_hsig, text="✍️ Update Hybrid Sig Key", command=do_update_hsig,
+                                     bootstyle="success")
+        update_hsig_btn.pack(anchor="w")
+        ToolTip(update_hsig_btn, "Update friend's hybrid signing key")
 
         # ── Refresh current-key displays when friend selection changes ───
         def _refresh_current(fname: str = ""):
@@ -393,5 +401,7 @@ class UpdateFriendKeysDialog:
         # Populate initial display
         _refresh_current(friend_var.get())
 
-        ttk.Button(dlg, text="Close", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(pady=(4, 10))
+        close_update_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
+                                      bootstyle="secondary-outline")
+        close_update_btn.pack(pady=(4, 10))
+        ToolTip(close_update_btn, "Close the update keys window")

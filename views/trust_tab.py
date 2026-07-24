@@ -20,7 +20,7 @@ from ttkbootstrap.dialogs import Messagebox
 
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
-from views.utils import init_modal, friendly_error
+from views.utils import init_modal, friendly_error, ToolTip
 
 
 class TrustTab:
@@ -58,17 +58,25 @@ class TrustTab:
         top_bar.pack(fill=tk.X)
 
         btn_specs = [
-            ("🎛 Certificate Control Panel", self.issue_cert_dialog, "success"),
-            ("📥 Import (Paste)", self.import_cert_dialog, "info"),
-            ("📂 Import from File", self.import_cert_file_dialog, "info"),
-            ("📤 Export Bundle", self.export_cert_bundle_dialog, "info"),
-            ("🔑 Split Recovery Key", self.split_key_dialog, "warning"),
-            ("🔓 Recover Key", self.recover_key_dialog, "danger"),
-            ("🔄 Refresh", self.refresh_list, "secondary-outline"),
+            ("🎛 Certificate Control Panel", self.issue_cert_dialog, "success",
+             "Open the Trust Chain Certificate Management window"),
+            ("📥 Import (Paste)", self.import_cert_dialog, "info",
+             "Import the certificate by pasting the JSON text"),
+            ("📂 Import from File", self.import_cert_file_dialog, "info",
+             "Import certificate from JSON file"),
+            ("📤 Export Bundle", self.export_cert_bundle_dialog, "info",
+             "Export all certificates as a JSON package"),
+            ("🔑 Split Recovery Key", self.split_key_dialog, "warning",
+             "Split recovery key into multiple shares"),
+            ("🔓 Recover Key", self.recover_key_dialog, "danger",
+             "Key recovery from subscriptions"),
+            ("🔄 Refresh", self.refresh_list, "secondary-outline",
+             "Updating the list of certificates"),
         ]
-        for text, cmd, style in btn_specs:
-            ttk.Button(top_bar, text=text, command=cmd,
-                       bootstyle=style).pack(side=tk.LEFT, padx=(0, 6))
+        for text, cmd, style, tip in btn_specs:
+            btn = ttk.Button(top_bar, text=text, command=cmd, bootstyle=style)
+            btn.pack(side=tk.LEFT, padx=(0, 6))
+            ToolTip(btn, tip)
 
         ttk.Frame(top_bar).pack(side=tk.LEFT, expand=True)
 
@@ -415,25 +423,29 @@ class TrustTab:
                 if rejected > 0:
                     messagebox.showwarning(
                         "Imported with rejections",
-                        f"Imported {count} of {total} certificate(s).\n\n"
-                        f"{rejected} were rejected because their signature could "
-                        f"not be verified or the issuer is not a known, added "
-                        f"contact. Add the issuer first, then re-import.",
+                        f"{count} of {total} certificates imported.\n\n"
+                        f"{rejected} item(s) rejected because the signature could not be verified "
+                        f"or the issuer is not a known contact.\n"
+                        f"Add the issuer as a friend first, then import again.",
                         parent=parent,
                     )
                 else:
                     messagebox.showinfo(
-                        "Imported", f"Imported {count} certificate(s).", parent=parent
+                        "Imported", f"{count} certificates imported.", parent=parent
                     )
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
 
             except Exception as e:
-                messagebox.showerror("Import Failed", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
 
-        ttk.Button(btn_frame, text="📥 Import", command=do_import,
-                   bootstyle="info").pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+        import_trust_btn = ttk.Button(btn_frame, text="📥 Import", command=do_import,
+                                      bootstyle="info")
+        import_trust_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(import_trust_btn, "Import trust chain certificate")
+        cancel_trust_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                                      bootstyle="secondary-outline")
+        cancel_trust_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_trust_btn, "Cancel certificate import")
 
         init_modal(dlg, parent, focus_widget=cert_input)
 
@@ -482,20 +494,20 @@ class TrustTab:
             self.refresh_list()
             rejected = total - count
             if rejected > 0:
-                messagebox.showwarning(
-                    "Imported with rejections",
-                    f"Imported {count} of {total} certificate(s) from file.\n\n"
-                    f"{rejected} were rejected because their signature could not "
-                    f"be verified or the issuer is not a known, added contact. "
-                    f"Add the issuer first, then re-import.",
-                    parent=parent,
-                )
-            else:
-                messagebox.showinfo(
-                    "Imported",
-                    f"Imported {count} certificate(s) from file.",
-                    parent=parent,
-                )
+                    messagebox.showwarning(
+                        "Imported with rejections",
+                        f"{count} of {total} certificates imported from file.\n\n"
+                        f"{rejected} item(s) rejected because the signature could not be verified "
+                        f"or the issuer is not a known contact.\n"
+                        f"Add the issuer as a friend first, then import again.",
+                        parent=parent,
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Imported",
+                        f"{count} certificates imported from file.",
+                        parent=parent,
+                    )
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
         except Exception as e:
             messagebox.showerror("Import Error", friendly_error(e), parent=parent)
@@ -537,7 +549,7 @@ class TrustTab:
         certs = self.trust_service.get_certs_for_friend(name)
         valid_certs = [c for c in certs if not c.revoked and not c.is_expired()]
         if not valid_certs:
-            messagebox.showinfo("No Certificates", f"No valid certificates found for '{name}'.")
+            messagebox.showinfo("No certificate", f"No valid certificate found for '{name}'.")
             return
 
         if len(valid_certs) == 1:
@@ -551,18 +563,18 @@ class TrustTab:
             "Revoke Certificate",
             f"Are you sure you want to revoke this certificate for '{name}'?\n\n"
             f"{self._cert_summary(cert)}\n\n"
-            "This action cannot be undone."
+            "This action cannot be reversed."
         ):
             return
         try:
             self.trust_service.revoke_certificate(cert.cert_id, reason="Revoked by user")
             self.refresh_list()
-            messagebox.showinfo("Revoked", f"Certificate for '{name}' revoked.")
+            messagebox.showinfo("Revoked", f"Certificate revoked for '{name}'.")
             event_bus.publish(Events.CERTIFICATE_REVOKED, source="trust_tab", friend_name=name)
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab", friend_name=name)
 
         except Exception as e:
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("error", friendly_error(e))
 
     @staticmethod
     def _cert_summary(cert) -> str:
@@ -604,10 +616,14 @@ class TrustTab:
             result["cert"] = certs[sel_var.get()]
             dlg.destroy()
 
-        ttk.Button(btn_frame, text="Select", command=do_select,
-                   bootstyle="danger").pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
-                   bootstyle="secondary-outline").pack(side=tk.RIGHT, padx=5)
+        select_btn = ttk.Button(btn_frame, text="Select", command=do_select,
+                                bootstyle="danger")
+        select_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(select_btn, "Select this certificate to revoke")
+        cancel_choose_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
+                                       bootstyle="secondary-outline")
+        cancel_choose_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_choose_btn, "Cancel")
 
         init_modal(dlg, parent)
         dlg.wait_window()

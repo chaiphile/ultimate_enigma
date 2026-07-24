@@ -18,6 +18,7 @@ from views.friends_tab import FriendsTab
 from views.secret_tab import SecretTab
 from views.file_tab import FileTab
 from views.about_tab import AboutTab
+from views.help_tab import HelpTab
 from views.ntp_tab import NtpTab
 from views.trust_tab import TrustTab
 from services.trust_chain_service import TrustChainService
@@ -52,8 +53,8 @@ class EnigmaApp:
         except Exception as e:
             logger.exception("Application build failed; aborting startup")
             messagebox.showerror(
-                "Startup Error",
-                "The application could not be initialized and will now close.\n\n"
+                "Startup error",
+                "The application could not be started and is closing.\n\n"
                 + friendly_error(e)
             )
             try:
@@ -217,6 +218,9 @@ class EnigmaApp:
         )
         notebook.add(self.ntp_tab.frame, text="🕐 NTP")
 
+        self.help_tab = HelpTab(notebook)
+        notebook.add(self.help_tab.frame, text="📚 Help")
+
         self.about_tab = AboutTab(
             notebook,
             self.ks,
@@ -325,6 +329,7 @@ class EnigmaApp:
                 "friends": self.friends_tab,
                 "trust": self.trust_tab,
                 "ntp": self.ntp_tab,
+                "help": self.help_tab,
                 "about": self.about_tab,
             }
             self.service_orchestrator.rebuild_services(new_ks, tab_refs)
@@ -381,6 +386,7 @@ class EnigmaApp:
                 "friends": self.friends_tab,
                 "trust": self.trust_tab,
                 "ntp": self.ntp_tab,
+                "help": self.help_tab,
                 "about": self.about_tab,
             }
             self.service_orchestrator.rebuild_services(new_ks, tab_refs)
@@ -402,10 +408,10 @@ class EnigmaApp:
                 pass
 
         messagebox.showinfo(
-            "Recovery Complete",
-            "Application recovered successfully.\n\n"
-            "New cryptographic keys have been generated.\n"
-            "You will need to re-exchange keys with friends."
+            "Recovery is complete",
+            "The application has been restored successfully.\n\n"
+            "New encryption keys have been generated.\n"
+            "You must re-exchange keys with your friends."
         )
         logger.info("Application recovered via recovery key")
 

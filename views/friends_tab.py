@@ -16,7 +16,7 @@ import logging
 from services.friends import FriendsService, FriendsServiceError
 from services.event_bus import event_bus, Events
 from views.dialogs import password_dialog
-from views.utils import run_busy, friendly_error
+from views.utils import run_busy, friendly_error, ToolTip
 from components.add_friend_dialog import AddFriendDialog
 from components.pqc_exchange_dialog import PqcExchangeDialog
 from components.hybrid_sig_exchange_dialog import HybridSigExchangeDialog
@@ -59,19 +59,29 @@ class FriendsTab:
         top_bar.pack(fill=tk.X)
 
         btn_specs = [
-            ("➕ Add Friend", self.add_friend_dialog, "success"),
-            ("➖ Remove", self.remove_friend_dialog, "danger-outline"),
-            ("🔑 My Public Key", self.show_my_pubkey, "info-outline"),
-            ("✏️ Set My Name", self.set_my_name_dialog, "primary-outline"),
-            ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline"),
-            ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info"),
-            ("✍️ Hybrid Sig Exchange", self.hybrid_sig_exchange_dialog, "success"),
-            ("🔄 Update Keys", self.update_friend_keys_dialog, "warning"),
-            ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline"),
+            ("➕ Add Friend", self.add_friend_dialog, "success",
+             "Add new friend by entering public key"),
+            ("➖ Remove", self.remove_friend_dialog, "danger-outline",
+             "Remove the selected friend from the list"),
+            ("🔑 My Public Key", self.show_my_pubkey, "info-outline",
+             "Display your public key to share"),
+            ("✏️ Set My Name", self.set_my_name_dialog, "primary-outline",
+             "Set display name for gear messages"),
+            ("🔁 ECDH Exchange", self.ecdh_with_selected, "secondary-outline",
+             "Exchange ECDH key with selected friend"),
+            ("🛡 PQC Exchange", self.pqc_exchange_dialog, "info",
+             "Quantum-resistant key exchange"),
+            ("✍️ Hybrid Sig Exchange", self.hybrid_sig_exchange_dialog, "success",
+             "Hybrid Signature Key Exchange (Ed25519 + Dilithium3)"),
+            ("🔄 Update Keys", self.update_friend_keys_dialog, "warning",
+             "Update friend's public keys"),
+            ("🔐 Init Ratchet", self.init_ratchet_dialog, "warning-outline",
+             "Initialize a Double Ratchet session"),
         ]
-        for text, cmd, style in btn_specs:
-            ttk.Button(top_bar, text=text, command=cmd,
-                       bootstyle=style).pack(side=tk.LEFT, padx=(0, 6))
+        for text, cmd, style, tip in btn_specs:
+            btn = ttk.Button(top_bar, text=text, command=cmd, bootstyle=style)
+            btn.pack(side=tk.LEFT, padx=(0, 6))
+            ToolTip(btn, tip)
 
         # Spacer pushes search to the right
         ttk.Frame(top_bar).pack(side=tk.LEFT, expand=True)
@@ -334,7 +344,7 @@ class FriendsTab:
             self.frame.winfo_toplevel().clipboard_append(details["ecdh_fingerprint"])
             self.status_var.set(f"Copied ECDH fingerprint for {name}")
         else:
-            messagebox.showinfo("No ECDH Key", f"No ECDH key set for {name}.")
+            messagebox.showinfo("No ECDH key", f"ECDH key is not set for {name}.")
 
     # ---- Event handlers ----
     def on_select(self, event=None) -> None:
@@ -381,33 +391,33 @@ class FriendsTab:
     def remove_friend_dialog(self) -> None:
         name = self._get_selected_name()
         if not name:
-            messagebox.showinfo("No Selection",
-                                "Select a friend in the list to remove.")
+            messagebox.showinfo("No choice",
+                                "To remove, select a friend from the list.")
             return
 
         if not messagebox.askyesno(
-            "Confirm Removal",
-            f"Are you sure you want to remove '{name}'?"
+            "Confirm deletion",
+            f"Are you sure you want to delete '{name}'?"
         ):
             return
         try:
             self.service.remove_friend(name)
         except FriendsServiceError as e:
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("error", friendly_error(e))
             return
         self.refresh_list()
-        messagebox.showinfo("Removed", f"Friend '{name}' removed.")
+        messagebox.showinfo("deleted", f"Friend '{name}' has been deleted.")
         event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
     def ecdh_with_selected(self) -> None:
         name = self._get_selected_name()
         if not name:
-            messagebox.showwarning("No Selection", "Please select a friend from the list first.")
+            messagebox.showwarning("No choice", "Please select a friend from the list first.")
             return
 
         friend_details = self.service.get_friend_details(name)
         if not friend_details:
-            messagebox.showerror("Error", "Friend not found in database")
+            messagebox.showerror("error", "Friend not found in database")
             return
 
         from views.ecdh import perform_ecdh
@@ -426,7 +436,7 @@ class FriendsTab:
         if not pw:
             return
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            messagebox.showerror("Wrong password", "The master password is incorrect.")
             return
 
         def work():
@@ -440,13 +450,13 @@ class FriendsTab:
         def on_done(_):
             self.refresh_list()
             messagebox.showinfo(
-                "Success",
-                f"Shared secret for {name} updated via ECDH.\n"
+                "success",
+                f"Shared secret for {name} was updated via ECDH.\n"
                 "ECDH public key saved."
             )
 
         def on_error(exc):
-            messagebox.showerror("Error", friendly_error(exc))
+            messagebox.showerror("error", friendly_error(exc))
 
         run_busy(self.frame, work, on_done=on_done, on_error=on_error)
 
@@ -454,7 +464,7 @@ class FriendsTab:
         try:
             info = self.service.get_my_public_info()
         except FriendsServiceError as e:
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("error", friendly_error(e))
             return
 
         pem = info["public_key_pem"]
@@ -462,7 +472,7 @@ class FriendsTab:
 
         parent = self.frame.winfo_toplevel()
         top = tk.Toplevel(parent)
-        top.title("My Public Key")
+        top.title("My public key")
         top.geometry("700x600")
         top.resizable(True, True)
         top.minsize(500, 400)
@@ -474,12 +484,12 @@ class FriendsTab:
         def copy_pubkey():
             parent.clipboard_clear()
             parent.clipboard_append(pem)
-            messagebox.showinfo("Copied", "Public key copied to clipboard.", parent=top)
+            messagebox.showinfo("copied", "The public key was copied to the clipboard.", parent=top)
 
         def copy_fp():
             parent.clipboard_clear()
             parent.clipboard_append(fp)
-            messagebox.showinfo("Copied", "Fingerprint copied to clipboard.", parent=top)
+            messagebox.showinfo("copied", "The fingerprint was copied to the clipboard.", parent=top)
 
         ttk.Button(btn_bar, text="📋 Copy Public Key", command=copy_pubkey,
                    bootstyle="info").pack(side=tk.LEFT, padx=5)
@@ -507,29 +517,29 @@ class FriendsTab:
         """Dialog to initialize a Double Ratchet session for the selected friend."""
         name = self._get_selected_name()
         if not name:
-            messagebox.showwarning("No Selection",
+            messagebox.showwarning("No choice",
                                    "Please select a friend from the list first.")
             return
 
         details = self.service.get_friend_details(name)
         if not details:
-            messagebox.showerror("Error", "Friend not found.")
+            messagebox.showerror("error", "Friend not found.")
             return
 
         # Check prerequisites
         if not details["has_shared_secret"]:
             messagebox.showwarning(
-                "Missing Shared Secret",
-                f"No shared secret configured for '{name}'.\n"
-                "Perform an ECDH exchange before initializing the ratchet."
+                "There is no shared secret",
+                f"No shared secret is configured for '{name}'.\n"
+                "To set up the gear, first do an ECDH exchange."
             )
             return
 
         if not details.get("ecdh_fingerprint"):
             messagebox.showwarning(
-                "Missing X25519 Key",
-                f"No X25519 public key stored for '{name}'.\n"
-                "Perform an ECDH exchange before initializing the ratchet."
+                "X25519 key is not available",
+                f"No X25519 public key saved for '{name}'.\n"
+                "To set up the gear, first do an ECDH exchange."
             )
             return
 
@@ -581,7 +591,7 @@ class FriendsTab:
             if not pw:
                 return
             if not self.service.verify_master_password(pw):
-                messagebox.showerror("Wrong Password", "Master password incorrect.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
             role = role_var.get()
@@ -593,15 +603,14 @@ class FriendsTab:
                 self.refresh_list()
                 dlg.destroy()
                 messagebox.showinfo(
-                    "Success",
-                    f"Double Ratchet session initialized as {role.upper()} "
-                    f"for '{name}'.\n\n"
-                    "Messages to/from this friend will now use forward-secret encryption."
+                    "success",
+                    f"Double Ratchet session started as {role.upper()} for '{name}'.\n\n"
+                    "Messages from this friend will now use encryption with forward secrecy."
                 )
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
             def on_error(exc):
-                messagebox.showerror("Ratchet Init Failed", friendly_error(exc),
+                messagebox.showerror("Failed to start ratchet", friendly_error(exc),
                                      parent=dlg)
 
             run_busy(dlg, work, on_done=on_done, on_error=on_error)
@@ -615,20 +624,19 @@ class FriendsTab:
         """Confirm and delete the Double Ratchet session for the selected friend."""
         name = self._get_selected_name()
         if not name:
-            messagebox.showwarning("No Selection",
+            messagebox.showwarning("No choice",
                                    "Please select a friend from the list first.")
             return
 
         if not self.service.has_active_ratchet(name):
-            messagebox.showinfo("No Ratchet",
-                                f"No active ratchet session for '{name}'.")
+            messagebox.showinfo("No ratchet session",
+                                f"There are no active ratchet sessions for '{name}'.")
             return
 
         if not messagebox.askyesno(
             "Reset Ratchet",
-            f"Are you sure you want to delete the Double Ratchet session for '{name}'?\n\n"
-            "This cannot be undone. Future messages will fall back to legacy encryption "
-            "until a new session is established."
+            f"Are you sure you want to remove the Double Ratchet session for '{name}'?\n\n"
+            "This action cannot be reversed. Future messages will revert to the old encryption until a new session is started."
         ):
             return
 
@@ -639,7 +647,7 @@ class FriendsTab:
         if not pw:
             return
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            messagebox.showerror("Wrong password", "The master password is incorrect.")
             return
 
         def work():
@@ -647,12 +655,12 @@ class FriendsTab:
 
         def on_done(_):
             self.refresh_list()
-            messagebox.showinfo("Reset Complete",
-                                f"Ratchet session for '{name}' has been deleted.")
+            messagebox.showinfo("Reset complete",
+                                f"Ratchet session removed for '{name}'.")
             event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
 
         def on_error(exc):
-            messagebox.showerror("Error", friendly_error(exc))
+            messagebox.showerror("error", friendly_error(exc))
 
         run_busy(self.frame, work, on_done=on_done, on_error=on_error)
 
@@ -685,17 +693,17 @@ class FriendsTab:
         if new_name is not None:
             new_name = new_name.strip()
             if not new_name:
-                messagebox.showwarning("Empty Name", "Name cannot be empty.", parent=parent)
+                messagebox.showwarning("Empty name", "The name cannot be empty.", parent=parent)
                 return
             self.service.set_my_name(new_name)
-            messagebox.showinfo("Success", f"Display name set to '{new_name}'.", parent=parent)
+            messagebox.showinfo("success", f"Display name set to '{new_name}'.", parent=parent)
 
     def update_friend_keys_dialog(self) -> None:
         """Open the unified Update Friend Keys dialog for the selected friend."""
         preselect = self._get_selected_name() or ""
         parent = self.frame.winfo_toplevel()
         if not self.service.get_friend_names():
-            messagebox.showinfo("No Friends", "Add a friend first before updating keys.")
+            messagebox.showinfo("No friends", "Add a friend first, then update the keys.")
             return
         UpdateFriendKeysDialog(
             parent, self.service, self._bg, self.refresh_list, preselect

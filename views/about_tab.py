@@ -9,6 +9,7 @@ import ttkbootstrap as ttkb
 
 from services.backup_service import BackupService, BackupServiceError
 from views.dialogs import password_dialog
+from views.utils import ToolTip
 from controllers.auth_controller import AuthController
 from key_manager import KeyStore
 
@@ -73,15 +74,18 @@ class AboutTab:
         btn_frame = ttkb.Frame(f)
         btn_frame.pack()
 
-        ttkb.Button(btn_frame, text="📤 Export Backup",
-                   command=self._export_backup,
-                   bootstyle="warning",
-                   width=18).pack(side=tk.LEFT, padx=8)
-
-        ttkb.Button(btn_frame, text="📥 Import Backup",
-                   command=self._import_backup,
-                   bootstyle="danger",
-                   width=18).pack(side=tk.LEFT, padx=8)
+        export_btn = ttkb.Button(btn_frame, text="📤 Export Backup",
+                                 command=self._export_backup,
+                                 bootstyle="warning",
+                                 width=18)
+        export_btn.pack(side=tk.LEFT, padx=8)
+        ToolTip(export_btn, "Backup of all keys and settings")
+        import_btn = ttkb.Button(btn_frame, text="📥 Import Backup",
+                                 command=self._import_backup,
+                                 bootstyle="danger",
+                                 width=18)
+        import_btn.pack(side=tk.LEFT, padx=8)
+        ToolTip(import_btn, "Import backup and restore keys and settings")
 
         # ── Password Change section ───────────────────────────────
         sep2 = ttkb.Separator(f, orient="horizontal")
@@ -91,15 +95,18 @@ class AboutTab:
                   font=("Segoe UI", 12, "bold"),
                   bootstyle="inverse-primary").pack(pady=(0, 10))
 
-        ttkb.Button(f, text="🔑 Change Master Password",
-                   command=self._change_password,
-                   bootstyle="info",
-                   width=24).pack(pady=(0, 5))
-
-        ttkb.Button(f, text="🚨 Set Duress Password",
-                   command=self._set_duress_password,
-                   bootstyle="danger-outline",
-                   width=24).pack(pady=(0, 5))
+        change_pw_btn = ttkb.Button(f, text="🔑 Change Master Password",
+                                    command=self._change_password,
+                                    bootstyle="info",
+                                    width=24)
+        change_pw_btn.pack(pady=(0, 5))
+        ToolTip(change_pw_btn, "Change the master password of the program")
+        duress_btn = ttkb.Button(f, text="🚨 Set Duress Password",
+                                 command=self._set_duress_password,
+                                 bootstyle="danger-outline",
+                                 width=24)
+        duress_btn.pack(pady=(0, 5))
+        ToolTip(duress_btn, "Set a mandatory password for emergency situations")
 
     # ------------------------------------------------------------------
     # Change Password
@@ -127,11 +134,11 @@ class AboutTab:
         try:
             data = self._backup_service.export_backup(pw)
         except BackupServiceError as exc:
-            messagebox.showerror("Export Failed", str(exc))
+            messagebox.showerror("Export failed", str(exc))
             return
 
         path = filedialog.asksaveasfilename(
-            title="Save Backup",
+            title="Backup storage",
             defaultextension=".enigma-backup",
             filetypes=[("Enigma Backup", "*.enigma-backup"), ("All Files", "*.*")],
             initialfile="enigma_backup.enigma-backup",
@@ -143,9 +150,9 @@ class AboutTab:
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2, ensure_ascii=True)
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-            messagebox.showinfo("Success", f"Backup exported to:\n{path}")
+            messagebox.showinfo("success", f"Backup exported to the following path:\n{path}")
         except OSError as exc:
-            messagebox.showerror("Export Failed", f"Could not write file: {exc}")
+            messagebox.showerror("Export failed", f"Cannot write file: {exc}")
 
     # ------------------------------------------------------------------
     # Import
@@ -159,8 +166,8 @@ class AboutTab:
             return
 
         confirm = messagebox.askyesno(
-            "Confirm Import",
-            "⚠️  This will REPLACE all current keys, friends, and settings.\n\n"
+            "Import confirmation",
+            "⚠️ This will replace all current keys, friends and settings.\n\n"
             "This action cannot be undone.\n\nContinue?",
             icon="warning",
         )
@@ -171,7 +178,7 @@ class AboutTab:
             with open(path, "r", encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError) as exc:
-            messagebox.showerror("Import Failed", f"Cannot read backup file: {exc}")
+            messagebox.showerror("Import failed", f"Could not read backup file: {exc}")
             return
 
         pw = password_dialog(self.frame.winfo_toplevel(),
@@ -182,8 +189,8 @@ class AboutTab:
         try:
             self._backup_service.import_backup(data, pw)
             messagebox.showinfo(
-                "Success",
-                "Backup imported successfully.\nKeys and friends have been restored.",
+                "success",
+                "Backup logged in successfully.\nRestored keys and friends.",
             )
         except BackupServiceError as exc:
-            messagebox.showerror("Import Failed", str(exc))
+            messagebox.showerror("Import failed", str(exc))

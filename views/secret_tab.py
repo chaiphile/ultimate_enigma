@@ -7,7 +7,7 @@ import ttkbootstrap as ttk
 from services.global_secret_service import GlobalSecretService, GlobalSecretServiceError
 from services.clipboard_service import ClipboardService
 from views.dialogs import password_dialog
-from views.utils import init_modal
+from views.utils import init_modal, ToolTip
 
 
 class SecretTab:
@@ -38,10 +38,14 @@ class SecretTab:
                   state='readonly', bootstyle="secondary").pack(anchor=tk.W, pady=(0, 15))
 
         # Export / Import buttons
-        ttk.Button(f, text="Export Global Secret (Copy)", command=self.export_global,
-                   bootstyle="secondary-outline").pack(anchor=tk.W, pady=5)
-        ttk.Button(f, text="Import Global Secret", command=self.import_global,
-                   bootstyle="secondary-outline").pack(anchor=tk.W, pady=5)
+        export_btn = ttk.Button(f, text="Export Global Secret (Copy)", command=self.export_global,
+                                bootstyle="secondary-outline")
+        export_btn.pack(anchor=tk.W, pady=5)
+        ToolTip(export_btn, "Copy the global shared secret to the clipboard (deleted after 30 seconds)")
+        import_btn = ttk.Button(f, text="Import Global Secret", command=self.import_global,
+                                bootstyle="secondary-outline")
+        import_btn.pack(anchor=tk.W, pady=5)
+        ToolTip(import_btn, "Enter a new global shared secret from the clipboard")
 
         # Separator
         ttk.Separator(f, orient='horizontal', bootstyle="secondary").pack(fill=tk.X, pady=15)
@@ -49,8 +53,10 @@ class SecretTab:
         # ECDH section
         ttk.Label(f, text="ECDH Key Exchange", font=("Segoe UI", 10, "bold"),
                   bootstyle="inverse-primary").pack(anchor=tk.W, pady=(0, 5))
-        ttk.Button(f, text="Start ECDH for Global Secret", command=self.start_ecdh,
-                   bootstyle="info").pack(anchor=tk.W, pady=5)
+        ecdh_btn = ttk.Button(f, text="Start ECDH for Global Secret", command=self.start_ecdh,
+                              bootstyle="info")
+        ecdh_btn.pack(anchor=tk.W, pady=5)
+        ToolTip(ecdh_btn, "Start ECDH key exchange to generate global shared key")
 
         self._update_display()
 
@@ -68,15 +74,15 @@ class SecretTab:
         if not pw:
             return None
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong Password", "Master password incorrect.")
+            messagebox.showerror("Wrong password", "The master password is incorrect.")
             return None
         return pw
 
     def export_global(self) -> None:
         if not self.service.has_secret():
-            messagebox.showwarning("No Secret", "No global secret available.")
+            messagebox.showwarning("No secret", "No global secret available.")
             return
-        if not messagebox.askyesno("Warning", "This will expose your raw global shared secret. Continue?"):
+        if not messagebox.askyesno("Warning", "This will display your raw global shared secret. Do you want to continue?"):
             return
         try:
             b64 = self.service.export_secret_b64()
@@ -84,14 +90,14 @@ class SecretTab:
             if ok:
                 messagebox.showinfo(
                     "Exported",
-                    "Global shared secret copied to clipboard.\n"
-                    "Clipboard will be cleared automatically in 30 seconds."
+                    "The global shared secret was copied to the clipboard.\n"
+                    "The clipboard is automatically cleared in 30 seconds."
                 )
             else:
-                messagebox.showerror("Clipboard Error", "Could not access clipboard.")
+                messagebox.showerror("Clipboard error", "Unable to access the clipboard.")
         except GlobalSecretServiceError as e:
             from views.utils import friendly_error
-            messagebox.showerror("Error", friendly_error(e))
+            messagebox.showerror("error", friendly_error(e))
 
     def import_global(self) -> None:
         from views.dialogs import password_dialog
@@ -130,11 +136,11 @@ class SecretTab:
 
             ok = messagebox.askyesno(
                 "⚠️ Replace Global Secret",
-                f"New secret fingerprint:\n{fp}\n\n"
-                "WARNING: This will permanently replace the current global secret.\n"
-                "All messages encrypted with the OLD secret will become UNREADABLE.\n"
-                "Make sure you have shared the new secret with trusted contacts.\n\n"
-                "Replace current global secret?",
+                f"New Secret Fingerprint:\n{fp}\n\n"
+                "Warning: This will permanently replace the current global secret.\n"
+                "All messages encrypted with the old secret will become unreadable.\n"
+                "Make sure you share the new secret with trusted contacts.\n\n"
+                "Replace the current global secret?",
                 parent=dlg
             )
             if not ok:
@@ -148,10 +154,10 @@ class SecretTab:
                 self.service.update_secret(new_key, pw)
                 self._update_display()
                 dlg.destroy()
-                messagebox.showinfo("Success", "Global shared secret updated.")
+                messagebox.showinfo("success", "The global shared secret has been updated.")
             except GlobalSecretServiceError as e:
                 from views.utils import friendly_error
-                messagebox.showerror("Error", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
         ttk.Button(dlg, text="Submit", command=submit, bootstyle="success").pack(pady=(15, 5))
         ttk.Button(dlg, text="Cancel", command=dlg.destroy, bootstyle="secondary-outline").pack(pady=5)
@@ -170,6 +176,6 @@ class SecretTab:
                 try:
                     self.service.update_secret(new_key, pw)
                     self._update_display()
-                    messagebox.showinfo("Success", "Global secret updated via ECDH.")
+                    messagebox.showinfo("success", "The global secret was updated via ECDH.")
                 except GlobalSecretServiceError as e:
-                    messagebox.showerror("Error", str(e))
+                    messagebox.showerror("error", str(e))

@@ -18,7 +18,7 @@ except ImportError:
     HAS_QRCODE = False
 
 from services.totp_service import TOTPService
-from views.utils import init_modal, flash_widget_text
+from views.utils import init_modal, flash_widget_text, ToolTip
 
 logger = logging.getLogger(__name__)
 
@@ -82,13 +82,13 @@ class TOTPVerifyDialog:
         def verify():
             code = totp_var.get().strip()
             if len(code) != 6 or not code.isdigit():
-                messagebox.showerror("Invalid", "Enter a 6-digit code.", parent=dlg)
+                messagebox.showerror("invalid", "Enter a 6-digit code.", parent=dlg)
                 return
             if self.totp_service.verify(code):
                 self.result = True
                 dlg.destroy()
             else:
-                messagebox.showerror("Failed", "Invalid TOTP code.", parent=dlg)
+                messagebox.showerror("Unsuccessful", "The TOTP code is invalid.", parent=dlg)
                 totp_var.set("")
 
         def cancel():
@@ -96,10 +96,14 @@ class TOTPVerifyDialog:
 
         btn_frame = ttk.Frame(dlg)
         btn_frame.pack(pady=15)
-        ttk.Button(btn_frame, text="✅ Verify", command=verify,
-                   bootstyle="success").pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Cancel", command=cancel,
-                   bootstyle="secondary-outline").pack(side=tk.LEFT, padx=5)
+        verify_totp_btn = ttk.Button(btn_frame, text="✅ Verify", command=verify,
+                                     bootstyle="success")
+        verify_totp_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(verify_totp_btn, "Verification of the entered TOTP code")
+        cancel_totp_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
+                                     bootstyle="secondary-outline")
+        cancel_totp_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(cancel_totp_btn, "Withdrawal of TOTP approval")
 
         dlg.bind("<Return>", lambda e: verify())
         dlg.bind("<Escape>", lambda e: cancel())
@@ -157,8 +161,8 @@ class TOTPSetupDialog:
                 # Update QR code if available
                 if qr_label is not None and HAS_QRCODE:
                     self._update_qr(qr_label, new_uri)
-                messagebox.showinfo("Regenerated", "New TOTP secret generated.\n"
-                                    "Please re-scan with your authenticator app.", parent=dlg)
+                messagebox.showinfo("reproduction", "A new TOTP password has been generated.\n"
+                                    "Please scan again with your authenticator.", parent=dlg)
 
         # OK button
         ok_btn = ttk.Button(
@@ -166,6 +170,7 @@ class TOTPSetupDialog:
             command=ok_close, bootstyle="success"
         )
         ok_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(ok_btn, "Confirm and close - TOTP password is saved")
 
         # Cancel button
         cancel_btn = ttk.Button(
@@ -173,6 +178,7 @@ class TOTPSetupDialog:
             command=dlg.destroy, bootstyle="secondary-outline"
         )
         cancel_btn.pack(side=tk.RIGHT, padx=5)
+        ToolTip(cancel_btn, "opt out")
 
         # Regenerate button
         if self.on_regenerate:
@@ -181,6 +187,7 @@ class TOTPSetupDialog:
                 command=regenerate, bootstyle="warning"
             )
             regen_btn.pack(side=tk.LEFT, padx=5)
+            ToolTip(regen_btn, "TOTP password regeneration")
 
         # ── CONTENT ──
         content = ttk.Frame(dlg)
@@ -237,6 +244,7 @@ class TOTPSetupDialog:
         copy_uri_btn = ttk.Button(content, text="📋 Copy URI", command=copy_uri,
                                   bootstyle="info-outline")
         copy_uri_btn.pack(pady=(0, 8))
+        ToolTip(copy_uri_btn, "Copy the URI to the clipboard")
 
         # Base32 secret
         b32 = self.totp_service.get_b32_secret()
@@ -262,6 +270,7 @@ class TOTPSetupDialog:
         copy_secret_btn = ttk.Button(content, text="📋 Copy Secret", command=copy_secret,
                                      bootstyle="info-outline")
         copy_secret_btn.pack(pady=(0, 10))
+        ToolTip(copy_secret_btn, "Copy the Base32 code to the clipboard")
 
         # Live code preview – shows the CURRENT code that an authenticator
         # app would generate with the same secret.  Updates every 500 ms.
