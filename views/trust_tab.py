@@ -65,13 +65,13 @@ class TrustTab:
             ("📂 Import from File", self.import_cert_file_dialog, "info",
              "Import certificate from JSON file"),
             ("📤 Export Bundle", self.export_cert_bundle_dialog, "info",
-             "Export all certificates as a JSON package"),
+             "Export all certificates as a JSON bundle"),
             ("🔑 Split Recovery Key", self.split_key_dialog, "warning",
              "Split recovery key into multiple shares"),
             ("🔓 Recover Key", self.recover_key_dialog, "danger",
-             "Key recovery from subscriptions"),
+             "Recover the master key from shares held by trusted friends"),
             ("🔄 Refresh", self.refresh_list, "secondary-outline",
-             "Updating the list of certificates"),
+             "Refresh the list of certificates"),
         ]
         for text, cmd, style, tip in btn_specs:
             btn = ttk.Button(top_bar, text=text, command=cmd, bootstyle=style)
@@ -106,8 +106,8 @@ class TrustTab:
             "status":       {"text": "Status",      "width": 70,  "anchor": "center"},
             "name":         {"text": "Friend Name", "width": 140, "anchor": "w"},
             "trust_level":  {"text": "Trust Level", "width": 100, "anchor": "center"},
-            "cert_count":   {"text": "Certs",       "width": 80,  "anchor": "center"},
-            "last_cert":    {"text": "Last Cert",   "width": 120, "anchor": "center"},
+            "cert_count":   {"text": "Certificates", "width": 80,  "anchor": "center"},
+            "last_cert":    {"text": "Last Certificate",   "width": 120, "anchor": "center"},
             "expiry":       {"text": "Expiry",      "width": 100, "anchor": "center"},
         }
         for col_id, cfg in col_config.items():
@@ -222,7 +222,7 @@ class TrustTab:
 
     _TRUST_MAP = {
         "trusted": "Trusted",
-        "partially_trusted": "Partial",
+        "partially_trusted": "Partially Trusted",
         "untrusted": "Untrusted",
         "unknown": "Unknown",
     }
@@ -283,7 +283,7 @@ class TrustTab:
 
         count = len(self.tree.get_children())
         self._update_empty_state(count, query)
-        self.status_var.set(f"{count} friend(s) listed" +
+        self.status_var.set(f"{count} friend{'s' if count != 1 else ''} listed" +
                             (f" • Filtered by \"{query}\"" if query else ""))
 
     def _update_empty_state(self, count: int, query: str) -> None:
@@ -386,7 +386,7 @@ class TrustTab:
         form = ttk.Frame(dlg, padding=20)
         form.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(form, text="Paste Certificate Bundle (PEM or Base64):",
+        ttk.Label(form, text="Paste Certificate Bundle (JSON):",
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", pady=(0, 8))
 
         cert_input = ttk.ScrolledText(form, height=16, wrap=tk.WORD,
@@ -422,7 +422,7 @@ class TrustTab:
                 rejected = total - count
                 if rejected > 0:
                     messagebox.showwarning(
-                        "Imported with rejections",
+                        "Import Completed",
                         f"{count} of {total} certificates imported.\n\n"
                         f"{rejected} item(s) rejected because the signature could not be verified "
                         f"or the issuer is not a known contact.\n"
@@ -494,20 +494,20 @@ class TrustTab:
             self.refresh_list()
             rejected = total - count
             if rejected > 0:
-                    messagebox.showwarning(
-                        "Imported with rejections",
-                        f"{count} of {total} certificates imported from file.\n\n"
-                        f"{rejected} item(s) rejected because the signature could not be verified "
-                        f"or the issuer is not a known contact.\n"
-                        f"Add the issuer as a friend first, then import again.",
-                        parent=parent,
-                    )
-                else:
-                    messagebox.showinfo(
-                        "Imported",
-                        f"{count} certificates imported from file.",
-                        parent=parent,
-                    )
+                messagebox.showwarning(
+                    "Import Completed",
+                    f"{count} of {total} certificates imported from file.\n\n"
+                    f"{rejected} item(s) rejected because the signature could not be verified "
+                    f"or the issuer is not a known contact.\n"
+                    f"Add the issuer as a friend first, then import again.",
+                    parent=parent,
+                )
+            else:
+                messagebox.showinfo(
+                    "Imported",
+                    f"{count} certificates imported from file.",
+                    parent=parent,
+                )
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
         except Exception as e:
             messagebox.showerror("Import Error", friendly_error(e), parent=parent)
@@ -549,7 +549,7 @@ class TrustTab:
         certs = self.trust_service.get_certs_for_friend(name)
         valid_certs = [c for c in certs if not c.revoked and not c.is_expired()]
         if not valid_certs:
-            messagebox.showinfo("No certificate", f"No valid certificate found for '{name}'.")
+            messagebox.showinfo("No Valid Certificate", f"No valid certificate found for '{name}'.")
             return
 
         if len(valid_certs) == 1:
@@ -574,7 +574,7 @@ class TrustTab:
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab", friend_name=name)
 
         except Exception as e:
-            messagebox.showerror("error", friendly_error(e))
+            messagebox.showerror("Error", friendly_error(e))
 
     @staticmethod
     def _cert_summary(cert) -> str:

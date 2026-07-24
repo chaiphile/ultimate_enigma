@@ -68,7 +68,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
             wraplength=350, justify="left"
         ).pack(padx=10, pady=8)
 
-    ttk.Label(dlg, text="Enter password:",
+    ttk.Label(dlg, text="Password:",
               font=("Segoe UI", 10),
               bootstyle="inverse-primary",
               background=dialog_bg,
@@ -82,7 +82,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
 
     confirm_entry = None
     if confirm:
-        ttk.Label(dlg, text="Confirm password:",
+        ttk.Label(dlg, text="Confirm Password:",
                   font=("Segoe UI", 10),
                   bootstyle="inverse-primary",
                   background=dialog_bg,
@@ -126,7 +126,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         # Validation
         if confirm:
             if pw != confirm_pw:
-                messagebox.showerror("mismatch", "Passwords do not match.", parent=dlg)
+                messagebox.showerror("Password Mismatch", "The passwords do not match. Please try again.", parent=dlg)
                 pwd_var.set("")
                 confirm_var.set("")
                 pwd_entry.focus_set()
@@ -135,7 +135,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
                 is_valid, msg, score = validate_password_strength(pw)
                 if not is_valid:
                     messagebox.showwarning(
-                        "Weak password",
+                        "Password Too Weak",
                         f"{msg}\n\nMinimum requirements:\n"
                         f"• {MIN_PASSWORD_LENGTH}+ characters\n"
                         f"• Uppercase letters + lowercase letters + numbers + special characters",
@@ -169,7 +169,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
     cancel_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
                             bootstyle="secondary-outline")
     cancel_btn.pack(side=tk.LEFT, padx=5)
-    ToolTip(cancel_btn, "opt out")
+    ToolTip(cancel_btn, "Cancel without saving")
 
     if on_recover is not None:
         def do_recover():

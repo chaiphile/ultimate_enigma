@@ -28,7 +28,7 @@ class HybridSigExchangeDialog:
             messagebox.showerror(
                 "Access denied",
                 "The master password is incorrect.\n"
-                "Mixed signing key exchange requires authentication.",
+                "Hybrid signing key exchange requires authentication.",
                 parent=self.parent,
             )
             return
@@ -66,7 +66,7 @@ class HybridSigExchangeDialog:
                 my_fp_var.set(f"Fingerprint: {fp}" if fp else "Fingerprint: error")
             else:
                 my_pub_text.insert('1.0', "(No hybrid signing keys generated yet)")
-                my_status_var.set("⚠ No hybrid signing keys. Click 'Generate' to create.")
+                my_status_var.set("⚠ No hybrid signing keys generated. Click 'Generate New Signing Keys' to create.")
                 my_fp_var.set("")
             my_pub_text.config(state='disabled')
 
@@ -104,7 +104,7 @@ class HybridSigExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("Wrong password", "The master password is incorrect.",
+                messagebox.showerror("Wrong Password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -114,15 +114,15 @@ class HybridSigExchangeDialog:
             def on_done(pub_b64):
                 load_my_hybrid_sig()
                 messagebox.showinfo(
-                    "success",
-                    "Combination signing keys successfully generated!\n\n"
-                    "Share your public key combination with friends so they can\n"
-                    "Verify your secure post-quantum signature.",
+                    "Success",
+                    "Hybrid signing keys successfully generated!\n\n"
+                    "Share your combined public key with friends so they can\n"
+                    "verify your post-quantum messages.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("error", friendly_error(exc), parent=dlg)
+                messagebox.showerror("Error", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -131,10 +131,10 @@ class HybridSigExchangeDialog:
             """Copy public key AND pending certificates to clipboard."""
             content = my_pub_text.get('1.0', tk.END).strip()
             if not content or content.startswith("("):
-                messagebox.showwarning("No key", "First generate signing keys.", parent=dlg)
+                messagebox.showwarning("No Key", "Generate signing keys first.", parent=dlg)
                 return
             if self.trust_chain_service is None:
-                messagebox.showinfo("No certificate", "The chain of trust service is not available.", parent=dlg)
+                messagebox.showinfo("No Certificates", "The Trust Chain service is not available.", parent=dlg)
                 return
             pending = self.trust_chain_service.get_pending_certs_for_exchange()
             if not pending:
@@ -156,16 +156,16 @@ class HybridSigExchangeDialog:
         copy_sig_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
                                   bootstyle="success-outline")
         copy_sig_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(copy_sig_btn, "Copy the public key of the combined signature to the clipboard")
+        ToolTip(copy_sig_btn, "Copy the hybrid signing public key to the clipboard")
         export_cert_btn = ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
                                      bootstyle="info-outline")
         export_cert_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(export_cert_btn, "Issuing public key along with chain of trust certificates")
+        ToolTip(export_cert_btn, "Export the public key with Trust Chain certificates")
         gen_sig_btn = ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
                                  command=generate_hybrid_sig,
                                  bootstyle="success")
         gen_sig_btn.pack(side=tk.LEFT)
-        ToolTip(gen_sig_btn, "Generation of new hybrid signature keys (Ed25519 + Dilithium3)")
+        ToolTip(gen_sig_btn, "Generate new hybrid signing keys (Ed25519 + Dilithium3)")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -248,16 +248,16 @@ class HybridSigExchangeDialog:
                         else:
                             bundle_status_var.set(f"✅ Imported {count} certificate(s)")
                 except Exception as e:
-                    messagebox.showerror("Invalid package", friendly_error(e), parent=dlg)
+                    messagebox.showerror("Invalid Bundle", friendly_error(e), parent=dlg)
                     return
 
             if not fname:
-                messagebox.showwarning("No choice", "Please select a friend.",
+                messagebox.showwarning("No Selection", "Please select a friend.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("empty key",
-                                       "Please paste the public key of the combined signature.",
+                messagebox.showwarning("Empty Key",
+                                       "Please paste the hybrid signing public key.",
                                        parent=dlg)
                 return
 
@@ -272,7 +272,7 @@ class HybridSigExchangeDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("Wrong password",
+                    messagebox.showerror("Wrong Password",
                                          "The master password is incorrect.",
                                          parent=dlg)
                     return
@@ -284,10 +284,10 @@ class HybridSigExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ Hybrid signing key imported for '{fname}'")
-                messagebox.showinfo("success",
-                                    f"The combined public key of the combined signature was saved for '{fname}'.\n\n"
-                                    "This friend's messages are now with\n"
-                                    "Ed25519 and Dilithium3 are confirmed.",
+                messagebox.showinfo("Success",
+                                    f"The hybrid signing public key has been saved for '{fname}'.\n\n"
+                                    "This friend's messages will now be verified with\n"
+                                    "both Ed25519 and Dilithium3.",
                                     parent=dlg)
             except FriendsServiceError as e:
                 messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
@@ -295,7 +295,7 @@ class HybridSigExchangeDialog:
         import_sig_btn = ttk.Button(tab_import, text="💾 Import & Save Signing Key",
                                     command=do_import_hybrid_sig_key, bootstyle="success")
         import_sig_btn.pack(anchor="w")
-        ToolTip(import_sig_btn, "Import and save a friend's signature combination key")
+        ToolTip(import_sig_btn, "Import and save a friend's hybrid signing key")
 
         tab_status = ttk.Frame(notebook, padding=15)
         notebook.add(tab_status, text="  Status  ")
@@ -347,4 +347,4 @@ class HybridSigExchangeDialog:
         close_sig_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
                                    bootstyle="secondary-outline")
         close_sig_btn.pack(pady=(0, 10))
-        ToolTip(close_sig_btn, "Close the combined signature key exchange window")
+        ToolTip(close_sig_btn, "Close the Hybrid Signature Key Exchange window")

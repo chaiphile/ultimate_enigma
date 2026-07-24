@@ -75,9 +75,9 @@ class AddFriendDialog:
             try:
                 raw = base64.b64decode(b64)
                 if len(raw) < 36:
-                    pqc_status_var.set("⚠ Too short for valid PQC combined key")
+                    pqc_status_var.set("⚠ Too short for valid PQC combined public key")
                     return
-                pqc_status_var.set(f"✅ Valid PQC combined key ({len(raw)} bytes)")
+                pqc_status_var.set(f"✅ Valid PQC combined public key ({len(raw)} bytes)")
             except Exception:
                 pqc_status_var.set("⚠ Invalid Base64")
 
@@ -101,9 +101,9 @@ class AddFriendDialog:
             try:
                 raw = base64.b64decode(b64)
                 if len(raw) < 36:
-                    hybrid_sig_status_var.set("⚠ Too short for valid hybrid signing key")
+                    hybrid_sig_status_var.set("⚠ Too short for valid hybrid signing combined public key")
                     return
-                hybrid_sig_status_var.set(f"✅ Valid hybrid signing combined key ({len(raw)} bytes)")
+                hybrid_sig_status_var.set(f"✅ Valid hybrid signing combined public key ({len(raw)} bytes)")
             except Exception:
                 hybrid_sig_status_var.set("⚠ Invalid Base64")
 
@@ -112,7 +112,7 @@ class AddFriendDialog:
         caps_frame = ttk.Frame(form)
         caps_frame.pack(fill=tk.X, pady=(0, 8))
         dr_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(caps_frame, text="Supports Double Ratchet protocol",
+        ttk.Checkbutton(caps_frame, text="Supports Double Ratchet Protocol",
                         variable=dr_var, bootstyle="round-toggle").pack(side=tk.LEFT)
 
         def update_x25519_fp(*args):
@@ -145,7 +145,7 @@ class AddFriendDialog:
             x_b64 = x25519_var.get().strip() or None
 
             if not name or not pem:
-                messagebox.showerror("error", "Name and public key are required.", parent=dlg)
+                messagebox.showerror("Error", "Name and public key are required.", parent=dlg)
                 return
 
             shared_secret = None
@@ -156,7 +156,7 @@ class AddFriendDialog:
                     if len(shared_secret) != 32:
                         raise ValueError("Shared secret must be exactly 32 bytes when Base64-decoded.")
                 except Exception as e:
-                    messagebox.showerror("Invalid password",
+                    messagebox.showerror("Invalid Shared Secret",
                                          friendly_error(e), parent=dlg)
                     return
                 pw = password_dialog(dlg,
@@ -165,7 +165,7 @@ class AddFriendDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("Wrong password",
+                    messagebox.showerror("Wrong Password",
                                          "The master password is incorrect.", parent=dlg)
                     return
 
@@ -189,10 +189,10 @@ class AddFriendDialog:
                 )
                 self.refresh_list()
                 dlg.destroy()
-                messagebox.showinfo("success", f"Friend '{name}' added successfully.")
+                messagebox.showinfo("Success", f"Friend '{name}' added successfully.")
                 event_bus.publish(Events.FRIEND_LIST_CHANGED, source="friends_tab")
             except FriendsServiceError as e:
-                messagebox.showerror("error", friendly_error(e), parent=dlg)
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         save_btn = ttk.Button(btn_frame, text="💾 Save Friend", command=save,
                               bootstyle="success")

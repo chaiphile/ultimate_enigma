@@ -69,7 +69,7 @@ class EncryptTab:
         # Encryption mode
         ttk.Label(opts, text="Mode:").grid(row=0, column=3, padx=(10, 5), sticky=tk.W)
         self._pqc_available = is_pqc_available()
-        mode_values = ["Double Ratchet (XChaCha20)", "Shared Secret (time‑based)", "Public Key (RSA)"]
+        mode_values = ["Double Ratchet (XChaCha20)", "Shared Secret (Time-Based)", "Public Key (RSA)"]
         if self._pqc_available:
             mode_values.append("Post-Quantum (Hybrid KEM)")
         self.mode_combo = ttk.Combobox(
@@ -119,7 +119,7 @@ class EncryptTab:
         self.msg_input.bind("<Escape>", lambda e: (self.clear_input(), "break")[1])
 
         # Sent messages log
-        sent_frame = ttk.Labelframe(self.frame, text="Sent messages (Base64)",
+        sent_frame = ttk.Labelframe(self.frame, text="Sent Encrypted Messages",
                                     bootstyle="info")
         sent_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         # Read-only so users can't accidentally corrupt the ciphertext history
@@ -155,7 +155,7 @@ class EncryptTab:
             return
         if messagebox.askyesno(
             "Clear history",
-            "Delete the entire history of sent messages?This action cannot be reversed."
+            "Delete the entire history of sent messages? This action cannot be reversed."
         ):
             self.sent_log.configure(state='normal')
             self.sent_log.delete("1.0", tk.END)
@@ -189,7 +189,7 @@ class EncryptTab:
             self.mode_combo.set("Post-Quantum (Hybrid KEM)")
         elif has_secret:
             self.mode_combo.config(state="readonly")
-            self.mode_combo.set("Shared Secret (time‑based)")
+            self.mode_combo.set("Shared Secret (Time-Based)")
         else:
             self.mode_combo.config(state="disabled")
             self.mode_combo.set("Public Key (RSA)")
@@ -200,16 +200,16 @@ class EncryptTab:
     def send_message(self) -> None:
         plaintext = self.msg_input.get("1.0", tk.END).strip()
         if not plaintext:
-            messagebox.showwarning("vacant", "Please type a message.")
+            messagebox.showwarning("Empty Message", "Please type a message.")
             return
         
         # Validate message size
         msg_size = len(plaintext.encode('utf-8'))
         if msg_size > MAX_MESSAGE_SIZE:
             messagebox.showwarning(
-                "The message is too big",
-                f"Message size ({msg_size:,} bytes) from the maximum allowed"
-                f"({MAX_MESSAGE_SIZE:,} bytes) exceeded.\nPlease reduce the message length."
+                "Message Too Large",
+                f"Message size ({msg_size:,} bytes) exceeds the maximum allowed "
+                f"size ({MAX_MESSAGE_SIZE:,} bytes).\nPlease reduce the message length."
             )
             return
 
@@ -265,12 +265,12 @@ class EncryptTab:
             logger.exception("Encryption failed")
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "Expiration of time",
-                    "Encryption timed out.The system may be under heavy load."
+                    "Encryption Timeout",
+                    "Encryption timed out. The system may be under heavy load. "
                     "Please try again."
                 )
             else:
-                messagebox.showerror("Encryption error", friendly_error(exc))
+                messagebox.showerror("Encryption Error", friendly_error(exc))
 
         # Determine timeout based on mode
         if mode == "pqc":
@@ -319,7 +319,7 @@ class EncryptTab:
             else:
                 messagebox.showerror("Clipboard error", "Unable to access the clipboard.")
         else:
-            messagebox.showwarning("nothing", "No message has been sent yet.")
+            messagebox.showwarning("Nothing Sent", "No message has been sent yet.")
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self) -> None:

@@ -39,7 +39,7 @@ class NtpTab:
         bottom_bar = ttkb.Frame(self.frame, padding=(15, 10))
         bottom_bar.pack(side=tk.BOTTOM, fill=tk.X)
 
-        self.sync_btn = ttkb.Button(bottom_bar, text="🔄 Sync Now",
+        self.sync_btn = ttkb.Button(bottom_bar, text="Sync Now",
                                     command=self._manual_sync,
                                     bootstyle="success",
                                     width=18)
@@ -56,7 +56,7 @@ class NtpTab:
         f.pack(fill=tk.BOTH, expand=True)
 
         # Title
-        ttkb.Label(f, text="🕐 NTP Synchronization",
+        ttkb.Label(f, text="NTP Synchronization",
                    font=("Segoe UI", 18, "bold"),
                    bootstyle="inverse-primary").pack(pady=(0, 5))
 
@@ -177,8 +177,8 @@ class NtpTab:
         custom = self.custom_server_var.get().strip()
         if custom and not custom.replace(".", "").replace("-", "").isalnum():
             messagebox.showwarning(
-                "Invalid hostname",
-                "Please enter a valid NTP server hostname (eg 'pool.ntp.org').",
+                "Invalid Server Address",
+                "Please enter a valid NTP server address (e.g., pool.ntp.org).",
                 parent=self.frame.winfo_toplevel()
             )
             return
@@ -265,7 +265,7 @@ class NtpTab:
             )
             
             if fallback and server_used:
-                status_msg = f"✅ Synced via {server_used} (fallback)"
+                status_msg = f"Synced via {server_used} (backup server)"
                 # Update active server label to show which server actually worked
                 self.server_label.config(text=f"{server_used}:123")
             else:
@@ -275,11 +275,11 @@ class NtpTab:
             # Update encryption service with NTP time
             self.encryption_service.update_ntp_time(ntp_timestamp)
         else:
-            self.ntp_time_label.config(text="Sync Failed", bootstyle="inverse-danger")
+            self.ntp_time_label.config(text="Synchronization Failed", bootstyle="inverse-danger")
             self.offset_label.config(text="--", bootstyle="inverse-secondary")
             tried = server_used or "unknown"
             self.status_indicator.config(
-                text=f"❌ All NTP servers unreachable (tried {len(_FALLBACK_SERVERS)} servers)",
+                text=f"All NTP servers unavailable — tried {len(_FALLBACK_SERVERS)} servers",
                 bootstyle="inverse-danger"
             )
 

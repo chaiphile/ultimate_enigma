@@ -1,4 +1,4 @@
-"""About tab with backup export/import."""
+"""About tab with version info, backup export/import, and security settings."""
 
 import json
 import os
@@ -52,7 +52,7 @@ class AboutTab:
 
         # Description
         desc = ("Hybrid Encryption (AES‑GCM + RSA‑OAEP)\n"
-                "Time‑based symmetric keys • File encryption • Digital signatures")
+                "Time‑based key rotation • File encryption • Digital signatures")
         ttkb.Label(f, text=desc,
                   font=("Segoe UI", 9),
                   justify="center",
@@ -79,7 +79,7 @@ class AboutTab:
                                  bootstyle="warning",
                                  width=18)
         export_btn.pack(side=tk.LEFT, padx=8)
-        ToolTip(export_btn, "Backup of all keys and settings")
+        ToolTip(export_btn, "Export an encrypted backup of all keys and settings")
         import_btn = ttkb.Button(btn_frame, text="📥 Import Backup",
                                  command=self._import_backup,
                                  bootstyle="danger",
@@ -100,13 +100,13 @@ class AboutTab:
                                     bootstyle="info",
                                     width=24)
         change_pw_btn.pack(pady=(0, 5))
-        ToolTip(change_pw_btn, "Change the master password of the program")
+        ToolTip(change_pw_btn, "Change the master password used to unlock the application")
         duress_btn = ttkb.Button(f, text="🚨 Set Duress Password",
                                  command=self._set_duress_password,
                                  bootstyle="danger-outline",
                                  width=24)
         duress_btn.pack(pady=(0, 5))
-        ToolTip(duress_btn, "Set a mandatory password for emergency situations")
+        ToolTip(duress_btn, "Set a decoy password that will be required under duress")
 
     # ------------------------------------------------------------------
     # Change Password
@@ -127,7 +127,7 @@ class AboutTab:
     # ------------------------------------------------------------------
     def _export_backup(self) -> None:
         pw = password_dialog(self.frame.winfo_toplevel(),
-                             "Enter Master Password (Export)", confirm=False)
+                             "Enter Master Password to Export Backup", confirm=False)
         if not pw:
             return
 
@@ -138,7 +138,7 @@ class AboutTab:
             return
 
         path = filedialog.asksaveasfilename(
-            title="Backup storage",
+            title="Save Backup As",
             defaultextension=".enigma-backup",
             filetypes=[("Enigma Backup", "*.enigma-backup"), ("All Files", "*.*")],
             initialfile="enigma_backup.enigma-backup",
@@ -150,7 +150,7 @@ class AboutTab:
             with open(path, "w", encoding="utf-8") as fh:
                 json.dump(data, fh, indent=2, ensure_ascii=True)
             os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
-            messagebox.showinfo("success", f"Backup exported to the following path:\n{path}")
+            messagebox.showinfo("Success", f"Backup exported to the following path:\n{path}")
         except OSError as exc:
             messagebox.showerror("Export failed", f"Cannot write file: {exc}")
 
@@ -166,7 +166,7 @@ class AboutTab:
             return
 
         confirm = messagebox.askyesno(
-            "Import confirmation",
+            "Import Confirmation",
             "⚠️ This will replace all current keys, friends and settings.\n\n"
             "This action cannot be undone.\n\nContinue?",
             icon="warning",
@@ -189,8 +189,8 @@ class AboutTab:
         try:
             self._backup_service.import_backup(data, pw)
             messagebox.showinfo(
-                "success",
-                "Backup logged in successfully.\nRestored keys and friends.",
+                "Success",
+                "Backup imported successfully.\nRestored keys and friends.",
             )
         except BackupServiceError as exc:
             messagebox.showerror("Import failed", str(exc))

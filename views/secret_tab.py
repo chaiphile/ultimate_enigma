@@ -29,7 +29,7 @@ class SecretTab:
         f.pack(expand=True, fill=tk.BOTH)
 
         # Fingerprint display
-        ttk.Label(f, text="Current Global Shared Secret Fingerprint:",
+        ttk.Label(f, text="Global Secret Fingerprint:",
                   font=("Segoe UI", 10, "bold"),
                   bootstyle="inverse-primary").pack(anchor=tk.W, pady=(0, 5))
 
@@ -41,11 +41,11 @@ class SecretTab:
         export_btn = ttk.Button(f, text="Export Global Secret (Copy)", command=self.export_global,
                                 bootstyle="secondary-outline")
         export_btn.pack(anchor=tk.W, pady=5)
-        ToolTip(export_btn, "Copy the global shared secret to the clipboard (deleted after 30 seconds)")
+        ToolTip(export_btn, "Copy the global secret to the clipboard (cleared after 30 seconds)")
         import_btn = ttk.Button(f, text="Import Global Secret", command=self.import_global,
                                 bootstyle="secondary-outline")
         import_btn.pack(anchor=tk.W, pady=5)
-        ToolTip(import_btn, "Enter a new global shared secret from the clipboard")
+        ToolTip(import_btn, "Import a new global secret from the clipboard")
 
         # Separator
         ttk.Separator(f, orient='horizontal', bootstyle="secondary").pack(fill=tk.X, pady=15)
@@ -56,7 +56,7 @@ class SecretTab:
         ecdh_btn = ttk.Button(f, text="Start ECDH for Global Secret", command=self.start_ecdh,
                               bootstyle="info")
         ecdh_btn.pack(anchor=tk.W, pady=5)
-        ToolTip(ecdh_btn, "Start ECDH key exchange to generate global shared key")
+        ToolTip(ecdh_btn, "Start ECDH key exchange to generate a new global secret")
 
         self._update_display()
 
@@ -74,7 +74,7 @@ class SecretTab:
         if not pw:
             return None
         if not self.service.verify_master_password(pw):
-            messagebox.showerror("Wrong password", "The master password is incorrect.")
+            messagebox.showerror("Incorrect Password", "The master password is incorrect.")
             return None
         return pw
 
@@ -82,22 +82,22 @@ class SecretTab:
         if not self.service.has_secret():
             messagebox.showwarning("No secret", "No global secret available.")
             return
-        if not messagebox.askyesno("Warning", "This will display your raw global shared secret. Do you want to continue?"):
+        if not messagebox.askyesno("Confirm", "This will display the current global secret in plaintext. Do you want to continue?"):
             return
         try:
             b64 = self.service.export_secret_b64()
             ok = self.clipboard_service.copy(b64)
             if ok:
                 messagebox.showinfo(
-                    "Exported",
-                    "The global shared secret was copied to the clipboard.\n"
-                    "The clipboard is automatically cleared in 30 seconds."
+                    "Secret Exported",
+                    "The global secret has been copied to the clipboard.\n"
+                    "The clipboard will be cleared automatically in 30 seconds."
                 )
             else:
-                messagebox.showerror("Clipboard error", "Unable to access the clipboard.")
+                messagebox.showerror("Clipboard Error", "Unable to access the clipboard.")
         except GlobalSecretServiceError as e:
             from views.utils import friendly_error
-            messagebox.showerror("error", friendly_error(e))
+            messagebox.showerror("Error", friendly_error(e))
 
     def import_global(self) -> None:
         from views.dialogs import password_dialog
@@ -123,7 +123,7 @@ class SecretTab:
         def submit():
             b64 = b64_var.get().strip()
             if not b64:
-                messagebox.showerror("Required", "Please paste the Base64 secret.", parent=dlg)
+                messagebox.showerror("Input Required", "Please paste the Base64-encoded secret.", parent=dlg)
                 return
 
             try:
@@ -135,7 +135,7 @@ class SecretTab:
             fp = sha256_fingerprint(new_key)
 
             ok = messagebox.askyesno(
-                "⚠️ Replace Global Secret",
+                "⚠️ Replace Global Secret?",
                 f"New Secret Fingerprint:\n{fp}\n\n"
                 "Warning: This will permanently replace the current global secret.\n"
                 "All messages encrypted with the old secret will become unreadable.\n"
@@ -154,10 +154,10 @@ class SecretTab:
                 self.service.update_secret(new_key, pw)
                 self._update_display()
                 dlg.destroy()
-                messagebox.showinfo("success", "The global shared secret has been updated.")
+                messagebox.showinfo("Success", "The global shared secret has been updated.")
             except GlobalSecretServiceError as e:
                 from views.utils import friendly_error
-                messagebox.showerror("error", friendly_error(e), parent=dlg)
+                messagebox.showerror("Error", friendly_error(e), parent=dlg)
 
         ttk.Button(dlg, text="Submit", command=submit, bootstyle="success").pack(pady=(15, 5))
         ttk.Button(dlg, text="Cancel", command=dlg.destroy, bootstyle="secondary-outline").pack(pady=5)
@@ -176,6 +176,6 @@ class SecretTab:
                 try:
                     self.service.update_secret(new_key, pw)
                     self._update_display()
-                    messagebox.showinfo("success", "The global secret was updated via ECDH.")
+                    messagebox.showinfo("Success", "The global secret was updated via ECDH.")
                 except GlobalSecretServiceError as e:
-                    messagebox.showerror("error", str(e))
+                    messagebox.showerror("Error", str(e))
