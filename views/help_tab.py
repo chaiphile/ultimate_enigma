@@ -1,4 +1,4 @@
-"""Help tab – full user usage guidance documentation with Farsi translation."""
+"""Help tab – full user guide for the Ultimate Enigma Messenger."""
 
 import tkinter as tk
 import ttkbootstrap as ttk
@@ -10,105 +10,105 @@ _GUIDE_SECTIONS = [
     {
         "title": "🚀 Getting Started",
         "steps": [
-            ("1.Install and run", "python main.py"),
-            ("2.Set master password", "At least 16 characters including uppercase, lowercase, numbers and symbols"),
-            ("3.Generating keys", "4096-bit RSA key and 256-bit shared key are automatically generated"),
-            ("4.TOTP setting", "The app displays a QR code — scan with Google Authenticator"),
-            ("5.Set name", "Go to Friends tab → Set My Name and enter your name"),
+            ("1. Install and run", "python main.py"),
+            ("2. Set master password", "At least 16 characters: uppercase, lowercase, numbers, and symbols"),
+            ("3. Generate keys", "A 4096-bit RSA key pair and a 256-bit shared secret key are generated automatically"),
+            ("4. Set up TOTP", "The app displays a QR code — scan with Google Authenticator"),
+            ("5. Set your display name", "Go to Friends tab → Set My Name and enter your name"),
         ],
     },
     {
-        "title": "👥 Management of friends — Friends",
+        "title": "👥 Friends",
         "steps": [
-            ("add friend", "Go to the Friends tab and click Add Friend"),
+            ("Add a friend", "Go to the Friends tab and click Add Friend"),
             ("", "Enter your friend's name, RSA public key, and X25519 key"),
-            ("edit friend", "Right click on the friend's name → Edit"),
-            ("delete friend", "Right click on the friend's name → Delete"),
+            ("Edit a friend", "Right click on the friend's name → Edit"),
+            ("Delete a friend", "Right click on the friend's name → Delete"),
             ("Set your name", "Click the Set My Name button"),
-            ("ECDH key exchange", "Friends → Right click → Exchange Keys"),
+            ("Exchange ECDH keys", "Friends → Right click → Exchange Keys"),
             ("Manage PQC keys", "Friends → Right click → PQC Key Exchange"),
         ],
     },
     {
-        "title": "✉️ Send an encrypted message — Encrypt & Send",
+        "title": "✉️ Encrypt & Send",
         "steps": [
-            ("1.Choose a friend", "Select the desired friend from the drop-down list"),
-            ("2.Write a message", "Write the text of the message in the input box"),
-            ("3.Choose an expiration time", "Self-Destruct: 5 minutes, 10 minutes, 1 hour or as desired"),
-            ("4.encryption", "Click the Encrypt button"),
-            ("5.send", "Auto-encrypted text is copied to the clipboard — send to a friend"),
+            ("1. Choose a friend", "Select the desired friend from the drop-down list"),
+            ("2. Write a message", "Write the text of the message in the input box"),
+            ("3. Choose a message expiration time", "Self-Destruct: 5 minutes, 10 minutes, 1 hour or as desired"),
+            ("4. Encrypt the message", "Click the Encrypt button"),
+            ("5. Send", "Auto-encrypted text is copied to the clipboard — send to a friend"),
         ],
     },
     {
         "title": "📥 Decrypt & Receive",
         "steps": [
-            ("1.Copy message", "Copy the encrypted text from your friend"),
-            ("2.paste", "Paste the text in the input box of the Decrypt & Receive tab"),
-            ("3.decoding", "Click the Decrypt button"),
-            ("4.view", "The original text and sender information will be displayed"),
+            ("1. Copy the encrypted message", "Copy the encrypted text from your friend"),
+            ("2. Paste the message", "Paste the text in the input box of the Decrypt & Receive tab"),
+            ("3. Decrypt", "Click the Decrypt button"),
+            ("4. View the decrypted result", "The original text and sender information will be displayed"),
         ],
     },
     {
-        "title": "🔐 file encryption — File Encryption",
+        "title": "🔐 File Encryption",
         "steps": [
             ("Password encryption", "Select File → Enter Password → Encrypt"),
             ("Decrypt with password", "Select Encrypted File → Enter Password → Decrypt"),
-            ("Encryption for a friend", "Choose Friend → Choose File → Encrypt for Friend"),
-            ("Decode for friend", "Choose File → Decrypt from Friend"),
+            ("Encrypt for a friend", "Choose Friend → Choose File → Encrypt for Friend"),
+            ("Decrypt for a friend", "Choose File → Decrypt from Friend"),
         ],
     },
     {
-        "title": "🔗 Shared key and ECDH - Shared Secret",
+        "title": "🔗 Shared Secret & ECDH",
         "steps": [
-            ("Show the shared key", "See your 256-bit shared key in the Shared Secret tab"),
-            ("Copy the key", "Press the Copy button (after 30 seconds it will be automatically deleted)"),
-            ("ECDH exchange", "Exchange keys with your friends to create a secure channel"),
+            ("View the shared secret", "See your 256-bit shared secret in the Shared Secret tab"),
+            ("Copy the shared secret", "Press the Copy button (after 30 seconds it will be automatically cleared)"),
+            ("Perform ECDH key exchange", "Exchange keys with your friends to create a secure channel"),
         ],
     },
     {
         "title": "🔗 Trust Chain",
         "steps": [
-            ("Issuance of certificate", "Issue trust certificates to your friends"),
-            ("Import the certificate", "Enter the certificate received from friends"),
-            ("Confidence levels", "NONE → BASIC → VERIFIED → TRUSTED"),
-            ("Certificate revocation", "You can revoke the issued certificate"),
+            ("Issue a certificate", "Issue trust certificates to your friends"),
+            ("Import a certificate", "Enter the certificate received from friends"),
+            ("Trust levels", "NONE → BASIC → VERIFIED → TRUSTED"),
+            ("Revoke a certificate", "You can revoke the issued certificate"),
         ],
     },
     {
-        "title": "🕐 NTP synchronization — Time Sync",
+        "title": "🕐 NTP Time Sync",
         "steps": [
-            ("Automatic synchronization", "NTP syncs automatically after startup"),
+            ("Automatic sync on startup", "NTP syncs automatically after startup"),
             ("Manual synchronization", "Click the Sync Now button on the NTP tab"),
-            ("Validation", "View sync status and time difference"),
+            ("Verify time sync status", "View sync status and time difference"),
         ],
     },
     {
-        "title": "🔒 Security & Lock — Security & Lock",
+        "title": "🔒 Security & Lock",
         "steps": [
-            ("Emergency lock", "Press the EMERGENCY LOCK button — all keys will be erased"),
+            ("Trigger emergency lock", "Press the EMERGENCY LOCK button — all keys will be erased"),
             ("Unlock", "Enter master password + TOTP"),
-            ("Password required", "Click the Set Duress Password button on the About tab"),
-            ("", "If forced, fake data will be displayed with this password"),
-            ("Change password", "Click the Change Master Password button on the About tab"),
+            ("Set duress password", "Click the Set Duress Password button on the About tab"),
+            ("", "If forced, decoy data will be shown when this password is used"),
+            ("Change master password", "Click the Change Master Password button on the About tab"),
         ],
     },
     {
-        "title": "💾 Backup — Backup & Restore",
+        "title": "💾 Backup & Restore",
         "steps": [
-            ("Issue backup", "About → Export Backup → Enter password → Select backup path"),
+            ("Export backup", "About → Export Backup → Enter password → Select backup path"),
             ("Import backup", "Choose About → Import Backup → backup file"),
-            ("attention", "Backup includes all keys, friends and settings"),
-            ("warning", "Importing a backup replaces all current data"),
+            ("Note", "Backup includes all keys, friends and settings"),
+            ("Warning", "Importing a backup replaces all current data"),
         ],
     },
     {
-        "title": "❓ Frequently asked questions - FAQ",
+        "title": "❓ Frequently Asked Questions",
         "steps": [
             ("How do I send a message?", "Encrypt & Send → Select a friend → Write the text → Encrypt"),
             ("How do I read a message?", "Decrypt & Receive → Paste the ciphertext → Decrypt"),
-            ("I forgot the password", "Use Recovery on the lock screen"),
-            ("What is TOTP?", "One-time password to unlock the app, required after emergency lock"),
-            ("Is internet required?", "No, the app works completely offline.NTP is optional"),
+            ("I forgot my password", "Use Recovery on the lock screen"),
+            ("What is TOTP?", "Time-based One-Time Password (TOTP) required to unlock the app after an emergency lock"),
+            ("Is internet required?", "No, the app works completely offline. NTP sync is optional."),
             ("How do I make a backup?", "About ← Export Backup"),
             ("How do I add friends?", "Friends ← Add Friend"),
         ],
@@ -200,7 +200,7 @@ class HelpTab:
         def _open_repo():
             webbrowser.open("https://github.com/chaiphile/ultimate_enigma")
 
-        repo_btn = ttk.Button(link_frame, text="GitHub repository",
+        repo_btn = ttk.Button(link_frame, text="GitHub Repository",
                               command=_open_repo,
                               bootstyle="info-link")
         repo_btn.pack(side=tk.RIGHT, padx=5)

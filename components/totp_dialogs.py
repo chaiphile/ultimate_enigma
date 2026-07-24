@@ -82,7 +82,7 @@ class TOTPVerifyDialog:
         def verify():
             code = totp_var.get().strip()
             if len(code) != 6 or not code.isdigit():
-                messagebox.showerror("invalid", "Enter a 6-digit code.", parent=dlg)
+                messagebox.showerror("Invalid Input", "Enter a 6-digit code.", parent=dlg)
                 return
             if self.totp_service.verify(code):
                 self.result = True
@@ -103,7 +103,7 @@ class TOTPVerifyDialog:
         cancel_totp_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
                                      bootstyle="secondary-outline")
         cancel_totp_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(cancel_totp_btn, "Withdrawal of TOTP approval")
+        ToolTip(cancel_totp_btn, "Cancel TOTP verification")
 
         dlg.bind("<Return>", lambda e: verify())
         dlg.bind("<Escape>", lambda e: cancel())
@@ -161,8 +161,8 @@ class TOTPSetupDialog:
                 # Update QR code if available
                 if qr_label is not None and HAS_QRCODE:
                     self._update_qr(qr_label, new_uri)
-                messagebox.showinfo("reproduction", "A new TOTP password has been generated.\n"
-                                    "Please scan again with your authenticator.", parent=dlg)
+                messagebox.showinfo("Secret Regenerated", "A new TOTP secret has been generated.\n"
+                                    "Please scan the QR code again with your authenticator app.", parent=dlg)
 
         # OK button
         ok_btn = ttk.Button(
@@ -170,7 +170,7 @@ class TOTPSetupDialog:
             command=ok_close, bootstyle="success"
         )
         ok_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(ok_btn, "Confirm and close - TOTP password is saved")
+        ToolTip(ok_btn, "Confirm and close — TOTP secret is saved")
 
         # Cancel button
         cancel_btn = ttk.Button(
@@ -178,7 +178,7 @@ class TOTPSetupDialog:
             command=dlg.destroy, bootstyle="secondary-outline"
         )
         cancel_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(cancel_btn, "opt out")
+        ToolTip(cancel_btn, "Cancel setup")
 
         # Regenerate button
         if self.on_regenerate:
@@ -187,7 +187,7 @@ class TOTPSetupDialog:
                 command=regenerate, bootstyle="warning"
             )
             regen_btn.pack(side=tk.LEFT, padx=5)
-            ToolTip(regen_btn, "TOTP password regeneration")
+            ToolTip(regen_btn, "Generate a new TOTP secret")
 
         # ── CONTENT ──
         content = ttk.Frame(dlg)

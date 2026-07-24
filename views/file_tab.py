@@ -93,16 +93,16 @@ class FileTab:
         btn_frame = ttk.Frame(self.frame, padding=(10, 20))
         btn_frame.pack(expand=True)
 
-        self.encrypt_btn = ttk.Button(btn_frame, text="🔒 Encrypt a File",
+        self.encrypt_btn = ttk.Button(btn_frame, text="🔒 Encrypt File",
                                       command=self.encrypt_file,
                                       bootstyle="success", width=20)
         self.encrypt_btn.pack(pady=10, ipadx=20, ipady=10)
-        ToolTip(self.encrypt_btn, "Selecting and encrypting a file with the selected method")
-        self.decrypt_btn = ttk.Button(btn_frame, text="🔓 Decrypt a File",
+        ToolTip(self.encrypt_btn, "Encrypt a file using the selected method")
+        self.decrypt_btn = ttk.Button(btn_frame, text="🔓 Decrypt File",
                                       command=self.decrypt_file,
                                       bootstyle="primary", width=20)
         self.decrypt_btn.pack(pady=10, ipadx=20, ipady=10)
-        ToolTip(self.decrypt_btn, "Select and decrypt an encrypted file")
+        ToolTip(self.decrypt_btn, "Decrypt a previously encrypted file")
 
     def _set_busy(self, busy: bool) -> None:
         try:
@@ -169,7 +169,7 @@ class FileTab:
 
     # ===================== ENCRYPT =====================
     def encrypt_file(self) -> None:
-        infile = filedialog.askopenfilename(title="Select file to encrypt")
+        infile = filedialog.askopenfilename(title="Select File to Encrypt")
         if not infile:
             return
         try:
@@ -177,7 +177,7 @@ class FileTab:
         except ValueError as e:
             messagebox.showerror("Invalid path", str(e))
             return
-        outfile = filedialog.asksaveasfilename(title="Save encrypted file as",
+        outfile = filedialog.asksaveasfilename(title="Save Encrypted File As",
                                                defaultextension=".enc")
         if not outfile:
             return
@@ -201,21 +201,21 @@ class FileTab:
             password = pw
         elif method == "global":
             if not self.global_secret_service.has_secret():
-                messagebox.showerror("error", "Global shared password is not available.")
+                messagebox.showerror("Encryption Error", "Global shared secret is not configured.")
                 return
             desc = "Global Shared Secret"
         else:  # friend
             friend_name = self.friend_var.get()
             if not friend_name:
-                messagebox.showwarning("without friends", "Please select a friend.")
+                messagebox.showwarning("No Friend Selected", "Please select a friend.")
                 return
             if not self.friends_service.friend_has_secret(friend_name):
-                messagebox.showerror("error", f"There is no shared password for {friend_name}.")
+                messagebox.showerror("Shared Secret Not Found", f"No shared secret is available for {friend_name}.")
                 return
             desc = f"Friend's Secret ({friend_name})"
 
-        if not messagebox.askyesno("Verification of the encryption method",
-                                   f"You are encrypting with:\n{desc}\n\nDo you continue?"):
+        if not messagebox.askyesno("Confirm Encryption",
+                                   f"Encrypt using:\n{desc}\n\nProceed?"):
             return
 
         def _do_encrypt():
@@ -234,8 +234,8 @@ class FileTab:
             """Handle successful encryption (runs on main thread)."""
             self._set_busy(False)
             messagebox.showinfo(
-                "success",
-                f"The file has been encrypted (your original file has not changed):\n{result_path}"
+                "Encryption Successful",
+                f"File encrypted successfully.\nYour original file was not modified.\n\nSaved to:\n{result_path}"
             )
 
         def _on_error(exc):
@@ -243,18 +243,18 @@ class FileTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "The time is up",
-                    "File encryption timed out.The file may be too large or the system may be under heavy load.Please try again."
+                    "Encryption Timed Out",
+                    "File encryption timed out. The file may be too large or the system may be under heavy load.\n\nPlease try again."
                 )
             else:
-                messagebox.showerror("Encryption error", friendly_error(exc))
+                messagebox.showerror("Encryption Error", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_encrypt, _on_success, _on_error)
 
     # ===================== DECRYPT =====================
     def decrypt_file(self) -> None:
-        infile = filedialog.askopenfilename(title="Select encrypted file")
+        infile = filedialog.askopenfilename(title="Select Encrypted File")
         if not infile:
             return
         try:
@@ -266,7 +266,7 @@ class FileTab:
         suggested = os.path.basename(infile)
         if suggested.lower().endswith(".enc"):
             suggested = suggested[:-4]
-        outfile = filedialog.asksaveasfilename(title="Save decrypted file as",
+        outfile = filedialog.asksaveasfilename(title="Save Decrypted File As",
                                                initialfile=suggested)
         if not outfile:
             return
@@ -292,8 +292,8 @@ class FileTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "The time is up",
-                    "File decryption timed out.The file may be too large or the system may be under heavy load.Please try again."
+                    "Decryption Timed Out",
+                    "File decryption timed out. The file may be too large or the system may be under heavy load.\n\nPlease try again."
                 )
             elif isinstance(exc, SharedSecretDetected):
                 self._handle_shared_detected(infile, outfile, exc)
@@ -301,9 +301,9 @@ class FileTab:
                 if "password required" in str(exc).lower():
                     self._prompt_password_and_decrypt(infile, outfile)
                 else:
-                    messagebox.showerror("Decoding error", friendly_error(exc))
+                    messagebox.showerror("Decryption Error", friendly_error(exc))
             else:
-                messagebox.showerror("Decoding error", friendly_error(exc))
+                messagebox.showerror("Decryption Error", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_decrypt, _on_success, _on_error)
@@ -311,9 +311,9 @@ class FileTab:
     def _handle_shared_detected(self, infile: str, outfile: str, detection: SharedSecretDetected) -> None:
         """Ask user if they want to decrypt using the detected shared secret."""
         ok = messagebox.askyesno(
-            "Shared password detected",
-            f"This file appears to be encrypted with the shared password '{detection.owner}'.\n\n"
-            "Do you want to decrypt with that shared password?"
+            "Shared Secret Detected",
+            f"This file appears to be encrypted with the shared secret for '{detection.owner}'.\n\n"
+            "Decrypt using this shared secret?"
         )
         if not ok:
             return
@@ -330,9 +330,9 @@ class FileTab:
         def _on_error(exc):
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
-                messagebox.showerror("The time is up", "File decryption timed out.")
+                messagebox.showerror("Decryption Timed Out", "File decryption timed out.")
             else:
-                messagebox.showerror("Decoding error", friendly_error(exc))
+                messagebox.showerror("Decryption Error", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_decrypt_shared, _on_success, _on_error)
@@ -357,9 +357,9 @@ class FileTab:
         def _on_error(exc):
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
-                messagebox.showerror("The time is up", "File decryption timed out.")
+                messagebox.showerror("Decryption Timed Out", "File decryption timed out.")
             else:
-                messagebox.showerror("Decoding error", friendly_error(exc))
+                messagebox.showerror("Decryption Error", friendly_error(exc))
 
         self._set_busy(True)
         self._submit_file_task(_do_decrypt_pw, _on_success, _on_error)
@@ -368,4 +368,4 @@ class FileTab:
         msg = f"File decrypted:\n{outfile}"
         if sig_msg:
             msg += f"\n\n{sig_msg}"
-        messagebox.showinfo("success", msg)
+        messagebox.showinfo("Decryption Successful", msg)

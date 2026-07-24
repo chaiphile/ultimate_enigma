@@ -216,7 +216,7 @@ class EnigmaApp:
             notebook,
             self.service_orchestrator.encryption_service
         )
-        notebook.add(self.ntp_tab.frame, text="🕐 NTP")
+        notebook.add(self.ntp_tab.frame, text="🕐 Time Sync")
 
         self.help_tab = HelpTab(notebook)
         notebook.add(self.help_tab.frame, text="📚 Help")
@@ -408,10 +408,10 @@ class EnigmaApp:
                 pass
 
         messagebox.showinfo(
-            "Recovery is complete",
+            "Recovery Complete",
             "The application has been restored successfully.\n\n"
             "New encryption keys have been generated.\n"
-            "You must re-exchange keys with your friends."
+            "You must re-exchange keys with your contacts."
         )
         logger.info("Application recovered via recovery key")
 
@@ -518,8 +518,8 @@ class EnigmaApp:
                 title="Anomaly Detected",
                 message=(
                     f"Suspicious message from {sender}\n"
-                    f"Score: {score_val:.3f} | Confidence: {confidence:.0%}\n"
-                    f"Type: {env_type} | Size: {packet_size} bytes"
+                    f"Confidence: {confidence:.0%}\n"
+                    f"Anomaly type: {env_type}"
                 ),
                 duration=8000,
                 bootstyle="danger",
@@ -535,7 +535,7 @@ class EnigmaApp:
 
         # Also flash the status bar for extra visibility
         self._set_status(
-            f"Anomaly from {sender}: score={score_val:.3f}",
+            f"⚠️ Suspicious message from {sender}",
             clear_after_ms=10000,
         )
 
@@ -551,8 +551,8 @@ class EnigmaApp:
         banner = ttk.Label(
             self.root,
             text=(
-                f"Anomaly: Suspicious message from '{sender}' "
-                f"(score={score:.3f}, confidence={confidence:.0%})"
+                f"⚠️ Suspicious message detected from '{sender}' "
+                f"(confidence: {confidence:.0%})"
             ),
             bootstyle="danger",
             anchor="center",

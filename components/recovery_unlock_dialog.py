@@ -131,11 +131,11 @@ class RecoveryUnlockDialog:
         add_share_rec_btn = ttk.Button(btn_row, text="Add Share", command=lambda: add_share_entry(),
                                         bootstyle="success-outline")
         add_share_rec_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(add_share_rec_btn, "Add new field to enter subscription")
+        ToolTip(add_share_rec_btn, "Add a new field to enter a share")
         remove_share_rec_btn = ttk.Button(btn_row, text="Remove Last", command=remove_last,
                                           bootstyle="danger-outline")
         remove_share_rec_btn.pack(side=tk.LEFT, padx=(0, 12))
-        ToolTip(remove_share_rec_btn, "Delete the last subscription field")
+        ToolTip(remove_share_rec_btn, "Delete the last share field")
 
         def import_share_file():
             path = filedialog.askopenfilename(
@@ -172,9 +172,9 @@ class RecoveryUnlockDialog:
                         logger.exception("Share decryption failed")
                         messagebox.showerror(
                             "Decryption failed",
-                            "This subscription could not be decrypted with your RSA private key."
+                            "This share could not be decrypted with your RSA private key."
                             "\n\n" + friendly_error(dec_err) + "\n\n"
-                            "Make sure this subscription file is created for you.",
+                            "Make sure this share file was created for you.",
                             parent=dlg,
                         )
                         return
@@ -186,7 +186,7 @@ class RecoveryUnlockDialog:
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
-                    "Subscription entered",
+                    "Share Imported",
                     f"Added share #{share_index}.\n"
                     f"Owner: {payload.get('owner_name', 'unknown')}",
                     parent=dlg,
@@ -201,7 +201,7 @@ class RecoveryUnlockDialog:
                                           command=import_share_file,
                                           bootstyle="info-outline")
         import_share_rec_btn.pack(side=tk.LEFT)
-        ToolTip(import_share_rec_btn, "Import the .enigma-share share file")
+        ToolTip(import_share_rec_btn, "Import the .enigma-share file")
 
         self._result_var = tk.StringVar(value="")
         self._result_display = ttk.ScrolledText(parent, height=3, wrap=tk.WORD,
@@ -218,8 +218,8 @@ class RecoveryUnlockDialog:
                     raw_shares.append((idx_var.get(), val))
 
             if len(raw_shares) < 2:
-                messagebox.showwarning("Insufficient subscriptions",
-                                       "Offer at least 2 subscriptions.", parent=dlg)
+                messagebox.showwarning("Insufficient Shares",
+                                       "Enter at least 2 shares.", parent=dlg)
                 return
 
             try:
@@ -229,13 +229,13 @@ class RecoveryUnlockDialog:
                     parsed.append((share_idx, share_bytes))
             except Exception as e:
                 logger.exception("Invalid share encoding")
-                messagebox.showerror("Invalid subscriptions",
+                messagebox.showerror("Invalid Shares",
                                      friendly_error(e), parent=dlg)
                 return
 
             if len(set(len(s[1]) for s in parsed)) != 1:
-                messagebox.showerror("Invalid subscriptions",
-                                     "All subscriptions must be the same length.",
+                messagebox.showerror("Invalid Shares",
+                                     "All shares must be the same length.",
                                      parent=dlg)
                 return
 
@@ -265,7 +265,7 @@ class RecoveryUnlockDialog:
                             break
 
             def _err(e):
-                messagebox.showerror("Rebuild failed",
+                messagebox.showerror("Reconstruction Failed",
                                      friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
@@ -276,7 +276,7 @@ class RecoveryUnlockDialog:
         reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
                                      command=do_reconstruct, bootstyle="warning")
         reconstruct_btn.pack(anchor="w")
-        ToolTip(reconstruct_btn, "Regenerate the recovery key from imported subscriptions")
+        ToolTip(reconstruct_btn, "Regenerate the recovery key from imported shares")
 
     def _build_set_password_tab(self, parent, dlg):
         ttk.Label(
@@ -323,7 +323,7 @@ class RecoveryUnlockDialog:
         def apply_recovery():
             if self._reconstructed_state["key_bytes"] is None:
                 messagebox.showwarning("No key",
-                                       "First, regenerate the recovery key.",
+                                       "First, reconstruct the recovery key.",
                                        parent=dlg)
                 return
 
@@ -337,7 +337,7 @@ class RecoveryUnlockDialog:
                 return
 
             if new_pw != confirm_pw:
-                messagebox.showerror("mismatch", "Passwords do not match.",
+                messagebox.showerror("Passwords Don't Match", "Passwords do not match.",
                                      parent=dlg)
                 return
 
@@ -349,12 +349,12 @@ class RecoveryUnlockDialog:
 
             confirm = messagebox.askyesno(
                 "Confirm recovery",
-                "This work:\n"
+                "This will:\n"
                 "• Replaces your original password\n"
                 "• Regenerates RSA, PQC and signature keys\n"
                 "• Clears shared secrets of friends.\n"
                 "• Stores public keys and friends' certificates\n\n"
-                "do you continue",
+                "Do you want to continue?",
                 icon="warning",
                 parent=dlg,
             )
