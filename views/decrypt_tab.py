@@ -53,22 +53,22 @@ class DecryptTab:
                                command=self.paste_from_clipboard,
                                bootstyle="secondary-outline")
         paste_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(paste_btn, "چسباندن متن رمز شده از کلیپ‌بورد")
+        ToolTip(paste_btn, "Paste encrypted text from clipboard")
         clear_btn = ttk.Button(btn_bar, text="Clear",
                                command=self.clear,
                                bootstyle="secondary-outline")
         clear_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(clear_btn, "پاک کردن متن ورودی و خروجی")
+        ToolTip(clear_btn, "Clear input and output text")
         self.copy_out_btn = ttk.Button(btn_bar, text="Copy Decrypted",
                                        command=self.copy_decrypted,
                                        bootstyle="info-outline")
         self.copy_out_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(self.copy_out_btn, "کپی متن رمزگشایی شده در کلیپ‌بورد")
+        ToolTip(self.copy_out_btn, "Copy the decrypted text to the clipboard")
         self.decrypt_btn = ttk.Button(btn_bar, text="Decrypt Message",
                                       command=self.receive_message,
                                       bootstyle="success")
         self.decrypt_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(self.decrypt_btn, "رمزگشایی پیام جایگذاری شده")
+        ToolTip(self.decrypt_btn, "Decode the embedded message")
 
         # Output area
         out_frame = ttk.Labelframe(self.frame, text="Decrypted message",
@@ -111,23 +111,23 @@ class DecryptTab:
         text = self.decrypted_display.get("1.0", tk.END).strip()
         self.decrypted_display.configure(state='disabled')
         if not text:
-            messagebox.showwarning("هیچ", "پیام رمزگشایی شده‌ای برای کپی وجود ندارد.")
+            messagebox.showwarning("nothing", "There is no decrypted message to copy.")
             return
         if self.clipboard_service.copy(text):
             flash_widget_text(self.copy_out_btn, "Copied ✓", "Copy Decrypted")
         else:
-            messagebox.showerror("خطای کلیپ‌بورد", "دسترسی به کلیپ‌بورد امکان‌پذیر نیست.")
+            messagebox.showerror("Clipboard error", "Unable to access the clipboard.")
 
     def paste_from_clipboard(self) -> None:
         text = self.clipboard_service.get()
         if text is None:
-            messagebox.showwarning("کلیپ‌بورد",
-                                   "کلیپ‌بورد خالی یا قابل دسترسی نیست.")
+            messagebox.showwarning("clipboard",
+                                   "Clipboard is empty or inaccessible.")
             return
         if self.recv_input.get("1.0", tk.END).strip():
             if not messagebox.askyesno(
-                "جایگزینی متن ورودی؟",
-                "جعبه ورودی حاوی متن است. با محتوای کلیپ‌بورد جایگزین شود؟"
+                "Replace input text?",
+                "The input box contains text.Replace with clipboard content?"
             ):
                 return
         self.recv_input.delete("1.0", tk.END)
@@ -144,7 +144,7 @@ class DecryptTab:
     def receive_message(self) -> None:
         b64_text = self.recv_input.get("1.0", tk.END).strip()
         if not b64_text:
-            messagebox.showwarning("خالی", "یک پیام Base64 برای رمزگشایی جای‌گذاری کنید.")
+            messagebox.showwarning("vacant", "Paste a Base64 message to decode.")
             return
 
         def _do_decrypt():
@@ -162,9 +162,9 @@ class DecryptTab:
             self._set_busy(False)
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "انقضای زمان",
-                    "زمان رمزگشایی به پایان رسید. ممکن است پیام بیش از حد بزرگ یا "
-                    "سیستم تحت بار سنگین باشد. لطفاً دوباره تلاش کنید."
+                    "Expiration of time",
+                    "Decryption timed out.The message may be too large or"
+                    "The system is under heavy load.Please try again."
                 )
             elif isinstance(exc, DecryptionError):
                 err_msg = str(exc)
@@ -174,24 +174,24 @@ class DecryptTab:
                 )
                 if is_ratchet_missing:
                     messagebox.showerror(
-                        "نشست Ratchet یافت نشد",
-                        "هیچ نشست Double Ratchet برای این پیام یافت نشد.\n\n"
-                        "برای رفع این مشکل:\n"
-                        "1. به برگه دوستان بروید\n"
-                        "2. فرستنده را انتخاب کنید و یک تبادل کلید جدید انجام دهید\n"
-                        "3. هر دو طرف باید دست‌داد را کامل کنند\n\n"
-                        "ممکن است نشست به دلیل بازنشانی پایگاه داده، "
-                        "نصب مجدد برنامه یا ناهماهنگی وضعیت از دست رفته باشد."
+                        "Ratchet session not found",
+                        "No Double Ratchet sessions were found for this message.\n\n"
+                        "To fix this problem:\n"
+                        "1. Go to friends tab\n"
+                        "2. Select the sender and perform a new key exchange\n"
+                        "3. Both parties must complete the handshake\n\n"
+                        "The session may be due to a database reset."
+                        "Reinstall the program or inconsistency is lost."
                     )
                 else:
                     messagebox.showerror(
-                        "خطای رمزگشایی",
-                        "این پیام قابل رمزگشایی نیست. ممکن است خراب شده، "
-                        "برای شما ارسال نشده باشد یا منقضی شده باشد."
+                        "Decoding error",
+                        "This message cannot be decoded.may be broken"
+                        "has not been sent to you or has expired."
                     )
             else:
                 logger.exception("Unexpected decryption error")
-                messagebox.showerror("خطای رمزگشایی", friendly_error(exc))
+                messagebox.showerror("Decoding error", friendly_error(exc))
             self.mode_label.config(text="")
             self.sig_label.config(text="")
 

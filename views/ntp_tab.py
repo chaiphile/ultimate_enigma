@@ -44,7 +44,7 @@ class NtpTab:
                                     bootstyle="success",
                                     width=18)
         self.sync_btn.pack(side=tk.LEFT, padx=8)
-        ToolTip(self.sync_btn, "همگام‌سازی دستی زمان با سرور NTP")
+        ToolTip(self.sync_btn, "Manual time synchronization with NTP server")
 
         self.status_indicator = ttkb.Label(bottom_bar, text="",
                                            font=("Segoe UI", 10),
@@ -177,8 +177,8 @@ class NtpTab:
         custom = self.custom_server_var.get().strip()
         if custom and not custom.replace(".", "").replace("-", "").isalnum():
             messagebox.showwarning(
-                "نام میزبان نامعتبر",
-                "لطفاً یک نام میزبان سرور NTP معتبر وارد کنید (مثلاً 'pool.ntp.org').",
+                "Invalid hostname",
+                "Please enter a valid NTP server hostname (eg 'pool.ntp.org').",
                 parent=self.frame.winfo_toplevel()
             )
             return

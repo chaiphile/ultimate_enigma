@@ -8,109 +8,109 @@ from views.utils import ToolTip
 
 _GUIDE_SECTIONS = [
     {
-        "title": "🚀 شروع کار — Getting Started",
+        "title": "🚀 Getting Started",
         "steps": [
-            ("۱. نصب و اجرا", "python main.py"),
-            ("۲. تنظیم رمز عبور اصلی", "حداقل ۱۶ کاراکتر شامل حروف بزرگ، کوچک، عدد و نماد"),
-            ("۳. تولید کلیدها", "کلید RSA 4096 بیتی و کلید اشتراکی ۲۵۶ بیتی خودکار تولید می‌شوند"),
-            ("۴. تنظیم TOTP", "برنامه QR کد نمایش می‌دهد — با Google Authenticator اسکن کنید"),
-            ("۵. تنظیم نام", "به برگه Friends → Set My Name بروید و نام خود را وارد کنید"),
+            ("1.Install and run", "python main.py"),
+            ("2.Set master password", "At least 16 characters including uppercase, lowercase, numbers and symbols"),
+            ("3.Generating keys", "4096-bit RSA key and 256-bit shared key are automatically generated"),
+            ("4.TOTP setting", "The app displays a QR code — scan with Google Authenticator"),
+            ("5.Set name", "Go to Friends tab → Set My Name and enter your name"),
         ],
     },
     {
-        "title": "👥 مدیریت دوستان — Friends",
+        "title": "👥 Management of friends — Friends",
         "steps": [
-            ("افزودن دوست", "به برگه Friends بروید و Add Friend را کلیک کنید"),
-            ("", "نام، کلید عمومی RSA و کلید X25519 دوست خود را وارد کنید"),
-            ("ویرایش دوست", "روی نام دوست راست کلیک کنید → Edit"),
-            ("حذف دوست", "روی نام دوست راست کلیک کنید → Delete"),
-            ("تنظیم نام خود", "روی دکمه Set My Name کلیک کنید"),
-            ("تبادل کلید ECDH", "دوستان → کلیک راست → Exchange Keys"),
-            ("مدیریت کلیدهای PQC", "دوستان → کلیک راست → PQC Key Exchange"),
+            ("add friend", "Go to the Friends tab and click Add Friend"),
+            ("", "Enter your friend's name, RSA public key, and X25519 key"),
+            ("edit friend", "Right click on the friend's name → Edit"),
+            ("delete friend", "Right click on the friend's name → Delete"),
+            ("Set your name", "Click the Set My Name button"),
+            ("ECDH key exchange", "Friends → Right click → Exchange Keys"),
+            ("Manage PQC keys", "Friends → Right click → PQC Key Exchange"),
         ],
     },
     {
-        "title": "✉️ ارسال پیام رمزنگاری‌شده — Encrypt & Send",
+        "title": "✉️ Send an encrypted message — Encrypt & Send",
         "steps": [
-            ("۱. انتخاب دوست", "از لیست کشویی دوست مورد نظر را انتخاب کنید"),
-            ("۲. نوشتن پیام", "متن پیام را در کادر ورودی بنویسید"),
-            ("۳. انتخاب زمان انقضا", "Self-Destruct: ۵ دقیقه، ۱۰ دقیقه، ۱ ساعت یا دلخواه"),
-            ("۴. رمزنگاری", "دکمه Encrypt را بزنید"),
-            ("۵. ارسال", "متن رمز شده خودکار در کلیپ‌بورد کپی می‌شود — برای دوست خود بفرستید"),
+            ("1.Choose a friend", "Select the desired friend from the drop-down list"),
+            ("2.Write a message", "Write the text of the message in the input box"),
+            ("3.Choose an expiration time", "Self-Destruct: 5 minutes, 10 minutes, 1 hour or as desired"),
+            ("4.encryption", "Click the Encrypt button"),
+            ("5.send", "Auto-encrypted text is copied to the clipboard — send to a friend"),
         ],
     },
     {
-        "title": "📥 دریافت و رمزگشایی — Decrypt & Receive",
+        "title": "📥 Decrypt & Receive",
         "steps": [
-            ("۱. کپی پیام", "متن رمز شده را از دوست خود کپی کنید"),
-            ("۲. چسباندن", "متن را در کادر ورودی برگه Decrypt & Receive بچسبانید"),
-            ("۳. رمزگشایی", "دکمه Decrypt را بزنید"),
-            ("۴. مشاهده", "متن اصلی و اطلاعات فرستنده نمایش داده می‌شود"),
+            ("1.Copy message", "Copy the encrypted text from your friend"),
+            ("2.paste", "Paste the text in the input box of the Decrypt & Receive tab"),
+            ("3.decoding", "Click the Decrypt button"),
+            ("4.view", "The original text and sender information will be displayed"),
         ],
     },
     {
-        "title": "🔐 رمزنگاری فایل — File Encryption",
+        "title": "🔐 file encryption — File Encryption",
         "steps": [
-            ("رمزنگاری با رمز عبور", "فایل را انتخاب کنید → رمز عبور وارد کنید → Encrypt"),
-            ("رمزگشایی با رمز عبور", "فایل رمز شده را انتخاب کنید → رمز عبور وارد کنید → Decrypt"),
-            ("رمزنگاری برای دوست", "دوست را انتخاب کنید → فایل را انتخاب کنید → Encrypt for Friend"),
-            ("رمزگشایی برای دوست", "فایل را انتخاب کنید → Decrypt from Friend"),
+            ("Password encryption", "Select File → Enter Password → Encrypt"),
+            ("Decrypt with password", "Select Encrypted File → Enter Password → Decrypt"),
+            ("Encryption for a friend", "Choose Friend → Choose File → Encrypt for Friend"),
+            ("Decode for friend", "Choose File → Decrypt from Friend"),
         ],
     },
     {
-        "title": "🔗 کلید اشتراکی و ECDH — Shared Secret",
+        "title": "🔗 Shared key and ECDH - Shared Secret",
         "steps": [
-            ("نمایش کلید اشتراکی", "کلید اشتراکی ۲۵۶ بیتی خود را در برگه Shared Secret ببینید"),
-            ("کپی کلید", "دکمه Copy را بزنید (پس از ۳۰ ثانیه خودکار پاک می‌شود)"),
-            ("تبادل ECDH", "با دوستان خود تبادل کلید انجام دهید تا کانال امن ایجاد شود"),
+            ("Show the shared key", "See your 256-bit shared key in the Shared Secret tab"),
+            ("Copy the key", "Press the Copy button (after 30 seconds it will be automatically deleted)"),
+            ("ECDH exchange", "Exchange keys with your friends to create a secure channel"),
         ],
     },
     {
-        "title": "🔗 زنجیره اعتماد — Trust Chain",
+        "title": "🔗 Trust Chain",
         "steps": [
-            ("صدور گواهی", "برای دوستان خود گواهی اعتماد صادر کنید"),
-            ("وارد کردن گواهی", "گواهی دریافتی از دوستان را وارد کنید"),
-            ("سطوح اعتماد", "NONE → BASIC → VERIFIED → TRUSTED"),
-            ("ابطال گواهی", "گواهی صادر شده را می‌توانید ابطال کنید"),
+            ("Issuance of certificate", "Issue trust certificates to your friends"),
+            ("Import the certificate", "Enter the certificate received from friends"),
+            ("Confidence levels", "NONE → BASIC → VERIFIED → TRUSTED"),
+            ("Certificate revocation", "You can revoke the issued certificate"),
         ],
     },
     {
-        "title": "🕐 همگام‌سازی NTP — Time Sync",
+        "title": "🕐 NTP synchronization — Time Sync",
         "steps": [
-            ("همگام‌سازی خودکار", "NTP به طور خودکار پس از راه‌اندازی همگام می‌شود"),
-            ("همگام‌سازی دستی", "دکمه Sync Now را در برگه NTP بزنید"),
-            ("اعتبارسنجی", "وضعیت همگام‌سازی و اختلاف زمانی را مشاهده کنید"),
+            ("Automatic synchronization", "NTP syncs automatically after startup"),
+            ("Manual synchronization", "Click the Sync Now button on the NTP tab"),
+            ("Validation", "View sync status and time difference"),
         ],
     },
     {
-        "title": "🔒 امنیت و قفل — Security & Lock",
+        "title": "🔒 Security & Lock — Security & Lock",
         "steps": [
-            ("قفل اضطراری", "دکمه EMERGENCY LOCK را بزنید — همه کلیدها پاک می‌شوند"),
-            ("باز کردن قفل", "رمز عبور اصلی + TOTP را وارد کنید"),
-            ("رمز عبور اجباری", "در برگه About دکمه Set Duress Password را بزنید"),
-            ("", "در صورت اجبار، با این رمز عبور داده‌های جعلی نمایش داده می‌شود"),
-            ("تغییر رمز عبور", "در برگه About دکمه Change Master Password را بزنید"),
+            ("Emergency lock", "Press the EMERGENCY LOCK button — all keys will be erased"),
+            ("Unlock", "Enter master password + TOTP"),
+            ("Password required", "Click the Set Duress Password button on the About tab"),
+            ("", "If forced, fake data will be displayed with this password"),
+            ("Change password", "Click the Change Master Password button on the About tab"),
         ],
     },
     {
-        "title": "💾 پشتیبان‌گیری — Backup & Restore",
+        "title": "💾 Backup — Backup & Restore",
         "steps": [
-            ("صدور پشتیبان", "About → Export Backup → رمز عبور را وارد کنید → مسیر ذخیره را انتخاب کنید"),
-            ("وارد کردن پشتیبان", "About → Import Backup → فایل پشتیبان را انتخاب کنید"),
-            ("توجه", "پشتیبان شامل همه کلیدها، دوستان و تنظیمات است"),
-            ("هشدار", "وارد کردن پشتیبان همه داده‌های فعلی را جایگزین می‌کند"),
+            ("Issue backup", "About → Export Backup → Enter password → Select backup path"),
+            ("Import backup", "Choose About → Import Backup → backup file"),
+            ("attention", "Backup includes all keys, friends and settings"),
+            ("warning", "Importing a backup replaces all current data"),
         ],
     },
     {
-        "title": "❓ پرسش‌های متداول — FAQ",
+        "title": "❓ Frequently asked questions - FAQ",
         "steps": [
-            ("چگونه یک پیام بفرستم؟", "Encrypt & Send ← دوست را انتخاب کنید ← متن را بنویسید ← Encrypt"),
-            ("چگونه یک پیام را بخوانم؟", "Decrypt & Receive ← متن رمز را بچسبانید ← Decrypt"),
-            ("رمز عبور را فراموش کرده‌ام", "از Recovery در صفحه قفل استفاده کنید"),
-            ("TOTP چیست؟", "رمز یکبارمصرف برای باز کردن قفل برنامه، الزامی پس از قفل اضطراری"),
-            ("آیا اینترنت نیاز است؟", "خیر، برنامه کاملاً آفلاین کار می‌کند. NTP اختیاری است"),
-            ("پشتیبان‌گیری چطور انجام دهم؟", "About ← Export Backup"),
-            ("چگونه دوست اضافه کنم؟", "Friends ← Add Friend"),
+            ("How do I send a message?", "Encrypt & Send → Select a friend → Write the text → Encrypt"),
+            ("How do I read a message?", "Decrypt & Receive → Paste the ciphertext → Decrypt"),
+            ("I forgot the password", "Use Recovery on the lock screen"),
+            ("What is TOTP?", "One-time password to unlock the app, required after emergency lock"),
+            ("Is internet required?", "No, the app works completely offline.NTP is optional"),
+            ("How do I make a backup?", "About ← Export Backup"),
+            ("How do I add friends?", "Friends ← Add Friend"),
         ],
     },
 ]
@@ -148,11 +148,11 @@ class HelpTab:
         inner.bind("<Configure>", _configure_inner)
 
         # Header
-        ttk.Label(inner, text="📚 راهنمای کاربر — User Guide",
+        ttk.Label(inner, text="📚 User Guide",
                   font=("Segoe UI", 18, "bold"),
                   bootstyle="inverse-primary",
                   anchor="e").pack(pady=(0, 5), fill=tk.X)
-        ttk.Label(inner, text="راهنمای کامل استفاده از برنامه Ultimate Enigma Messenger",
+        ttk.Label(inner, text="Complete guide to using the Ultimate Enigma Messenger app",
                   font=("Segoe UI", 10),
                   bootstyle="inverse-secondary",
                   anchor="e").pack(pady=(0, 25), fill=tk.X)
@@ -191,22 +191,22 @@ class HelpTab:
         def _open_docs():
             webbrowser.open("https://github.com/chaiphile/ultimate_enigma/tree/main/docs")
 
-        docs_btn = ttk.Button(link_frame, text="مستندات Docs",
+        docs_btn = ttk.Button(link_frame, text="Documentation",
                               command=_open_docs,
                               bootstyle="info-link")
         docs_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(docs_btn, "باز کردن مستندات کامل برنامه در مرورگر")
+        ToolTip(docs_btn, "Open the complete application documentation in the browser")
 
         def _open_repo():
             webbrowser.open("https://github.com/chaiphile/ultimate_enigma")
 
-        repo_btn = ttk.Button(link_frame, text="مخزن GitHub",
+        repo_btn = ttk.Button(link_frame, text="GitHub repository",
                               command=_open_repo,
                               bootstyle="info-link")
         repo_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(repo_btn, "باز کردن مخزن کد منبع در گیت‌هاب")
+        ToolTip(repo_btn, "Open the source code repository on GitHub")
 
-        ttk.Label(link_frame, text="🔗 منابع مفید:",
+        ttk.Label(link_frame, text="Useful resources:",
                   font=("Segoe UI", 9, "bold"),
                   bootstyle="inverse-primary").pack(side=tk.RIGHT, padx=(10, 0))
 

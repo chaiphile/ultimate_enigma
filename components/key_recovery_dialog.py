@@ -44,9 +44,9 @@ class KeyRecoveryDialog:
             return
         if not self.friends_service.verify_master_password(master_pw):
             messagebox.showerror(
-                "دسترسی رد شد",
-                "رمز عبور اصلی نادرست است.\n"
-                "بازیابی کلید نیاز به احراز هویت دارد.",
+                "Access denied",
+                "The master password is incorrect.\n"
+                "Key recovery requires authentication.",
                 parent=self.parent,
             )
             return
@@ -171,22 +171,22 @@ class KeyRecoveryDialog:
 
             selected_indices = friend_listbox.curselection()
             if not selected_indices:
-                messagebox.showwarning("هیچ دوستی انتخاب نشد",
-                                       "حداقل یک دوست برای نگهداری اشتراک‌ها انتخاب کنید.",
+                messagebox.showwarning("No friends were selected",
+                                       "Choose at least one friend to keep subscriptions.",
                                        parent=dlg)
                 return
             n = n_var.get()
             k = k_var.get()
             if k > n:
-                messagebox.showwarning("پارامترهای نامعتبر",
-                                       "آستانه K نمی‌تواند از تعداد کل اشتراک‌های N بیشتر باشد.",
+                messagebox.showwarning("Invalid parameters",
+                                       "The threshold K cannot exceed the total number of subscriptions N.",
                                        parent=dlg)
                 return
             if len(selected_indices) < n:
                 messagebox.showwarning(
-                    "دوستان کافی نیست",
-                    f"شما {len(selected_indices)} دوست انتخاب کردید اما به "
-                    f"{n} دارنده اشتراک نیاز دارید.\nدوستان بیشتری انتخاب کنید یا N را کاهش دهید.",
+                    "Not enough friends",
+                    f"You selected {len(selected_indices)} friends but to"
+                    f"You need {n} subscribers.\nChoose more friends or reduce N.",
                     parent=dlg,
                 )
                 return
@@ -198,10 +198,10 @@ class KeyRecoveryDialog:
                        if self.friends_service.get_friend_rsa_pub(n) is None]
             if missing:
                 messagebox.showerror(
-                    "کلیدهای عمومی گم شده",
-                    "این دوستان کلید عمومی RSA بارگذاری شده ندارند و نمی‌توانند "
-                    f"اشتراک رمزنگاری شده دریافت کنند:\n\n{', '.join(missing)}\n\n"
-                    "دوباره آنها را اضافه کنید تا کلید عمومی آنها در دسترس باشد.",
+                    "Missing public keys",
+                    "These friends do not and cannot have the RSA public key uploaded"
+                    f"Receive encrypted subscription:\n\n{', '.join(missing)}\n\n"
+                    "Add them again so their public key is available.",
                     parent=dlg,
                 )
                 return
@@ -275,8 +275,8 @@ class KeyRecoveryDialog:
                             with open(path, "w", encoding="utf-8") as f:
                                 json.dump(payload, f, indent=2)
                             messagebox.showinfo(
-                                "صادر شد",
-                                f"فایل اشتراک ذخیره شد.\nآن را به صورت امن برای {holder_name} ارسال کنید.",
+                                "was issued",
+                                f"Subscription file saved.\nSend it securely to {holder_name}.",
                                 parent=dlg,
                             )
                         return _export
@@ -291,15 +291,15 @@ class KeyRecoveryDialog:
                 event_bus.publish(Events.RECOVERY_SHARE_CREATED, n=n, k=k,
                                   holders=selected_names)
                 messagebox.showinfo(
-                    "اشتراک‌های بازیابی",
-                    f"کلید بازیابی به {n} اشتراک تقسیم شد (آستانه: {k}).\n"
-                    "هر اشتراک را صادر کرده و به صورت امن توزیع کنید.",
+                    "Recovery subscriptions",
+                    f"Recovery key split into {n} shares (threshold: {k}).\n"
+                    "Export and distribute any subscription securely.",
                     parent=dlg,
                 )
 
             def _err(e):
                 logger.exception("Failed to split key")
-                messagebox.showerror("خطا", friendly_error(e), parent=dlg)
+                messagebox.showerror("error", friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
                      busy_widgets=[split_btn])
@@ -307,7 +307,7 @@ class KeyRecoveryDialog:
         split_btn = ttk.Button(parent, text="Generate & Distribute Shares",
                                command=do_split, bootstyle="warning")
         split_btn.pack(anchor="w")
-        ToolTip(split_btn, "تولید اشتراک‌های کلید بازیابی و توزیع بین دوستان انتخاب شده")
+        ToolTip(split_btn, "Generate recovery key shares and distribute to selected friends")
 
     # ------------------------------------------------------------------
     # Recover tab
@@ -379,11 +379,11 @@ class KeyRecoveryDialog:
         add_share_btn = ttk.Button(btn_row, text="Add Share", command=add_share_entry,
                                    bootstyle="success-outline")
         add_share_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(add_share_btn, "افزودن فیلد جدید برای وارد کردن اشتراک")
+        ToolTip(add_share_btn, "Add new field to enter subscription")
         remove_share_btn = ttk.Button(btn_row, text="Remove Last", command=remove_last,
                                       bootstyle="danger-outline")
         remove_share_btn.pack(side=tk.LEFT, padx=(0, 12))
-        ToolTip(remove_share_btn, "حذف آخرین فیلد اشتراک")
+        ToolTip(remove_share_btn, "Delete the last subscription field")
 
         def import_share_file():
             path = filedialog.askopenfilename(
@@ -399,8 +399,8 @@ class KeyRecoveryDialog:
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 share_index = payload.get("share_index", len(share_entries) + 1)
                 if not enc_b64:
-                    messagebox.showerror("فایل نامعتبر",
-                                         "اشتراک رمزنگاری شده در فایل یافت نشد.",
+                    messagebox.showerror("Invalid file",
+                                         "Encrypted subscription not found in file.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -409,32 +409,32 @@ class KeyRecoveryDialog:
                 except Exception as dec_err:
                     logger.exception("Share decryption failed")
                     messagebox.showerror(
-                        "رمزگشایی ناموفق",
-                        "امکان رمزگشایی اشتراک با کلید خصوصی RSA شما وجود ندارد.\n\n"
+                        "Decryption failed",
+                        "Unable to decrypt the subscription with your RSA private key.\n\n"
                         + friendly_error(dec_err) + "\n\n"
-                        "مطمئن شوید این فایل اشتراک برای شما ایجاد شده است.",
+                        "Make sure this subscription file is created for you.",
                         parent=dlg,
                     )
                     return
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
-                    "اشتراک وارد شد",
-                    f"اشتراک #{share_index} رمزگشایی و اضافه شد.\n"
-                    f"مالک: {payload.get('owner_name', 'unknown')}",
+                    "Subscription entered",
+                    f"Share #{share_index} decoded and added.\n"
+                    f"Owner: {payload.get('owner_name', 'unknown')}",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import share file")
-                messagebox.showerror("واردات ناموفق",
-                                     "واردات فایل اشتراک ناموفق بود.\n\n"
+                messagebox.showerror("Import failed",
+                                     "Failed to import share file.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         import_share_btn = ttk.Button(btn_row, text="Import .enigma-share File",
                                       command=import_share_file,
                                       bootstyle="info-outline")
         import_share_btn.pack(side=tk.LEFT)
-        ToolTip(import_share_btn, "وارد کردن فایل اشتراک .enigma-share")
+        ToolTip(import_share_btn, "Import the .enigma-share share file")
 
         result_var = tk.StringVar(value="")
         result_display = ttk.ScrolledText(parent, height=3, wrap=tk.WORD,
@@ -451,8 +451,8 @@ class KeyRecoveryDialog:
                     raw_shares.append((idx_var.get(), val))
 
             if len(raw_shares) < 2:
-                messagebox.showwarning("اشتراک‌های ناکافی",
-                                        "حداقل ۲ اشتراک ارائه دهید.", parent=dlg)
+                messagebox.showwarning("Insufficient subscriptions",
+                                        "Offer at least 2 subscriptions.", parent=dlg)
                 return
 
             try:
@@ -462,13 +462,13 @@ class KeyRecoveryDialog:
                     parsed.append((share_idx, share_bytes))
             except Exception as e:
                 logger.exception("Invalid share encoding")
-                messagebox.showerror("اشتراک‌های نامعتبر",
+                messagebox.showerror("Invalid subscriptions",
                                      friendly_error(e), parent=dlg)
                 return
 
             if len(set(len(s[1]) for s in parsed)) != 1:
-                messagebox.showerror("اشتراک‌های نامعتبر",
-                                     "همه اشتراک‌ها باید طول یکسانی داشته باشند.",
+                messagebox.showerror("Invalid subscriptions",
+                                     "All subscriptions must be the same length.",
                                      parent=dlg)
                 return
 
@@ -479,7 +479,7 @@ class KeyRecoveryDialog:
 
             def _err(e):
                 logger.exception("Failed to reconstruct key")
-                messagebox.showerror("بازسازی ناموفق",
+                messagebox.showerror("Rebuild failed",
                                      friendly_error(e), parent=dlg)
 
             def _done(reconstructed):
@@ -528,16 +528,16 @@ class KeyRecoveryDialog:
                     dlg.after(30000, _auto_clear)
 
                     messagebox.showinfo(
-                        "کپی شد",
-                        "کلید بازیابی در کلیپ‌بورد کپی شد.\n"
-                        "فوراً از آن استفاده کنید. برای امنیت شما، کلیپ‌بورد "
-                        "پس از ۳۰ ثانیه به طور خودکار پاک می‌شود.",
+                        "copied",
+                        "The recovery key was copied to the clipboard.\n"
+                        "Use it immediately.For your safety, clipboard"
+                        "It will be deleted automatically after 30 seconds.",
                         parent=dlg)
 
                 copy_key_btn = ttk.Button(action_frame, text="Copy to Clipboard",
                                           command=copy_key, bootstyle="warning")
                 copy_key_btn.pack(side=tk.LEFT, padx=(0, 8))
-                ToolTip(copy_key_btn, "کپی کلید بازیابی در کلیپ‌بورد (پس از ۳۰ ثانیه پاک می‌شود)")
+                ToolTip(copy_key_btn, "Copy the recovery key to the clipboard (deleted after 30 seconds)")
 
                 _build_apply_button(action_frame)
 
@@ -554,17 +554,17 @@ class KeyRecoveryDialog:
                     return
                 if len(key_bytes) != 32:
                     messagebox.showerror(
-                        "طول کلید نامعتبر",
-                        f"کلید بازسازی شده {len(key_bytes)} بایت است؛ "
-                        "دقیقاً ۳۲ بایت برای تنظیم به عنوان کلید اصلی نیاز است.",
+                        "Invalid key length",
+                        f"The regenerated key is {len(key_bytes)} bytes;"
+                        "Exactly 32 bytes are required to set as primary key.",
                         parent=dlg,
                     )
                     return
                 confirmed = messagebox.askyesno(
-                    "جایگزینی کلید اصلی",
-                    "این کار کلید اصلی فعلی شما را با کلید بازسازی شده جایگزین می‌کند.\n\n"
-                    "هر داده رمزنگاری شده با کلید قدیمی باید به صورت دستی دوباره رمزنگاری شود.\n\n"
-                    "ادامه می‌دهید؟",
+                    "Replace the master key",
+                    "This will replace your current master key with the regenerated key.\n\n"
+                    "Any data encrypted with the old key must be manually re-encrypted.\n\n"
+                    "do you continue",
                     icon="warning",
                     parent=dlg,
                 )
@@ -576,15 +576,15 @@ class KeyRecoveryDialog:
 
                 def _ok(_result):
                     messagebox.showinfo(
-                        "کلید اعمال شد",
-                        "کلید اصلی با کلید بازیابی بازسازی شده جایگزین شد.\n"
-                        "جلسه شما اکنون از کلید بازیابی شده استفاده می‌کند.",
+                        "Key applied",
+                        "The original key was replaced with a regenerated recovery key.\n"
+                        "Your session will now use the recovered key.",
                         parent=dlg,
                     )
 
                 def _fail(exc):
                     logger.exception("Failed to apply recovered key")
-                    messagebox.showerror("اعمال ناموفق",
+                    messagebox.showerror("Unsuccessful actions",
                                          friendly_error(exc), parent=dlg)
 
                 run_busy(dlg, _work, on_done=_ok, on_error=_fail,
@@ -594,14 +594,14 @@ class KeyRecoveryDialog:
                                    command=apply_as_master_key,
                                    bootstyle="danger")
             apply_btn.pack(side=tk.LEFT)
-            ToolTip(apply_btn, "اعمال کلید بازیابی به عنوان کلید اصلی سراسری")
+            ToolTip(apply_btn, "Apply recovery key as global master key")
 
         ttk.Label(parent, textvariable=result_var,
                   font=("Segoe UI", 9), bootstyle="success").pack(anchor="w", pady=(0, 8))
         reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
                                      command=do_reconstruct, bootstyle="warning")
         reconstruct_btn.pack(anchor="w")
-        ToolTip(reconstruct_btn, "بازسازی کلید بازیابی از اشتراک‌های وارد شده")
+        ToolTip(reconstruct_btn, "Regenerate the recovery key from imported subscriptions")
 
     # ------------------------------------------------------------------
     # Held Shares tab  (shares this user is holding for others)
@@ -688,8 +688,8 @@ class KeyRecoveryDialog:
 
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 if not enc_b64:
-                    messagebox.showerror("فایل نامعتبر",
-                                         "داده اشتراک رمزنگاری شده در فایل یافت نشد.",
+                    messagebox.showerror("Invalid file",
+                                         "Encrypted subscription data was not found in the file.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -698,11 +698,11 @@ class KeyRecoveryDialog:
                 except Exception as dec_err:
                     logger.exception("Held-share decryption failed")
                     messagebox.showerror(
-                        "رمزگشایی ناموفق",
-                        "امکان رمزگشایی اشتراک وجود ندارد.\n\n"
+                        "Decryption failed",
+                        "It is not possible to decrypt the subscription.\n\n"
                         + friendly_error(dec_err) + "\n\n"
-                        "این فایل ممکن است برای شما رمزنگاری نشده باشد، "
-                        "یا کلید RSA شما مطابقت ندارد.",
+                        "This file may not be encrypted for you."
+                        "Or your RSA key doesn't match.",
                         parent=dlg,
                     )
                     return
@@ -724,23 +724,23 @@ class KeyRecoveryDialog:
                 database.save_held_share(held_dict)
                 load_held()
                 messagebox.showinfo(
-                    "اشتراک ذخیره شد",
-                    f"اشتراک #{payload.get('share_index', '?')} از "
-                    f"{payload.get('owner_name', 'unknown')} رمزگشایی و ذخیره شد.\n\n"
-                    "وقتی آنها نیاز به بازیابی دارند، از 'صادرات بازگشت به مالک' برای ارسال استفاده کنید.",
+                    "Subscription saved",
+                    f"share #{payload.get('share_index', '?')} from"
+                    f"{payload.get('owner_name', 'unknown')} Decrypted and saved.\n\n"
+                    "When they need to be retrieved, use 'Export Return to Owner' to send them."",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import held share")
-                messagebox.showerror("واردات ناموفق",
-                                     "واردات اشتراک ناموفق بود.\n\n"
+                messagebox.showerror("Import failed",
+                                     "Subscription import failed.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         def export_back():
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("هیچ چیزی انتخاب نشد",
-                                        "یک اشتراک نگهداری شده برای صادرات انتخاب کنید.", parent=dlg)
+                messagebox.showwarning("Nothing was selected",
+                                        "Select a maintained subscription to export.", parent=dlg)
                 return
             share_id = sel[0]
             row = next((r for r in _held if r["share_id"] == share_id), None)
@@ -769,24 +769,24 @@ class KeyRecoveryDialog:
                 # Exporting it as plaintext is dangerous, so require explicit,
                 # informed confirmation before doing so. Abort if declined.
                 proceed = messagebox.askyesno(
-                    "صادرات اشتراک بازیابی رمزنگاری‌نشده؟",
-                    f"'{owner}' در لیست دوستان شما نیست، بنابراین این اشتراک "
-                    "بازیابی نمی‌تواند برای آنها رمزنگاری شود.\n\n"
-                    "⚠ اشتراک به صورت رمزنگاری‌نشده روی دیسک نوشته خواهد شد. هر کسی "
-                    "که فایل را به دست آورد می‌تواند از آن برای بازسازی "
-                    "کلید بازیابی مالک استفاده کند.\n\n"
-                    "فقط در صورتی ادامه دهید که فایل را از طریق یک کانال امن "
-                    "منتقل کرده و پس از آن حذف کنید.\n\n"
-                    "اشتراک را به صورت رمزنگاری‌نشده صادر کنیم؟",
+                    "Export encrypted recovery subscription?",
+                    f"'{owner}' is not on your friends list, so this subscription"
+                    "Recovery cannot be encrypted for them.\n\n"
+                    "⚠ The subscription will be encrypted on the disk.anyone"
+                    "which obtained the file can be used for reconstruction"
+                    "Use owner recovery key.\n\n"
+                    "Only proceed if the file is sent through a secure channel"
+                    "Move and then delete.\n\n"
+                    "Export the subscription encrypted?",
                     icon="warning",
                     default="no",
                     parent=dlg,
                 )
                 if not proceed:
                     messagebox.showinfo(
-                        "صادرات لغو شد",
-                        "هیچ فایلی نوشته نشد. مالک را به عنوان دوست اضافه کنید تا "
-                        "اشتراک بتواند برای آنها رمزنگاری شود، سپس دوباره صادر کنید.",
+                        "Export was canceled",
+                        "No files were written.Add the owner as a friend to"
+                        "Subscriptions can be encrypted for them, then re-issued.",
                         parent=dlg,
                     )
                     return
@@ -808,21 +808,21 @@ class KeyRecoveryDialog:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(export_payload, f, indent=2)
             messagebox.showinfo(
-                "صادر شد",
-                f"فایل اشتراک ذخیره شد ({note}).\nآن را به صورت امن برای {owner} ارسال کنید.",
+                "was issued",
+                f"Subscription file saved ({note}).\nSend it securely to {owner}.",
                 parent=dlg,
             )
 
         def delete_selected():
             sel = tree.selection()
             if not sel:
-                messagebox.showwarning("هیچ چیزی انتخاب نشد",
-                                        "یک اشتراک برای حذف انتخاب کنید.", parent=dlg)
+                messagebox.showwarning("Nothing was selected",
+                                        "Select a subscription to delete.", parent=dlg)
                 return
             confirmed = messagebox.askyesno(
-                "حذف اشتراک نگهداری شده",
-                "این اشتراک نگهداری شده از حافظه محلی شما حذف شود؟\n\n"
-                "مالک دیگر نمی‌تواند آن را از شما درخواست کند.",
+                "Delete a maintained subscription",
+                "Delete this saved subscription from your local storage?\n\n"
+                "The owner can no longer claim it from you.",
                 icon="warning",
                 parent=dlg,
             )
@@ -836,22 +836,22 @@ class KeyRecoveryDialog:
                                      command=import_held_share,
                                      bootstyle="warning")
         import_held_btn.pack(side=tk.LEFT, padx=(0, 6))
-        ToolTip(import_held_btn, "وارد کردن فایل اشتراک برای نگهداری")
+        ToolTip(import_held_btn, "Import subscription file for maintenance")
         export_back_btn = ttk.Button(btn_row, text="Export Back to Owner",
                                      command=export_back,
                                      bootstyle="success")
         export_back_btn.pack(side=tk.LEFT, padx=(0, 6))
-        ToolTip(export_back_btn, "صادرات اشتراک نگهداری شده به مالک اصلی")
+        ToolTip(export_back_btn, "Export the maintained subscription to the original owner")
         delete_held_btn = ttk.Button(btn_row, text="Delete Selected",
                                      command=delete_selected,
                                      bootstyle="danger-outline")
         delete_held_btn.pack(side=tk.LEFT, padx=(0, 6))
-        ToolTip(delete_held_btn, "حذف اشتراک نگهداری شده انتخاب شده")
+        ToolTip(delete_held_btn, "Delete the selected maintained subscription")
         refresh_held_btn = ttk.Button(btn_row, text="🔄 Refresh",
                                       command=load_held,
                                       bootstyle="secondary-outline")
         refresh_held_btn.pack(side=tk.RIGHT)
-        ToolTip(refresh_held_btn, "بروزرسانی لیست اشتراک‌های نگهداری شده")
+        ToolTip(refresh_held_btn, "Update the list of maintained subscriptions")
 
     # ------------------------------------------------------------------
     # Status tab
@@ -929,4 +929,4 @@ class KeyRecoveryDialog:
         refresh_status_btn = ttk.Button(btn_frame, text="🔄 Refresh", command=load_status,
                                         bootstyle="warning-outline")
         refresh_status_btn.pack(side=tk.RIGHT)
-        ToolTip(refresh_status_btn, "بروزرسانی وضعیت اشتراک‌های بازیابی")
+        ToolTip(refresh_status_btn, "Update the status of recovery subscriptions")

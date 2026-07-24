@@ -82,13 +82,13 @@ class TOTPVerifyDialog:
         def verify():
             code = totp_var.get().strip()
             if len(code) != 6 or not code.isdigit():
-                messagebox.showerror("نامعتبر", "یک کد ۶ رقمی وارد کنید.", parent=dlg)
+                messagebox.showerror("invalid", "Enter a 6-digit code.", parent=dlg)
                 return
             if self.totp_service.verify(code):
                 self.result = True
                 dlg.destroy()
             else:
-                messagebox.showerror("ناموفق", "کد TOTP نامعتبر است.", parent=dlg)
+                messagebox.showerror("Unsuccessful", "The TOTP code is invalid.", parent=dlg)
                 totp_var.set("")
 
         def cancel():
@@ -99,11 +99,11 @@ class TOTPVerifyDialog:
         verify_totp_btn = ttk.Button(btn_frame, text="✅ Verify", command=verify,
                                      bootstyle="success")
         verify_totp_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(verify_totp_btn, "تأیید کد TOTP وارد شده")
+        ToolTip(verify_totp_btn, "Verification of the entered TOTP code")
         cancel_totp_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
                                      bootstyle="secondary-outline")
         cancel_totp_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(cancel_totp_btn, "انصراف از تأیید TOTP")
+        ToolTip(cancel_totp_btn, "Withdrawal of TOTP approval")
 
         dlg.bind("<Return>", lambda e: verify())
         dlg.bind("<Escape>", lambda e: cancel())
@@ -161,8 +161,8 @@ class TOTPSetupDialog:
                 # Update QR code if available
                 if qr_label is not None and HAS_QRCODE:
                     self._update_qr(qr_label, new_uri)
-                messagebox.showinfo("تولید مجدد", "رمز TOTP جدید تولید شد.\n"
-                                    "لطفاً با برنامه احراز هویت خود دوباره اسکن کنید.", parent=dlg)
+                messagebox.showinfo("reproduction", "A new TOTP password has been generated.\n"
+                                    "Please scan again with your authenticator.", parent=dlg)
 
         # OK button
         ok_btn = ttk.Button(
@@ -170,7 +170,7 @@ class TOTPSetupDialog:
             command=ok_close, bootstyle="success"
         )
         ok_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(ok_btn, "تأیید و بستن - رمز TOTP ذخیره شده است")
+        ToolTip(ok_btn, "Confirm and close - TOTP password is saved")
 
         # Cancel button
         cancel_btn = ttk.Button(
@@ -178,7 +178,7 @@ class TOTPSetupDialog:
             command=dlg.destroy, bootstyle="secondary-outline"
         )
         cancel_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(cancel_btn, "انصراف")
+        ToolTip(cancel_btn, "opt out")
 
         # Regenerate button
         if self.on_regenerate:
@@ -187,7 +187,7 @@ class TOTPSetupDialog:
                 command=regenerate, bootstyle="warning"
             )
             regen_btn.pack(side=tk.LEFT, padx=5)
-            ToolTip(regen_btn, "تولید مجدد رمز TOTP")
+            ToolTip(regen_btn, "TOTP password regeneration")
 
         # ── CONTENT ──
         content = ttk.Frame(dlg)
@@ -244,7 +244,7 @@ class TOTPSetupDialog:
         copy_uri_btn = ttk.Button(content, text="📋 Copy URI", command=copy_uri,
                                   bootstyle="info-outline")
         copy_uri_btn.pack(pady=(0, 8))
-        ToolTip(copy_uri_btn, "کپی URI در کلیپ‌بورد")
+        ToolTip(copy_uri_btn, "Copy the URI to the clipboard")
 
         # Base32 secret
         b32 = self.totp_service.get_b32_secret()
@@ -270,7 +270,7 @@ class TOTPSetupDialog:
         copy_secret_btn = ttk.Button(content, text="📋 Copy Secret", command=copy_secret,
                                      bootstyle="info-outline")
         copy_secret_btn.pack(pady=(0, 10))
-        ToolTip(copy_secret_btn, "کپی رمز Base32 در کلیپ‌بورد")
+        ToolTip(copy_secret_btn, "Copy the Base32 code to the clipboard")
 
         # Live code preview – shows the CURRENT code that an authenticator
         # app would generate with the same secret.  Updates every 500 ms.

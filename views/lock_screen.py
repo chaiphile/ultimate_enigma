@@ -98,7 +98,7 @@ class LockScreen:
             cursor="hand2", command=self._handle_unlock_request
         )
         unlock_btn.pack()
-        ToolTip(unlock_btn, "باز کردن قفل برنامه با رمز عبور اصلی و TOTP")
+        ToolTip(unlock_btn, "Unlock the app with master password and TOTP")
 
         # Recovery button (for forgotten password)
         if self._on_recovery_request is not None:
@@ -110,7 +110,7 @@ class LockScreen:
                 cursor="hand2", command=self._handle_recovery_request
             )
             recovery_btn.pack(pady=(12, 0))
-            ToolTip(recovery_btn, "بازیابی دسترسی با استفاده از کلید بازیابی (Shamir)")
+            ToolTip(recovery_btn, "Access recovery using recovery key (Shamir)")
 
             # Hover effects
             def on_enter(e):

@@ -126,7 +126,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         # Validation
         if confirm:
             if pw != confirm_pw:
-                messagebox.showerror("عدم تطابق", "رمزهای عبور مطابقت ندارند.", parent=dlg)
+                messagebox.showerror("mismatch", "Passwords do not match.", parent=dlg)
                 pwd_var.set("")
                 confirm_var.set("")
                 pwd_entry.focus_set()
@@ -135,10 +135,10 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
                 is_valid, msg, score = validate_password_strength(pw)
                 if not is_valid:
                     messagebox.showwarning(
-                        "رمز عبور ضعیف",
-                        f"{msg}\n\nحداقل الزامات:\n"
-                        f"• {MIN_PASSWORD_LENGTH}+ کاراکتر\n"
-                        f"• حروف بزرگ + حروف کوچک + عدد + کاراکتر ویژه",
+                        "Weak password",
+                        f"{msg}\n\nMinimum requirements:\n"
+                        f"• {MIN_PASSWORD_LENGTH}+ characters\n"
+                        f"• Uppercase letters + lowercase letters + numbers + special characters",
                         parent=dlg
                     )
                     pwd_var.set("")
@@ -165,11 +165,11 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
     ok_btn = ttk.Button(btn_frame, text="OK", command=ok,
                         bootstyle="success")
     ok_btn.pack(side=tk.LEFT, padx=5)
-    ToolTip(ok_btn, "تأیید و ادامه")
+    ToolTip(ok_btn, "Confirm and continue")
     cancel_btn = ttk.Button(btn_frame, text="Cancel", command=cancel,
                             bootstyle="secondary-outline")
     cancel_btn.pack(side=tk.LEFT, padx=5)
-    ToolTip(cancel_btn, "انصراف")
+    ToolTip(cancel_btn, "opt out")
 
     if on_recover is not None:
         def do_recover():
@@ -178,7 +178,7 @@ def password_dialog(parent, title, confirm=False, topmost=False, bg=None, fg=Non
         recover_btn = ttk.Button(btn_frame, text="🔑 Recover", command=do_recover,
                                  bootstyle="warning-outline")
         recover_btn.pack(side=tk.LEFT, padx=(15, 0))
-        ToolTip(recover_btn, "بازیابی دسترسی با کلید بازیابی (در صورت فراموشی رمز عبور)")
+        ToolTip(recover_btn, "Restore access with the recovery key (if you forget the password)")
 
     dlg.bind("<Return>", lambda e: ok())
     dlg.bind("<Escape>", lambda e: cancel())

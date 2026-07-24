@@ -26,9 +26,9 @@ class HybridSigExchangeDialog:
             return
         if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
-                "دسترسی رد شد",
-                "رمز عبور اصلی نادرست است.\n"
-                "تبادل کلید امضای ترکیبی نیاز به احراز هویت دارد.",
+                "Access denied",
+                "The master password is incorrect.\n"
+                "Mixed signing key exchange requires authentication.",
                 parent=self.parent,
             )
             return
@@ -104,7 +104,7 @@ class HybridSigExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -114,15 +114,15 @@ class HybridSigExchangeDialog:
             def on_done(pub_b64):
                 load_my_hybrid_sig()
                 messagebox.showinfo(
-                    "موفقیت",
-                    "کلیدهای امضای ترکیبی با موفقیت تولید شدند!\n\n"
-                    "کلید عمومی ترکیبی خود را با دوستان به اشتراک بگذارید تا بتوانند\n"
-                    "امضای امن پسا-کوانتومی شما را تأیید کنند.",
+                    "success",
+                    "Combination signing keys successfully generated!\n\n"
+                    "Share your public key combination with friends so they can\n"
+                    "Verify your secure post-quantum signature.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("خطا", friendly_error(exc), parent=dlg)
+                messagebox.showerror("error", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -131,10 +131,10 @@ class HybridSigExchangeDialog:
             """Copy public key AND pending certificates to clipboard."""
             content = my_pub_text.get('1.0', tk.END).strip()
             if not content or content.startswith("("):
-                messagebox.showwarning("بدون کلید", "ابتدا کلیدهای امضا تولید کنید.", parent=dlg)
+                messagebox.showwarning("No key", "First generate signing keys.", parent=dlg)
                 return
             if self.trust_chain_service is None:
-                messagebox.showinfo("بدون گواهی", "سرویس زنجیره اعتماد در دسترس نیست.", parent=dlg)
+                messagebox.showinfo("No certificate", "The chain of trust service is not available.", parent=dlg)
                 return
             pending = self.trust_chain_service.get_pending_certs_for_exchange()
             if not pending:
@@ -156,16 +156,16 @@ class HybridSigExchangeDialog:
         copy_sig_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_hybrid_sig,
                                   bootstyle="success-outline")
         copy_sig_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(copy_sig_btn, "کپی کلید عمومی امضای ترکیبی در کلیپ‌بورد")
+        ToolTip(copy_sig_btn, "Copy the public key of the combined signature to the clipboard")
         export_cert_btn = ttk.Button(btn_row_keys, text="📋 Export Key + Certificates", command=export_certs_with_key,
                                      bootstyle="info-outline")
         export_cert_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(export_cert_btn, "صادر کردن کلید عمومی به همراه گواهی‌های زنجیره اعتماد")
+        ToolTip(export_cert_btn, "Issuing public key along with chain of trust certificates")
         gen_sig_btn = ttk.Button(btn_row_keys, text="🔑 Generate New Signing Keys",
                                  command=generate_hybrid_sig,
                                  bootstyle="success")
         gen_sig_btn.pack(side=tk.LEFT)
-        ToolTip(gen_sig_btn, "تولید کلیدهای امضای ترکیبی جدید (Ed25519 + Dilithium3)")
+        ToolTip(gen_sig_btn, "Generation of new hybrid signature keys (Ed25519 + Dilithium3)")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -248,16 +248,16 @@ class HybridSigExchangeDialog:
                         else:
                             bundle_status_var.set(f"✅ Imported {count} certificate(s)")
                 except Exception as e:
-                    messagebox.showerror("بسته نامعتبر", friendly_error(e), parent=dlg)
+                    messagebox.showerror("Invalid package", friendly_error(e), parent=dlg)
                     return
 
             if not fname:
-                messagebox.showwarning("هیچ انتخابی", "لطفاً یک دوست انتخاب کنید.",
+                messagebox.showwarning("No choice", "Please select a friend.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("کلید خالی",
-                                       "لطفاً کلید عمومی ترکیبی امضای ترکیبی را جای‌گذاری کنید.",
+                messagebox.showwarning("empty key",
+                                       "Please paste the public key of the combined signature.",
                                        parent=dlg)
                 return
 
@@ -272,8 +272,8 @@ class HybridSigExchangeDialog:
                 if not pw:
                     return
                 if not self.friends_service.verify_master_password(pw):
-                    messagebox.showerror("رمز عبور اشتباه",
-                                         "رمز عبور اصلی نادرست است.",
+                    messagebox.showerror("Wrong password",
+                                         "The master password is incorrect.",
                                          parent=dlg)
                     return
             try:
@@ -284,18 +284,18 @@ class HybridSigExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ Hybrid signing key imported for '{fname}'")
-                messagebox.showinfo("موفقیت",
-                                    f"کلید عمومی ترکیبی امضای ترکیبی برای '{fname}' ذخیره شد.\n\n"
-                                    "پیام‌های این دوست اکنون با\n"
-                                    "Ed25519 و Dilithium3 تأیید می‌شوند.",
+                messagebox.showinfo("success",
+                                    f"The combined public key of the combined signature was saved for '{fname}'.\n\n"
+                                    "This friend's messages are now with\n"
+                                    "Ed25519 and Dilithium3 are confirmed.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
 
         import_sig_btn = ttk.Button(tab_import, text="💾 Import & Save Signing Key",
                                     command=do_import_hybrid_sig_key, bootstyle="success")
         import_sig_btn.pack(anchor="w")
-        ToolTip(import_sig_btn, "وارد کردن و ذخیره کلید امضای ترکیبی دوست")
+        ToolTip(import_sig_btn, "Import and save a friend's signature combination key")
 
         tab_status = ttk.Frame(notebook, padding=15)
         notebook.add(tab_status, text="  Status  ")
@@ -347,4 +347,4 @@ class HybridSigExchangeDialog:
         close_sig_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
                                    bootstyle="secondary-outline")
         close_sig_btn.pack(pady=(0, 10))
-        ToolTip(close_sig_btn, "بستن پنجره تبادل کلید امضای ترکیبی")
+        ToolTip(close_sig_btn, "Close the combined signature key exchange window")

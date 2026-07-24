@@ -59,19 +59,19 @@ class TrustTab:
 
         btn_specs = [
             ("🎛 Certificate Control Panel", self.issue_cert_dialog, "success",
-             "باز کردن پنجره مدیریت گواهی‌های زنجیره اعتماد"),
+             "Open the Trust Chain Certificate Management window"),
             ("📥 Import (Paste)", self.import_cert_dialog, "info",
-             "وارد کردن گواهی با چسباندن متن JSON"),
+             "Import the certificate by pasting the JSON text"),
             ("📂 Import from File", self.import_cert_file_dialog, "info",
-             "وارد کردن گواهی از فایل JSON"),
+             "Import certificate from JSON file"),
             ("📤 Export Bundle", self.export_cert_bundle_dialog, "info",
-             "صادر کردن همه گواهی‌ها به صورت یک بسته JSON"),
+             "Export all certificates as a JSON package"),
             ("🔑 Split Recovery Key", self.split_key_dialog, "warning",
-             "تقسیم کلید بازیابی به اشتراک‌های متعدد"),
+             "Split recovery key into multiple shares"),
             ("🔓 Recover Key", self.recover_key_dialog, "danger",
-             "بازیابی کلید از اشتراک‌ها"),
+             "Key recovery from subscriptions"),
             ("🔄 Refresh", self.refresh_list, "secondary-outline",
-             "بروزرسانی لیست گواهی‌ها"),
+             "Updating the list of certificates"),
         ]
         for text, cmd, style, tip in btn_specs:
             btn = ttk.Button(top_bar, text=text, command=cmd, bootstyle=style)
@@ -369,8 +369,8 @@ class TrustTab:
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "در دسترس نیست",
-                "این قابلیت نیاز به اجزای اضافی دارد.",
+                "Not Available",
+                "This feature requires additional components.",
                 parent=parent,
             )
 
@@ -404,7 +404,7 @@ class TrustTab:
         def do_import():
             cert_data = cert_input.get("1.0", tk.END).strip()
             if not cert_data:
-                messagebox.showwarning("خالی", "لطفاً یک بسته گواهی را جای‌گذاری کنید.", parent=dlg)
+                messagebox.showwarning("Empty", "Please paste a certificate bundle.", parent=dlg)
                 return
             note = note_var.get().strip()
             try:
@@ -422,30 +422,30 @@ class TrustTab:
                 rejected = total - count
                 if rejected > 0:
                     messagebox.showwarning(
-                        "وارد شده با موارد رد شده",
-                        f"{count} از {total} گواهی وارد شد.\n\n"
-                        f"{rejected} مورد به دلیل تأیید نشدن امضا یا عدم شناسایی صادرکننده "
-                        f"به عنوان یک مخاطب شناخته شده رد شدند. "
-                        f"ابتدا صادرکننده را اضافه کنید، سپس دوباره وارد کنید.",
+                        "Imported with rejections",
+                        f"{count} of {total} certificates imported.\n\n"
+                        f"{rejected} item(s) rejected because the signature could not be verified "
+                        f"or the issuer is not a known contact.\n"
+                        f"Add the issuer as a friend first, then import again.",
                         parent=parent,
                     )
                 else:
                     messagebox.showinfo(
-                        "وارد شد", f"{count} گواهی وارد شد.", parent=parent
+                        "Imported", f"{count} certificates imported.", parent=parent
                     )
                 event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
 
             except Exception as e:
-                messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
 
         import_trust_btn = ttk.Button(btn_frame, text="📥 Import", command=do_import,
                                       bootstyle="info")
         import_trust_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(import_trust_btn, "وارد کردن گواهی زنجیره اعتماد")
+        ToolTip(import_trust_btn, "Import trust chain certificate")
         cancel_trust_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
                                       bootstyle="secondary-outline")
         cancel_trust_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(cancel_trust_btn, "انصراف از وارد کردن گواهی")
+        ToolTip(cancel_trust_btn, "Cancel certificate import")
 
         init_modal(dlg, parent, focus_widget=cert_input)
 
@@ -464,12 +464,12 @@ class TrustTab:
             with open(path, "w") as f:
                 json.dump(bundle, f, indent=2)
             messagebox.showinfo(
-                "صادر شد",
-                f"بسته صادر شد به:\n{path}",
+                "Exported",
+                f"Bundle exported to:\n{path}",
                 parent=parent,
             )
         except Exception as e:
-            messagebox.showerror("خطای صادرات", friendly_error(e), parent=parent)
+            messagebox.showerror("Export Error", friendly_error(e), parent=parent)
 
     def import_cert_file_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -494,23 +494,23 @@ class TrustTab:
             self.refresh_list()
             rejected = total - count
             if rejected > 0:
-                messagebox.showwarning(
-                    "وارد شده با موارد رد شده",
-                    f"{count} از {total} گواهی از فایل وارد شد.\n\n"
-                    f"{rejected} مورد به دلیل تأیید نشدن امضا یا عدم شناسایی صادرکننده "
-                    f"به عنوان یک مخاطب شناخته شده رد شدند. "
-                    f"ابتدا صادرکننده را اضافه کنید، سپس دوباره وارد کنید.",
-                    parent=parent,
-                )
-            else:
-                messagebox.showinfo(
-                    "وارد شد",
-                    f"{count} گواهی از فایل وارد شد.",
-                    parent=parent,
-                )
+                    messagebox.showwarning(
+                        "Imported with rejections",
+                        f"{count} of {total} certificates imported from file.\n\n"
+                        f"{rejected} item(s) rejected because the signature could not be verified "
+                        f"or the issuer is not a known contact.\n"
+                        f"Add the issuer as a friend first, then import again.",
+                        parent=parent,
+                    )
+                else:
+                    messagebox.showinfo(
+                        "Imported",
+                        f"{count} certificates imported from file.",
+                        parent=parent,
+                    )
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab")
         except Exception as e:
-            messagebox.showerror("خطای واردات", friendly_error(e), parent=parent)
+            messagebox.showerror("Import Error", friendly_error(e), parent=parent)
 
     def split_key_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
@@ -522,8 +522,8 @@ class TrustTab:
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "در دسترس نیست",
-                "این قابلیت نیاز به اجزای اضافی دارد.",
+                "Not Available",
+                "This feature requires additional components.",
                 parent=parent,
             )
 
@@ -537,8 +537,8 @@ class TrustTab:
         except ImportError as e:
             logger.warning("Trust dialog component not available: %s", e)
             messagebox.showinfo(
-                "در دسترس نیست",
-                "این قابلیت نیاز به اجزای اضافی دارد.",
+                "Not Available",
+                "This feature requires additional components.",
                 parent=parent,
             )
 
@@ -549,7 +549,7 @@ class TrustTab:
         certs = self.trust_service.get_certs_for_friend(name)
         valid_certs = [c for c in certs if not c.revoked and not c.is_expired()]
         if not valid_certs:
-            messagebox.showinfo("بدون گواهی", f"گواهی معتبری برای '{name}' یافت نشد.")
+            messagebox.showinfo("No certificate", f"No valid certificate found for '{name}'.")
             return
 
         if len(valid_certs) == 1:
@@ -560,21 +560,21 @@ class TrustTab:
                 return
 
         if not messagebox.askyesno(
-            "لغو گواهی",
-            f"آیا مطمئن هستید که می‌خواهید این گواهی را برای '{name}' لغو کنید؟\n\n"
+            "Revoke Certificate",
+            f"Are you sure you want to revoke this certificate for '{name}'?\n\n"
             f"{self._cert_summary(cert)}\n\n"
-            "این اقدام قابل بازگشت نیست."
+            "This action cannot be reversed."
         ):
             return
         try:
             self.trust_service.revoke_certificate(cert.cert_id, reason="Revoked by user")
             self.refresh_list()
-            messagebox.showinfo("لغو شد", f"گواهی برای '{name}' لغو شد.")
+            messagebox.showinfo("Revoked", f"Certificate revoked for '{name}'.")
             event_bus.publish(Events.CERTIFICATE_REVOKED, source="trust_tab", friend_name=name)
             event_bus.publish(Events.TRUST_LEVEL_CHANGED, source="trust_tab", friend_name=name)
 
         except Exception as e:
-            messagebox.showerror("خطا", friendly_error(e))
+            messagebox.showerror("error", friendly_error(e))
 
     @staticmethod
     def _cert_summary(cert) -> str:
@@ -619,11 +619,11 @@ class TrustTab:
         select_btn = ttk.Button(btn_frame, text="Select", command=do_select,
                                 bootstyle="danger")
         select_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(select_btn, "انتخاب این گواهی برای لغو")
+        ToolTip(select_btn, "Select this certificate to revoke")
         cancel_choose_btn = ttk.Button(btn_frame, text="Cancel", command=dlg.destroy,
                                        bootstyle="secondary-outline")
         cancel_choose_btn.pack(side=tk.RIGHT, padx=5)
-        ToolTip(cancel_choose_btn, "انصراف")
+        ToolTip(cancel_choose_btn, "Cancel")
 
         init_modal(dlg, parent)
         dlg.wait_window()

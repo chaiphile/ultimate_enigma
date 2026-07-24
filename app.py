@@ -53,8 +53,8 @@ class EnigmaApp:
         except Exception as e:
             logger.exception("Application build failed; aborting startup")
             messagebox.showerror(
-                "خطای راه‌اندازی",
-                "برنامه نمی‌تواند راه‌اندازی شود و در حال بسته شدن است.\n\n"
+                "Startup error",
+                "The application could not be started and is closing.\n\n"
                 + friendly_error(e)
             )
             try:
@@ -408,10 +408,10 @@ class EnigmaApp:
                 pass
 
         messagebox.showinfo(
-            "بازیابی کامل شد",
-            "برنامه با موفقیت بازیابی شد.\n\n"
-            "کلیدهای رمزنگاری جدید تولید شده‌اند.\n"
-            "باید کلیدها را با دوستان خود مجدداً تبادل کنید."
+            "Recovery is complete",
+            "The application has been restored successfully.\n\n"
+            "New encryption keys have been generated.\n"
+            "You must re-exchange keys with your friends."
         )
         logger.info("Application recovered via recovery key")
 

@@ -26,9 +26,9 @@ class PqcExchangeDialog:
             return
         if not self.friends_service.verify_master_password(pqc_pw):
             messagebox.showerror(
-                "دسترسی رد شد",
-                "رمز عبور اصلی نادرست است.\n"
-                "تبادل کلید PQC نیاز به احراز هویت دارد.",
+                "Access denied",
+                "The master password is incorrect.\n"
+                "PQC key exchange requires authentication.",
                 parent=self.parent,
             )
             return
@@ -90,7 +90,7 @@ class PqcExchangeDialog:
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -100,15 +100,15 @@ class PqcExchangeDialog:
             def on_done(pub_b64):
                 load_my_pqc()
                 messagebox.showinfo(
-                    "موفقیت",
-                    "کلیدهای هیبریدی PQC با موفقیت تولید شدند!\n\n"
-                    "کلید عمومی ترکیبی خود را با دوستان به اشتراک بگذارید تا\n"
-                    "تبادل کلید مقاوم در برابر کوانتوم فعال شود.",
+                    "success",
+                    "PQC hybrid keys have been successfully generated!\n\n"
+                    "Share your public key combination with friends to\n"
+                    "Enable quantum-resistant key exchange.",
                     parent=dlg
                 )
 
             def on_error(exc):
-                messagebox.showerror("خطا", friendly_error(exc), parent=dlg)
+                messagebox.showerror("error", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_generate, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -116,11 +116,11 @@ class PqcExchangeDialog:
         copy_pqc_btn = ttk.Button(btn_row_keys, text="📋 Copy Public Key", command=copy_my_pqc,
                                    bootstyle="info-outline")
         copy_pqc_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(copy_pqc_btn, "کپی کلید عمومی ترکیبی PQC در کلیپ‌بورد")
+        ToolTip(copy_pqc_btn, "Copy the PQC public key combination to the clipboard")
         gen_pqc_btn = ttk.Button(btn_row_keys, text="🔑 Generate New PQC Keys", command=generate_pqc,
                                  bootstyle="info")
         gen_pqc_btn.pack(side=tk.LEFT)
-        ToolTip(gen_pqc_btn, "تولید کلیدهای جدید مقاوم در برابر کوانتوم")
+        ToolTip(gen_pqc_btn, "Production of new quantum resistant keys")
 
         tab_encap = ttk.Frame(notebook, padding=15)
         notebook.add(tab_encap, text="  Encapsulate (Send)  ")
@@ -149,7 +149,7 @@ class PqcExchangeDialog:
         def do_encapsulate():
             fname = encap_friend_var.get()
             if not fname:
-                messagebox.showwarning("هیچ انتخابی", "لطفاً یک دوست انتخاب کنید.",
+                messagebox.showwarning("No choice", "Please select a friend.",
                                        parent=dlg)
                 return
 
@@ -184,7 +184,7 @@ class PqcExchangeDialog:
                     )
 
             def on_error(exc):
-                messagebox.showerror("محصورسازی ناموفق", friendly_error(exc), parent=dlg)
+                messagebox.showerror("Unsuccessful enclosure", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -212,11 +212,11 @@ class PqcExchangeDialog:
         encap_btn = ttk.Button(encap_btn_row, text="🔒 Encapsulate & Derive Secret",
                                command=do_encapsulate, bootstyle="info")
         encap_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(encap_btn, "محصورسازی و استخراج رمز اشتراکی از کلید عمومی دوست")
+        ToolTip(encap_btn, "Encrypting and extracting the shared password from the friend's public key")
         copy_ct_btn = ttk.Button(encap_btn_row, text="📋 Copy Ciphertext",
                                  command=copy_encap_result, bootstyle="info-outline")
         copy_ct_btn.pack(side=tk.LEFT)
-        ToolTip(copy_ct_btn, "کپی متن رمز شده برای ارسال به دوست")
+        ToolTip(copy_ct_btn, "Copy the encrypted text to send to a friend")
 
         tab_decap = ttk.Frame(notebook, padding=15)
         notebook.add(tab_decap, text="  Decapsulate (Receive)  ")
@@ -238,15 +238,15 @@ class PqcExchangeDialog:
         def do_decapsulate():
             ct_b64 = decap_input.get('1.0', tk.END).strip()
             if not ct_b64:
-                messagebox.showwarning("ورودی خالی",
-                                       "لطفاً ابتدا یک متن رمز شده را جایگذاری کنید.", parent=dlg)
+                messagebox.showwarning("Empty entry",
+                                       "Please paste an encrypted text first.", parent=dlg)
                 return
             pw = password_dialog(dlg, "Enter Master Password for PQC decapsulation",
                                  confirm=False)
             if not pw:
                 return
             if not self.friends_service.verify_master_password(pw):
-                messagebox.showerror("رمز عبور اشتباه", "رمز عبور اصلی نادرست است.",
+                messagebox.showerror("Wrong password", "The master password is incorrect.",
                                      parent=dlg)
                 return
 
@@ -284,7 +284,7 @@ class PqcExchangeDialog:
                         )
 
             def on_error(exc):
-                messagebox.showerror("عدم محصورسازی ناموفق", friendly_error(exc), parent=dlg)
+                messagebox.showerror("Failed enclosure", friendly_error(exc), parent=dlg)
 
             run_busy(dlg, do_work, on_done=on_done, on_error=on_error,
                      busy_widgets=[dlg])
@@ -292,7 +292,7 @@ class PqcExchangeDialog:
         decap_btn = ttk.Button(tab_decap, text="🔓 Decapsulate & Recover Secret",
                                command=do_decapsulate, bootstyle="info")
         decap_btn.pack(anchor="w")
-        ToolTip(decap_btn, "بازگشایی و بازیابی رمز اشتراکی از متن رمز شده دریافتی")
+        ToolTip(decap_btn, "Decrypting and recovering the shared password from the received encrypted text")
 
         tab_import = ttk.Frame(notebook, padding=15)
         notebook.add(tab_import, text="  Import Friend Key  ")
@@ -324,12 +324,12 @@ class PqcExchangeDialog:
             fname = import_friend_var.get()
             key_b64 = import_key_text.get('1.0', tk.END).strip()
             if not fname:
-                messagebox.showwarning("هیچ انتخابی", "لطفاً یک دوست انتخاب کنید.",
+                messagebox.showwarning("No choice", "Please select a friend.",
                                        parent=dlg)
                 return
             if not key_b64:
-                messagebox.showwarning("کلید خالی",
-                                       "لطفاً کلید عمومی ترکیبی PQC را جایگذاری کنید.",
+                messagebox.showwarning("empty key",
+                                       "Please paste the PQC public key combination.",
                                        parent=dlg)
                 return
             try:
@@ -337,7 +337,7 @@ class PqcExchangeDialog:
                 if len(raw) < 36:
                     raise ValueError("Too short")
             except Exception as e:
-                messagebox.showerror("کلید نامعتبر",
+                messagebox.showerror("Invalid key",
                                      friendly_error(e),
                                      parent=dlg)
                 return
@@ -353,8 +353,8 @@ class PqcExchangeDialog:
                     if not pw:
                         return
                     if not self.friends_service.verify_master_password(pw):
-                        messagebox.showerror("رمز عبور اشتباه",
-                                             "رمز عبور اصلی نادرست است.",
+                        messagebox.showerror("Wrong password",
+                                             "The master password is incorrect.",
                                              parent=dlg)
                         return
                 self.friends_service.update_friend_pub_keys(
@@ -364,18 +364,18 @@ class PqcExchangeDialog:
                 )
                 self.refresh_list()
                 import_status_var.set(f"✅ PQC key imported for '{fname}'")
-                messagebox.showinfo("موفقیت",
-                                    f"کلید عمومی ترکیبی PQC برای '{fname}' ذخیره شد.",
+                messagebox.showinfo("success",
+                                    f"PQC public key combination saved for '{fname}'.",
                                     parent=dlg)
             except FriendsServiceError as e:
-                messagebox.showerror("واردات ناموفق", friendly_error(e), parent=dlg)
+                messagebox.showerror("Import failed", friendly_error(e), parent=dlg)
 
         import_pqc_btn = ttk.Button(tab_import, text="💾 Import & Save PQC Key",
                                     command=do_import_pqc_key, bootstyle="info")
         import_pqc_btn.pack(anchor="w")
-        ToolTip(import_pqc_btn, "وارد کردن و ذخیره کلید عمومی PQC دوست")
+        ToolTip(import_pqc_btn, "Import and save your friend's PQC public key")
 
         close_pqc_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
                                    bootstyle="secondary-outline")
         close_pqc_btn.pack(pady=(0, 10))
-        ToolTip(close_pqc_btn, "بستن پنجره تبادل کلید PQC")
+        ToolTip(close_pqc_btn, "Close the PQC key exchange window")

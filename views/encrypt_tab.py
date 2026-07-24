@@ -100,11 +100,11 @@ class EncryptTab:
         clear_btn = ttk.Button(opts, text="Clear", command=self.clear_input,
                                bootstyle="secondary-outline")
         clear_btn.grid(row=0, column=11, padx=5, sticky=tk.E)
-        ToolTip(clear_btn, "پاک کردن متن پیام")
+        ToolTip(clear_btn, "Delete message text")
         self.send_btn = ttk.Button(opts, text="Encrypt & Send", command=self.send_message,
                                    bootstyle="success")
         self.send_btn.grid(row=0, column=12, padx=5, sticky=tk.E)
-        ToolTip(self.send_btn, "رمزنگاری و ارسال پیام به دوست انتخاب شده")
+        ToolTip(self.send_btn, "Encrypt and send the message to the selected friend")
 
         # Message input
         msg_frame = ttk.Labelframe(self.frame, text="Write your message",
@@ -134,11 +134,11 @@ class EncryptTab:
         self.copy_btn = ttk.Button(btn_bar, text="Copy Last Sent", command=self.copy_last_sent,
                                    bootstyle="info-outline")
         self.copy_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(self.copy_btn, "کپی آخرین پیام ارسال شده در کلیپ‌بورد")
+        ToolTip(self.copy_btn, "Copy the last message sent to the clipboard")
         clear_log_btn = ttk.Button(btn_bar, text="Clear Log", command=self.clear_log,
                                    bootstyle="secondary-outline")
         clear_log_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(clear_log_btn, "پاک کردن تاریخچه پیام‌های ارسال شده")
+        ToolTip(clear_log_btn, "Clear the history of sent messages")
 
     def _set_busy(self, busy: bool) -> None:
         try:
@@ -154,8 +154,8 @@ class EncryptTab:
         if not has_content:
             return
         if messagebox.askyesno(
-            "پاک کردن تاریخچه",
-            "کل تاریخچه پیام‌های ارسال شده پاک شود؟ این عمل قابل بازگشت نیست."
+            "Clear history",
+            "Delete the entire history of sent messages?This action cannot be reversed."
         ):
             self.sent_log.configure(state='normal')
             self.sent_log.delete("1.0", tk.END)
@@ -200,16 +200,16 @@ class EncryptTab:
     def send_message(self) -> None:
         plaintext = self.msg_input.get("1.0", tk.END).strip()
         if not plaintext:
-            messagebox.showwarning("خالی", "لطفاً یک پیام تایپ کنید.")
+            messagebox.showwarning("vacant", "Please type a message.")
             return
         
         # Validate message size
         msg_size = len(plaintext.encode('utf-8'))
         if msg_size > MAX_MESSAGE_SIZE:
             messagebox.showwarning(
-                "پیام بیش از حد بزرگ است",
-                f"اندازه پیام ({msg_size:,} بایت) از حداکثر مجاز "
-                f"({MAX_MESSAGE_SIZE:,} بایت) فراتر رفته است.\nلطفاً طول پیام را کاهش دهید."
+                "The message is too big",
+                f"Message size ({msg_size:,} bytes) from the maximum allowed"
+                f"({MAX_MESSAGE_SIZE:,} bytes) exceeded.\nPlease reduce the message length."
             )
             return
 
@@ -265,12 +265,12 @@ class EncryptTab:
             logger.exception("Encryption failed")
             if isinstance(exc, CryptoTimeoutError):
                 messagebox.showerror(
-                    "انقضای زمان",
-                    "زمان رمزنگاری به پایان رسید. ممکن است سیستم تحت بار سنگین باشد. "
-                    "لطفاً دوباره تلاش کنید."
+                    "Expiration of time",
+                    "Encryption timed out.The system may be under heavy load."
+                    "Please try again."
                 )
             else:
-                messagebox.showerror("خطای رمزنگاری", friendly_error(exc))
+                messagebox.showerror("Encryption error", friendly_error(exc))
 
         # Determine timeout based on mode
         if mode == "pqc":
@@ -317,9 +317,9 @@ class EncryptTab:
                 flash_widget_text(self.copy_btn, "Copied ✓ (clears in 30s)",
                                   "Copy Last Sent")
             else:
-                messagebox.showerror("خطای کلیپ‌بورد", "دسترسی به کلیپ‌بورد امکان‌پذیر نیست.")
+                messagebox.showerror("Clipboard error", "Unable to access the clipboard.")
         else:
-            messagebox.showwarning("هیچ", "هنوز پیامی ارسال نشده است.")
+            messagebox.showwarning("nothing", "No message has been sent yet.")
 
     # ---- External notification hook ----
     def notify_friend_list_changed(self) -> None:

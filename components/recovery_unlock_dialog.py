@@ -131,11 +131,11 @@ class RecoveryUnlockDialog:
         add_share_rec_btn = ttk.Button(btn_row, text="Add Share", command=lambda: add_share_entry(),
                                         bootstyle="success-outline")
         add_share_rec_btn.pack(side=tk.LEFT, padx=(0, 5))
-        ToolTip(add_share_rec_btn, "افزودن فیلد جدید برای وارد کردن اشتراک")
+        ToolTip(add_share_rec_btn, "Add new field to enter subscription")
         remove_share_rec_btn = ttk.Button(btn_row, text="Remove Last", command=remove_last,
                                           bootstyle="danger-outline")
         remove_share_rec_btn.pack(side=tk.LEFT, padx=(0, 12))
-        ToolTip(remove_share_rec_btn, "حذف آخرین فیلد اشتراک")
+        ToolTip(remove_share_rec_btn, "Delete the last subscription field")
 
         def import_share_file():
             path = filedialog.askopenfilename(
@@ -151,8 +151,8 @@ class RecoveryUnlockDialog:
                 enc_b64 = payload.get("encrypted_share_b64", "")
                 share_index = payload.get("share_index", len(self._share_entries) + 1)
                 if not enc_b64:
-                    messagebox.showerror("فایل نامعتبر",
-                                         "هیچ اشتراک رمزنگاری شده‌ای در فایل یافت نشد.",
+                    messagebox.showerror("Invalid file",
+                                         "No encrypted shares were found in the file.",
                                          parent=dlg)
                     return
                 enc_bytes = base64.b64decode(enc_b64)
@@ -171,10 +171,10 @@ class RecoveryUnlockDialog:
                     except Exception as dec_err:
                         logger.exception("Share decryption failed")
                         messagebox.showerror(
-                            "رمزگشایی ناموفق",
-                            "این اشتراک با کلید خصوصی RSA شما قابل رمزگشایی نبود."
+                            "Decryption failed",
+                            "This subscription could not be decrypted with your RSA private key."
                             "\n\n" + friendly_error(dec_err) + "\n\n"
-                            "مطمئن شوید این فایل اشتراک برای شما ایجاد شده است.",
+                            "Make sure this subscription file is created for you.",
                             parent=dlg,
                         )
                         return
@@ -186,22 +186,22 @@ class RecoveryUnlockDialog:
                 plain_b64 = base64.b64encode(plain_bytes).decode("ascii")
                 add_share_entry(idx_val=share_index, b64_val=plain_b64)
                 messagebox.showinfo(
-                    "اشتراک وارد شد",
-                    f"اشتراک #{share_index} اضافه شد.\n"
-                    f"مالک: {payload.get('owner_name', 'unknown')}",
+                    "Subscription entered",
+                    f"Added share #{share_index}.\n"
+                    f"Owner: {payload.get('owner_name', 'unknown')}",
                     parent=dlg,
                 )
             except Exception as e:
                 logger.exception("Failed to import share file")
-                messagebox.showerror("واردات ناموفق",
-                                     "واردات فایل اشتراک ناموفق بود.\n\n"
+                messagebox.showerror("Import failed",
+                                     "Failed to import share file.\n\n"
                                      + friendly_error(e), parent=dlg)
 
         import_share_rec_btn = ttk.Button(btn_row, text="Import .enigma-share File",
                                           command=import_share_file,
                                           bootstyle="info-outline")
         import_share_rec_btn.pack(side=tk.LEFT)
-        ToolTip(import_share_rec_btn, "وارد کردن فایل اشتراک .enigma-share")
+        ToolTip(import_share_rec_btn, "Import the .enigma-share share file")
 
         self._result_var = tk.StringVar(value="")
         self._result_display = ttk.ScrolledText(parent, height=3, wrap=tk.WORD,
@@ -218,8 +218,8 @@ class RecoveryUnlockDialog:
                     raw_shares.append((idx_var.get(), val))
 
             if len(raw_shares) < 2:
-                messagebox.showwarning("اشتراک‌های ناکافی",
-                                       "حداقل ۲ اشتراک ارائه دهید.", parent=dlg)
+                messagebox.showwarning("Insufficient subscriptions",
+                                       "Offer at least 2 subscriptions.", parent=dlg)
                 return
 
             try:
@@ -229,13 +229,13 @@ class RecoveryUnlockDialog:
                     parsed.append((share_idx, share_bytes))
             except Exception as e:
                 logger.exception("Invalid share encoding")
-                messagebox.showerror("اشتراک‌های نامعتبر",
+                messagebox.showerror("Invalid subscriptions",
                                      friendly_error(e), parent=dlg)
                 return
 
             if len(set(len(s[1]) for s in parsed)) != 1:
-                messagebox.showerror("اشتراک‌های نامعتبر",
-                                     "همه اشتراک‌ها باید طول یکسانی داشته باشند.",
+                messagebox.showerror("Invalid subscriptions",
+                                     "All subscriptions must be the same length.",
                                      parent=dlg)
                 return
 
@@ -265,7 +265,7 @@ class RecoveryUnlockDialog:
                             break
 
             def _err(e):
-                messagebox.showerror("بازسازی ناموفق",
+                messagebox.showerror("Rebuild failed",
                                      friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
@@ -276,7 +276,7 @@ class RecoveryUnlockDialog:
         reconstruct_btn = ttk.Button(parent, text="Reconstruct Key",
                                      command=do_reconstruct, bootstyle="warning")
         reconstruct_btn.pack(anchor="w")
-        ToolTip(reconstruct_btn, "بازسازی کلید بازیابی از اشتراک‌های وارد شده")
+        ToolTip(reconstruct_btn, "Regenerate the recovery key from imported subscriptions")
 
     def _build_set_password_tab(self, parent, dlg):
         ttk.Label(
@@ -322,8 +322,8 @@ class RecoveryUnlockDialog:
 
         def apply_recovery():
             if self._reconstructed_state["key_bytes"] is None:
-                messagebox.showwarning("بدون کلید",
-                                       "ابتدا کلید بازیابی را بازسازی کنید.",
+                messagebox.showwarning("No key",
+                                       "First, regenerate the recovery key.",
                                        parent=dlg)
                 return
 
@@ -331,30 +331,30 @@ class RecoveryUnlockDialog:
             confirm_pw = self._confirm_pw_var.get()
 
             if not new_pw:
-                messagebox.showwarning("رمز عبور خالی",
-                                       "یک رمز عبور اصلی جدید وارد کنید.",
+                messagebox.showwarning("Password is empty",
+                                       "Enter a new master password.",
                                        parent=dlg)
                 return
 
             if new_pw != confirm_pw:
-                messagebox.showerror("عدم تطابق", "رمزهای عبور مطابقت ندارند.",
+                messagebox.showerror("mismatch", "Passwords do not match.",
                                      parent=dlg)
                 return
 
             if len(new_pw) < 8:
-                messagebox.showwarning("رمز عبور ضعیف",
-                                       "رمز عبور باید حداقل ۸ کاراکتر باشد.",
+                messagebox.showwarning("Weak password",
+                                       "Password must be at least 8 characters long.",
                                        parent=dlg)
                 return
 
             confirm = messagebox.askyesno(
-                "تأیید بازیابی",
-                "این کار:\n"
-                "• رمز عبور اصلی شما را جایگزین می‌کند\n"
-                "• کلیدهای RSA، PQC و امضا را بازتولید می‌کند\n"
-                "• اسرار مشترک دوستان را پاک می‌کند\n"
-                "• کلیدهای عمومی و گواهی‌های دوستان را حفظ می‌کند\n\n"
-                "ادامه می‌دهید؟",
+                "Confirm recovery",
+                "This work:\n"
+                "• Replaces your original password\n"
+                "• Regenerates RSA, PQC and signature keys\n"
+                "• Clears shared secrets of friends.\n"
+                "• Stores public keys and friends' certificates\n\n"
+                "do you continue",
                 icon="warning",
                 parent=dlg,
             )
@@ -371,7 +371,7 @@ class RecoveryUnlockDialog:
 
             def _err(e):
                 logger.exception("Recovery failed")
-                messagebox.showerror("بازیابی ناموفق",
+                messagebox.showerror("Recovery failed",
                                      friendly_error(e), parent=dlg)
 
             run_busy(dlg, _work, on_done=_done, on_error=_err,
@@ -380,4 +380,4 @@ class RecoveryUnlockDialog:
         apply_btn = ttk.Button(parent, text="Apply Recovery & Set New Password",
                                command=apply_recovery, bootstyle="danger")
         apply_btn.pack(anchor="w")
-        ToolTip(apply_btn, "اعمال بازیابی و تنظیم رمز عبور اصلی جدید")
+        ToolTip(apply_btn, "Apply recovery and set new master password")
