@@ -557,40 +557,58 @@ class CertificateDialog:
         tab_delegation = ttk.Frame(notebook, padding=15)
         notebook.add(tab_delegation, text="  Delegation Powers  ")
 
+        # Make tab_delegation responsive
+        tab_delegation.grid_rowconfigure(2, weight=1)
+        tab_delegation.grid_columnconfigure(0, weight=1)
+
         ttk.Label(
             tab_delegation,
             text="Delegation Certificates Held by You",
             font=("Segoe UI", 11, "bold"),
-        ).pack(anchor="w", pady=(0, 4))
-        ttk.Label(
+        ).grid(row=0, column=0, sticky="w", pady=(0, 4))
+
+        # Description label with dynamic wraplength
+        desc_label = ttk.Label(
             tab_delegation,
             text="Valid delegation certs others have issued to you, "
                  "granting authority to update their key or revoke their trust certificates.",
             font=("Segoe UI", 9),
-            wraplength=620,
             justify="left",
-        ).pack(anchor="w", pady=(0, 10))
+        )
+        desc_label.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        # Update wraplength when tab resizes
+        def _update_wraplength(event=None):
+            desc_label.configure(wraplength=max(200, tab_delegation.winfo_width() - 30))
+        tab_delegation.bind("<Configure>", _update_wraplength)
+
+        # Treeview frame with grid layout for proper resizing
+        tree_frame = ttk.Frame(tab_delegation)
+        tree_frame.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        tree_frame.grid_rowconfigure(0, weight=1)
+        tree_frame.grid_columnconfigure(0, weight=1)
 
         del_columns = ("delegator", "expires", "cert_id_short")
         del_tree = ttk.Treeview(
-            tab_delegation, columns=del_columns, show="headings",
-            height=8, bootstyle="info",
+            tree_frame, columns=del_columns, show="headings",
+            bootstyle="info",
         )
         del_tree.heading("delegator", text="Delegator (Issuer)")
         del_tree.heading("expires", text="Expires")
         del_tree.heading("cert_id_short", text="Cert ID")
-        del_tree.column("delegator", width=200)
-        del_tree.column("expires", width=160)
-        del_tree.column("cert_id_short", width=120)
-        del_scroll = ttk.Scrollbar(tab_delegation, orient=tk.VERTICAL,
+        del_tree.column("delegator", width=200, minwidth=120, anchor="w")
+        del_tree.column("expires", width=160, minwidth=120, anchor="center")
+        del_tree.column("cert_id_short", width=120, minwidth=80, anchor="center")
+
+        del_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL,
                                     command=del_tree.yview, bootstyle="info-round")
-        del_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         del_tree.configure(yscrollcommand=del_scroll.set)
-        del_tree.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+        del_tree.grid(row=0, column=0, sticky="nsew")
+        del_scroll.grid(row=0, column=1, sticky="ns")
 
         del_load_status_var = tk.StringVar(value="")
         ttk.Label(tab_delegation, textvariable=del_load_status_var,
-                  font=("Segoe UI", 9), bootstyle="danger").pack(anchor="w", pady=(0, 4))
+                  font=("Segoe UI", 9), bootstyle="danger").grid(row=3, column=0, sticky="w", pady=(0, 4))
 
         def load_delegation_certs():
             for item in del_tree.get_children():
@@ -848,66 +866,77 @@ class CertificateDialog:
                 logger.exception("Failed to revoke delegator recovery shares")
                 messagebox.showerror("خطا", friendly_error(e), parent=dlg)
 
-        # ---- button rows ---------------------------------------------------
+        # ---- button rows (using grid for consistent layout) ---------------------------------------------------
 
-        del_btn_frame = ttk.Frame(tab_delegation)
-        del_btn_frame.pack(fill=tk.X, pady=(2, 0))
+        # Configure tab_delegation rows for buttons
+        tab_delegation.grid_rowconfigure(4, weight=0)  # Row 1 buttons
+        tab_delegation.grid_rowconfigure(5, weight=0)  # Row 2 buttons
+        tab_delegation.grid_rowconfigure(6, weight=0)  # Close button
 
         # Row 1 – Update keys
-        row1 = ttk.Frame(del_btn_frame)
-        row1.pack(fill=tk.X, pady=(0, 4))
+        row1 = ttk.Frame(tab_delegation)
+        row1.grid(row=4, column=0, sticky="ew", pady=(2, 4))
+        row1.grid_columnconfigure(1, weight=1)
+        row1.grid_columnconfigure(2, weight=1)
+        row1.grid_columnconfigure(3, weight=1)
+        row1.grid_columnconfigure(4, weight=1)
         ttk.Label(row1, text="Update Keys:", font=("Segoe UI", 9, "bold"),
-                  width=12, anchor="e").pack(side=tk.LEFT, padx=(0, 6))
+                  anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 6))
         hyb_btn = ttk.Button(row1, text="Hybrid Key",
                              command=do_update_delegator_key,
                              bootstyle="info-outline")
-        hyb_btn.pack(side=tk.LEFT, padx=(0, 4))
+        hyb_btn.grid(row=0, column=1, sticky="ew", padx=(0, 4))
         ToolTip(hyb_btn, "به‌روزرسانی کلید امضای ترکیبی نماینده")
         x25519_btn = ttk.Button(row1, text="X25519 Key",
                                 command=do_update_x25519,
                                 bootstyle="info-outline")
-        x25519_btn.pack(side=tk.LEFT, padx=(0, 4))
+        x25519_btn.grid(row=0, column=2, sticky="ew", padx=(0, 4))
         ToolTip(x25519_btn, "به‌روزرسانی کلید X25519 نماینده")
         rsa_btn = ttk.Button(row1, text="RSA PEM",
                              command=do_update_pem,
                              bootstyle="info-outline")
-        rsa_btn.pack(side=tk.LEFT, padx=(0, 4))
+        rsa_btn.grid(row=0, column=3, sticky="ew", padx=(0, 4))
         ToolTip(rsa_btn, "به‌روزرسانی کلید عمومی RSA نماینده")
         pqc_btn = ttk.Button(row1, text="PQC Key",
                              command=do_update_pqc,
                              bootstyle="info-outline")
-        pqc_btn.pack(side=tk.LEFT)
+        pqc_btn.grid(row=0, column=4, sticky="ew")
         ToolTip(pqc_btn, "به‌روزرسانی کلید ترکیبی PQC نماینده")
 
         # Row 2 – Destructive actions + Refresh
-        row2 = ttk.Frame(del_btn_frame)
-        row2.pack(fill=tk.X)
+        row2 = ttk.Frame(tab_delegation)
+        row2.grid(row=5, column=0, sticky="ew", pady=(0, 4))
+        row2.grid_columnconfigure(1, weight=1)
+        row2.grid_columnconfigure(2, weight=1)
+        row2.grid_columnconfigure(3, weight=1)
+        row2.grid_columnconfigure(4, weight=1)
         ttk.Label(row2, text="Actions:", font=("Segoe UI", 9, "bold"),
-                  width=12, anchor="e").pack(side=tk.LEFT, padx=(0, 6))
+                  anchor="e").grid(row=0, column=0, sticky="e", padx=(0, 6))
         remove_keys_btn = ttk.Button(row2, text="Remove All Keys",
                                      command=do_remove_all_keys,
                                      bootstyle="warning-outline")
-        remove_keys_btn.pack(side=tk.LEFT, padx=(0, 4))
+        remove_keys_btn.grid(row=0, column=1, sticky="ew", padx=(0, 4))
         ToolTip(remove_keys_btn, "حذف همه کلیدهای اختیاری نماینده (غیرقابل بازگشت)")
         revoke_certs_btn = ttk.Button(row2, text="Revoke All Certs",
                                       command=do_revoke_all_delegator_certs,
                                       bootstyle="danger-outline")
-        revoke_certs_btn.pack(side=tk.LEFT, padx=(0, 4))
+        revoke_certs_btn.grid(row=0, column=2, sticky="ew", padx=(0, 4))
         ToolTip(revoke_certs_btn, "لغو همه گواهی‌های اعتماد نماینده (غیرقابل بازگشت)")
         revoke_shares_btn = ttk.Button(row2, text="Revoke Recovery Shares",
                                        command=do_revoke_recovery_shares,
                                        bootstyle="danger-outline")
-        revoke_shares_btn.pack(side=tk.LEFT, padx=(0, 4))
+        revoke_shares_btn.grid(row=0, column=3, sticky="ew", padx=(0, 4))
         ToolTip(revoke_shares_btn, "لغو اشتراک‌های بازیابی نماینده")
         refresh_del_btn = ttk.Button(row2, text="Refresh",
                                      command=load_delegation_certs,
                                      bootstyle="secondary-outline")
-        refresh_del_btn.pack(side=tk.RIGHT)
+        refresh_del_btn.grid(row=0, column=4, sticky="ew")
         ToolTip(refresh_del_btn, "بروزرسانی لیست گواهی‌های نمایندگی")
 
+        # Close button
         close_cert_btn = ttk.Button(dlg, text="Close", command=dlg.destroy,
                                     bootstyle="secondary-outline")
-        close_cert_btn.pack(pady=(0, 10))
+        close_cert_btn.grid(row=7, column=0, pady=(4, 10), sticky="e")
         ToolTip(close_cert_btn, "بستن پنجره مدیریت گواهی‌ها")
 
         init_modal(dlg, self.parent, focus_widget=issue_friend_combo)
