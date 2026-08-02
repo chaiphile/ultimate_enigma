@@ -29,19 +29,19 @@ No lint/typecheck commands are configured. No pyproject.toml, tox.ini, or Makefi
 
 ```
 main.py          → Entry point, logging, anti-tamper, theme init
-app.py           → EnigmaApp composition root (7 tabs, event wiring, emergency lock)
+app.py           → EnigmaApp composition root (9 tabs, event wiring, emergency lock)
 crypto.py        → AES-GCM + RSA-OAEP, time-based keys, constant-time decrypt
 database.py      → SQLCipher/SQLite layer, Argon2id KDF, PBKDF2→Argon2id migration
 key_manager.py   → KeyStore: RSA 4096, PQC keys, duress mode, password change (thin orchestrator)
 
 controllers/     → application_controller, auth_controller, service_orchestrator
 models/          → envelope.py (RatchetEnvelope, PQCEncvelope), friend_profile.py
-services/        → 19 services: encryption, double_ratchet, pqc, totp, event_bus, etc.
-views/           → 12 UI files: tabs, lock_screen, visual_enigma, utils
+services/        → 22 services (top-level) + encryption/ and friends/ subpackages: encryption, double_ratchet, pqc, totp, event_bus, etc.
+views/           → 13 UI files: tabs, lock_screen, help_tab, utils
 components/      → Reusable dialogs: add_friend, hybrid_sig_exchange, pqc_exchange, totp
 src/             → constants.py, exceptions.py, secure_string.py, anti_tamper.py, timeout.py, crypto_utils.py, key_generation.py
 security/        → memory_security, anti_dump, guarded_buffer, lockout
-tests/           → 36 test files, 550+ tests, conftest.py with isolated DB fixture
+tests/           → 37 test files, 1019 tests, conftest.py with isolated DB fixture
 ```
 
 ## Key Gotchas
@@ -50,7 +50,7 @@ tests/           → 36 test files, 550+ tests, conftest.py with isolated DB fix
 - **Anti-tamper**: Only activates when `sys.frozen == True` (PyInstaller exe). Never triggers from source. Don't test debugger detection from `python main.py`. Pipeline is **fail-closed**: exceptions in checks are treated as tamper.
 - **SQLCipher fallback**: App falls back to plain SQLite if `sqlcipher3` is unavailable. All DB access goes through `database.get_connection()`.
 - **SecureString**: Sensitive strings must use `SecureString` (bytearray with 3-pass wipe). Never store passwords/plaintext in regular strings if they'll persist in memory.
-- **EventBus**: Thread-safe singleton. Views publish events; app.py subscribes for cross-component coordination. 22 event types in `services/event_bus.py`.
+- **EventBus**: Thread-safe singleton. Views publish events; app.py subscribes for cross-component coordination. 38 event types in `services/event_bus.py`.
 - **Per-friend RLock**: Double ratchet uses per-friend locks with ordered acquisition to prevent deadlocks. See `services/ratchet_service.py`.
 - **Constants**: All magic numbers live in `src/constants.py`. Never hardcode crypto params, timeouts, or UI defaults.
 - **Post-quantum**: Depends on `liboqs` (CRYSTALS-Kyber + Dilithium3). Build requires `oqs.dll` bundled via PyInstaller.
@@ -63,8 +63,8 @@ tests/           → 36 test files, 550+ tests, conftest.py with isolated DB fix
 ## Testing Notes
 
 - `conftest.py` adds project root to `sys.path` and creates isolated DB per test.
-- `run_tests.py` is a hardcoded script that runs a specific subset of tests — use `pytest` directly instead.
-- Test subdirectories: `tests/encryption/`, `tests/friends/` for grouped tests.
+- There is no `run_tests.py` or batch test runners in the repo — run tests directly with `pytest`.
+- Test subdirectories: `tests/encryption/`, `tests/friends/` exist as empty placeholders — no test files created yet.
 - `tests/test_anti_tamper.py` mocks ctypes calls for cross-platform testing.
 
 ## Code Style

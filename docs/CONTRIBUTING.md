@@ -9,7 +9,7 @@ Thank you for your interest in contributing to Ultimate Enigma Messenger! This d
 - Python 3.10 or higher
 - pip (Python package manager)
 - Git
-- **Windows Users Only:** Visual Studio Build Tools with MSVC and Windows 11 SDK (required for native Python extensions like `cryptography` and `argon2-cffi`). Run the provided `setup_dev_env.ps1` script as Administrator to install these automatically.
+- **Windows Users Only:** Visual Studio Build Tools with MSVC and Windows 11 SDK (required for native Python extensions like `cryptography` and `argon2-cffi`). Install them via winget (`winget install Microsoft.VisualStudio.2022.BuildTools`) or the manual steps in `docs/SETUP.md`.
 
 ### Environment Setup
 
@@ -38,11 +38,11 @@ Thank you for your interest in contributing to Ultimate Enigma Messenger! This d
 
 ## Project Structure
 
-The application follows an MVC architecture with approximately **8 tabs**, **23 service modules**, and **8 reusable components**.
+The application follows an MVC architecture with approximately **9 tabs**, **22 service modules**, and **8 reusable components**.
 
 ```
 main.py              Entry point, logging, anti-tamper, theme init
-app.py               EnigmaApp composition root (8 tabs, event wiring, emergency lock)
+app.py               EnigmaApp composition root (9 tabs, event wiring, emergency lock)
 crypto.py            AES-GCM + RSA-OAEP, time-based keys, constant-time decrypt
 database.py          SQLCipher/SQLite layer, Argon2id KDF, PBKDF2→Argon2id migration
 key_manager.py       KeyStore: RSA 4096, PQC keys, duress mode, password change
@@ -54,7 +54,7 @@ models/              Data structures (envelope, friend_profile)
 views/               UI files (tabs, lock_screen, utils)
   ecdh.py            ECDH key exchange view
 controllers/         Business logic coordination (3 controllers)
-services/            23 service modules (plus encryption/ and friends/ subpackages)
+services/            22 service modules (plus encryption/ and friends/ subpackages)
   ecdh_service.py    ECDH key exchange service
   file_ops.py        File operation utilities
   encryption/        Subpackage: encryption strategies (facade, legacy, pqc, ratchet)
@@ -65,7 +65,7 @@ components/          8 reusable dialogs
 src/                 Constants, exceptions, helpers
   crypto_task_helper.py  Async crypto task helpers
 security/            Memory security, anti-dump, guarded buffers, lockout
-tests/               36 test files, 550+ tests
+tests/               37 test files, 1019 tests
   encryption/        (empty) – future grouped tests
   friends/           (empty) – future grouped tests
 ```
@@ -148,12 +148,12 @@ pytest tests/ --cov=. --cov-report=html
 - Use fixtures from `conftest.py` for common setup
 - Test both success and failure cases
 
-The test directory contains **36 test files** with **550+ tests**. It includes subdirectories for future grouped tests:
+The test directory contains **37 test files** with **1019 tests**. It includes subdirectories for future grouped tests:
 ```
 tests/
 ├── encryption/          # (empty) – future encryption service tests
 ├── friends/             # (empty) – future friends service tests
-├── test_*.py            # Individual module tests (36 files, 550+ tests)
+├── test_*.py            # Individual module tests (37 files, 1019 tests)
 └── conftest.py          # Shared fixtures
 ```
 

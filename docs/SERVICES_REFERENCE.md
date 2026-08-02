@@ -1,6 +1,6 @@
 # Services Reference
 
-Comprehensive documentation for every service in the `services/` directory. Covers 23 service modules (25 directory entries minus `__init__.py` and `__pycache__/`).
+Comprehensive documentation for every service in the `services/` directory. Covers 22 service modules (26 directory entries minus `__init__.py`, `__pycache__/`, and the `encryption/` + `friends/` subpackages).
 
 ---
 

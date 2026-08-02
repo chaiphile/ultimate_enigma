@@ -80,7 +80,7 @@ All sensitive keys are encrypted at rest and stored in a SQLCipher-encrypted SQL
 - **Dark Theme** – Modern ttkbootstrap "darkly" theme
 - **Clipboard Auto-Clear** – Sensitive data cleared after configurable timeout
 - **NTP Synchronization** – Multi-server NTP consensus with outlier rejection for accurate time-based key derivation
-- **Event-Driven UI** – Decoupled components via EventBus with 22 event types
+- **Event-Driven UI** – Decoupled components via EventBus with 38 event types
 - **SecureString** – Memory-safe string handling with 3-pass wipe
 
 ---
@@ -115,11 +115,11 @@ On Windows, native Python extensions (like `cryptography`, `argon2-cffi`) and th
 - **MSVC v143 C++ Build Tools** (x86/x64)
 - **Windows 11 SDK**
 
-We provide an **automated PowerShell script** to install all required C++ development components silently:
+Install the required components via **winget** (see the [Windows Setup Guide](docs/SETUP.md#windows-setup) for details):
 
 ```powershell
-# Open PowerShell as Administrator, navigate to the project folder, and run:
-.\setup_dev_env.ps1
+# Open PowerShell as Administrator, then run:
+winget install Microsoft.VisualStudio.2022.BuildTools
 ```
 
 For manual installation instructions, see the [Windows Setup Guide](docs/SETUP.md#windows-setup).
@@ -203,7 +203,7 @@ The application is organized into tabs:
 
 ## Testing
 
-The project includes a comprehensive test suite using `pytest` with **550+ tests** covering all modules.
+The project includes a comprehensive test suite using `pytest` with **1019 tests** covering all modules.
 
 ### Run All Tests
 ```bash
@@ -242,11 +242,10 @@ The test suite covers:
 
 ### Test Utilities
 
-Batch files are provided for common test scenarios:
-- `run_tests.py` – Main test runner
-- `run_specific_tests.bat` – Run targeted tests
-- `run_timeout_tests.bat` – Test timeout handling
-- `run_concurrent_test.bat` – Test concurrent operations
+Use `pytest` directly for common test scenarios:
+- `pytest tests/ -v` – Run the full suite
+- `pytest tests/test_encryption_service.py -v` – Run a specific test file
+- `pytest tests/test_crypto.py::TestClass::test_method -v` – Run a single test
 
 ---
 
@@ -263,7 +262,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 │                              │                              │
 │                    ┌─────────┴─────────┐                    │
 │                    │      EventBus     │                    │
-│                    │   (22 event types)│                    │
+│                    │   (38 event types)│                    │
 │                    └───────────────────┘                    │
 │                              │                              │
 │  ┌───────────────────────────┼───────────────────────────┐  │
@@ -276,7 +275,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 │  │  PQCService               │  NtpTab                   │  │
 │  │  TOTPService              │  AboutTab                 │  │
 │  │  HotkeyService            │  LockScreen               │  │
-│  │  ... (19 services)        │  TrustTab                 │  │
+│  │  ... (22 services)        │  TrustTab                 │  │
 │  └───────────────────────────┴───────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -286,18 +285,18 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | Directory/File | Purpose |
 |----------------|---------|
 | `main.py` | Entry point (48 lines) - logging, anti-tamper, ttkbootstrap darkly theme |
-| `app.py` | EnigmaApp class (373 lines) - composition root, 7 tabs, emergency lock/unlock, event subscriptions |
+| `app.py` | EnigmaApp class (373 lines) - composition root, 9 tabs, emergency lock/unlock, event subscriptions |
 | `crypto.py` | Crypto operations (465 lines) - AES-256-GCM + RSA-OAEP, time-based keys, constant-time decryption, hybrid signing, self-destruct |
 | `database.py` | Database layer (500 lines) - SQLite/SQLCipher, Argon2id KDF, schema init, integrity check, error classification, PBKDF2-to-Argon2id migration |
 | `key_manager.py` | Key management (1182 lines) - RSA 4096-bit, PQC keys, hybrid sig keys, exponential backoff lockout, duress mode, password change |
 | `ntp_client.py` | NTP client (145 lines) - Multi-server NTP consensus with outlier rejection |
 | `controllers/` | MVC controllers (3 files) - lifecycle, auth, service DI |
-| `models/` | Data models (3 files) - envelope (RatchetEnvelope, PQCEncvelope), friend profile, re-exports |
-| `services/` | Business logic (19 files, ~5214 lines) - encryption, files, friends, ratchet, PQC, TOTP, etc. |
-| `views/` | View layer (11 files, ~2747 lines) - tabs, dialogs, lock screen, utilities |
-| `components/` | Reusable UI components (5 files) - add friend, hybrid sig exchange, PQC exchange, TOTP dialogs |
+| `models/` | Data models (4 files) - envelope (RatchetEnvelope, PQCEncvelope), friend profile, trust chain, message score, re-exports |
+| `services/` | Business logic (22 files, ~5214 lines) - plus encryption/ and friends/ subpackages; encryption, files, friends, ratchet, PQC, TOTP, etc. |
+| `views/` | View layer (13 files, ~2747 lines) - tabs, dialogs, lock screen, utilities |
+| `components/` | Reusable UI components (8 files) - add friend, hybrid sig exchange, PQC exchange, TOTP dialogs |
 | `src/` | Core utilities (8 files, ~2014 lines) - constants, exceptions, secure string, crypto helpers, anti-tamper, timeout |
-| `tests/` | Test suite (23 files, 550+ tests) |
+| `tests/` | Test suite (37 files, 1019 tests) |
 | `docs/` | Documentation (11 reference files) |
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -320,7 +319,7 @@ For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITE
 - **Anti-Tamper** – Compiled .exe includes debugger detection, binary integrity checks, hooking framework detection, and hardware breakpoint detection. Process exits silently if tampering is detected.
 - **Hybrid Signatures** – Combines classical (Ed25519) and post-quantum (Dilithium3) signatures for transition safety.
 - **Thread Safety** – Per-friend RLock prevents deadlocks in concurrent ratchet operations.
-- **EventBus** – Thread-safe singleton event system with 22 event types for decoupled communication.
+- **EventBus** – Thread-safe singleton event system with 38 event types for decoupled communication.
 
 For the complete security model, see [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -345,9 +344,9 @@ For the complete security model, see [docs/SECURITY.md](docs/SECURITY.md).
 | Document | Description |
 |----------|-------------|
 | [Setup Guide](docs/SETUP.md) | Multi-OS installation (Windows/macOS/Linux), PQC setup, troubleshooting |
-| [Services Reference](docs/SERVICES_REFERENCE.md) | All 19 services with every method, parameter, and return type |
+| [Services Reference](docs/SERVICES_REFERENCE.md) | All 22 services with every method, parameter, and return type |
 | [Models Reference](docs/MODELS_REFERENCE.md) | Envelopes (RatchetEnvelope, PQCEncvelope), FriendProfile, DB schema, SecureString, constants |
-| [Views & Controllers](docs/VIEWS_AND_CONTROLLERS.md) | All 12 view files, 3 controllers, 5 component dialogs, lock screen, utilities |
+| [Views & Controllers](docs/VIEWS_AND_CONTROLLERS.md) | All 13 view files, 3 controllers, 8 component dialogs, lock screen, utilities |
 | [Architecture](docs/ARCHITECTURE.md) | MVC design, event flow, threading model |
 | [Security Model](docs/SECURITY.md) | Cryptographic primitives, threat model, known limitations |
 | [API Reference](docs/API.md) | API documentation |

@@ -172,7 +172,7 @@ Creates: EncryptionService, FileService, FriendsService, ClipboardService, Globa
 
 ## Views (Tabs)
 
-12 view modules: about_tab, decrypt_tab, dialogs, ecdh, encrypt_tab, file_tab, friends_tab, lock_screen, ntp_tab, secret_tab, trust_tab, utils.
+13 view modules: about_tab, decrypt_tab, dialogs, ecdh, encrypt_tab, file_tab, friends_tab, help_tab, lock_screen, ntp_tab, secret_tab, trust_tab, utils.
 
 ### EnigmaApp (Main Window)
 

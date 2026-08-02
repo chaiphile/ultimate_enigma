@@ -37,11 +37,11 @@
 
 ## 1. Project Overview
 
-**Ultimate Enigma Messenger** is a Python desktop cryptographic messenger implementing a **hybrid classical–post-quantum cryptosystem**. It combines AES-256-GCM, RSA-4096-OAEP, X25519 ECDH, Ed25519, the Signal Double Ratchet Protocol, and CRYSTALS-Kyber768 / CRYSTALS-Dilithium3 from post-quantum cryptography (PQC) into a single secure messaging application. The system employs an eight-layer architecture (builders, models, views, controllers, services, security, components, src) with an event-driven, thread-safe composition root (AppBuilder provides a 6-step composition root), encrypted SQLCipher / SQLite persistence using Argon2id KDF, duress mode, anti-tamper protections, and memory-security mechanisms including guarded virtual-memory buffers over 33 event constants across 7 categories, 23 service modules, 13 view modules, 8 reusable components, and 550+ automated tests across 36 files.
+**Ultimate Enigma Messenger** is a Python desktop cryptographic messenger implementing a **hybrid classical–post-quantum cryptosystem**. It combines AES-256-GCM, RSA-4096-OAEP, X25519 ECDH, Ed25519, the Signal Double Ratchet Protocol, and CRYSTALS-Kyber768 / CRYSTALS-Dilithium3 from post-quantum cryptography (PQC) into a single secure messaging application. The system employs an eight-layer architecture (builders, models, views, controllers, services, security, components, src) with an event-driven, thread-safe composition root (AppBuilder provides a 6-step composition root), encrypted SQLCipher / SQLite persistence using Argon2id KDF, duress mode, anti-tamper protections, and memory-security mechanisms including guarded virtual-memory buffers over 38 event constants across 9 categories, 22 service modules, 13 view modules, 8 reusable components, and 1019 automated tests across 37 files.
 
 **Platform:** Windows-first (uses Windows-specific APIs for anti-tamper, global hotkeys, memory protection), with partial macOS and Linux support. No external network dependencies for message transport — the application focuses exclusively on the cryptographic layer.
 
-**Entry point:** `main.py` → `EnigmaApp` (composition root) → 7-tab UI (Encrypt, Decrypt, Friends, Files, Secret, Trust Chain, About).
+**Entry point:** `main.py` → `EnigmaApp` (composition root) → 9-tab UI (Encrypt, Decrypt, Shared Secret, Files, Friends, Trust Chain, NTP, Help, About).
 
 ---
 
@@ -451,7 +451,7 @@ Individual field encryption via `encrypt_secret()` / `decrypt_secret()` (`databa
 
 When legacy PBKDF2 entries are detected on read, they are transparently **migrated to Argon2id** via `migrate_secrets_to_argon2id()`.
 
-### Database Schema (8 tables)
+### Database Schema (5 tables)
 
 | Table | Key Columns | Purpose |
 |---|---|---|
@@ -486,7 +486,7 @@ All stored in the `settings` table, encrypted with Argon2id + AES-GCM:
 | Standard | Scope | Application in Codebase |
 |---|---|---|
 | **CNSA 2.0** (NSA, 2022) [[19]](#ref19) | Minimum RSA key size 4096 bits; PQC transition required for national security systems | `src/key_generation.py:29`: `MIN_RSA_KEY_SIZE = 4096`; hybrid KEM + hybrid signatures; `key_manager.py:144,149,820`: runtime key size enforcement |
-| **NIST FIPS 140-3** | Cryptographic module security levels (Level 2–3) | Targeted for future validation (`fixroadmap.md:1777-1787`) |
+| **NIST FIPS 140-3** | Cryptographic module security levels (Level 2–3) | Targeted for future validation (roadmap was internal planning; certification targets are listed inline) |
 | **NIST SP 800-38D** | AES-GCM authenticated encryption | All AES-GCM operations (`crypto.py:93-118`) |
 | **NIST FIPS 203** | Module-Lattice-Based Key-Encapsulation Mechanism (ML-KEM) | Kyber768 via liboqs (`services/pqc_service.py:33`) |
 | **NIST FIPS 204** | Module-Lattice-Based Digital Signature Standard (ML-DSA) | Dilithium3/ML-DSA-65 via liboqs (`services/pqc_signatures.py:33-34`) |
@@ -501,8 +501,8 @@ All stored in the `settings` table, encrypted with Argon2id + AES-GCM:
 | **RFC 8018** | PKCS#5 v2.1: Password-Based Cryptography Specification | Legacy PBKDF2 key derivation, PBKDF2→Argon2id migration (`database.py:22,55,463-488`) |
 | **draft-irtf-cfrg-xchacha** | XChaCha20-Poly1305 | XChaCha20-Poly1305 AEAD implementation (`services/xchacha20_poly1305.py:19`) |
 | **OWASP Password Storage 2025** [[49]](#ref49) | PBKDF2 iteration count recommendations (600K+ for SHA-256) | KDF parameter guidelines (currently 300K for legacy) |
-| **Common Criteria EAL4+** | Evaluation assurance level for security certification | Targeted for future validation (`fixroadmap.md:1789-1797`) |
-| **DISA STIG** | Defense Information Systems Agency Security Technical Implementation Guide | Targeted for future validation (`fixroadmap.md:1807-1815`) |
+| **Common Criteria EAL4+** | Evaluation assurance level for security certification | Targeted for future validation (roadmap was internal planning; certification targets are listed inline) |
+| **DISA STIG** | Defense Information Systems Agency Security Technical Implementation Guide | Targeted for future validation (roadmap was internal planning; certification targets are listed inline) |
 
 ---
 
@@ -595,7 +595,7 @@ Key architectural decisions include:
 - **Exponential backoff lockout** persisting across restarts
 - **Shamir's Secret Sharing** over GF(256) for key recovery
 
-The system is backed by **550+ automated tests across 36 files** verifying cryptographic correctness against published test vectors from RFCs 4226, 8439, and NIST standard parameters, and implements **18+ distinct cryptographic algorithms** across **49+ published academic standards and research papers**.
+The system is backed by **1019 automated tests across 37 files** verifying cryptographic correctness against published test vectors from RFCs 4226, 8439, and NIST standard parameters, and implements **18+ distinct cryptographic algorithms** across **49+ published academic standards and research papers**.
 
 ---
 

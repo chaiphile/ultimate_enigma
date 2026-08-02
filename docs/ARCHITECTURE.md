@@ -132,9 +132,9 @@ ultimate_enigma/
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
 ├── key_manager.py          # KeyStore thin orchestrator (lockout → security/lockout.py, keygen → src/key_generation.py)
-├── tests/                  # Test suite (36 test files)
-│   ├── encryption/               # Encryption service tests
-│   └── friends/                  # Friends service tests
+├── tests/                  # Test suite (37 test files)
+│   ├── encryption/               # (empty) – future encryption service tests
+│   └── friends/                  # (empty) – future friends service tests
 ```
 
 ### View Layer Organization
@@ -289,7 +289,7 @@ The EventBus enables loose coupling between components:
 [EncryptionSvc] --ANOMALY_DETECTED--> [EventBus] --> [App] (toast + banner)
 ```
 
-### Available Events (37 total)
+### Available Events (38 total)
 
 | Event | Category | Description |
 |-------|----------|-------------|
