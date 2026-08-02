@@ -132,7 +132,7 @@ ultimate_enigma/
 ├── crypto.py               # Low-level crypto primitives
 ├── database.py             # SQLite schema and operations
 ├── key_manager.py          # KeyStore thin orchestrator (lockout → security/lockout.py, keygen → src/key_generation.py)
-├── tests/                  # Test suite (37 test files)
+├── tests/                  # Test suite (38 test files)
 │   ├── encryption/               # (empty) – future encryption service tests
 │   └── friends/                  # (empty) – future friends service tests
 ```

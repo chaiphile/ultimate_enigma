@@ -37,7 +37,7 @@
 
 ## 1. Project Overview
 
-**Ultimate Enigma Messenger** is a Python desktop cryptographic messenger implementing a **hybrid classical–post-quantum cryptosystem**. It combines AES-256-GCM, RSA-4096-OAEP, X25519 ECDH, Ed25519, the Signal Double Ratchet Protocol, and CRYSTALS-Kyber768 / CRYSTALS-Dilithium3 from post-quantum cryptography (PQC) into a single secure messaging application. The system employs an eight-layer architecture (builders, models, views, controllers, services, security, components, src) with an event-driven, thread-safe composition root (AppBuilder provides a 6-step composition root), encrypted SQLCipher / SQLite persistence using Argon2id KDF, duress mode, anti-tamper protections, and memory-security mechanisms including guarded virtual-memory buffers over 38 event constants across 9 categories, 22 service modules, 13 view modules, 8 reusable components, and 1019 automated tests across 37 files.
+**Ultimate Enigma Messenger** is a Python desktop cryptographic messenger implementing a **hybrid classical–post-quantum cryptosystem**. It combines AES-256-GCM, RSA-4096-OAEP, X25519 ECDH, Ed25519, the Signal Double Ratchet Protocol, and CRYSTALS-Kyber768 / CRYSTALS-Dilithium3 from post-quantum cryptography (PQC) into a single secure messaging application. The system employs an eight-layer architecture (builders, models, views, controllers, services, security, components, src) with an event-driven, thread-safe composition root (AppBuilder provides a 6-step composition root), encrypted SQLCipher / SQLite persistence using Argon2id KDF, duress mode, anti-tamper protections, and memory-security mechanisms including guarded virtual-memory buffers over 38 event constants across 9 categories, 22 service modules, 13 view modules, 8 reusable components, and 1035 automated tests across 38 files.
 
 **Platform:** Windows-first (uses Windows-specific APIs for anti-tamper, global hotkeys, memory protection), with partial macOS and Linux support. No external network dependencies for message transport — the application focuses exclusively on the cryptographic layer.
 
@@ -595,7 +595,7 @@ Key architectural decisions include:
 - **Exponential backoff lockout** persisting across restarts
 - **Shamir's Secret Sharing** over GF(256) for key recovery
 
-The system is backed by **1019 automated tests across 37 files** verifying cryptographic correctness against published test vectors from RFCs 4226, 8439, and NIST standard parameters, and implements **18+ distinct cryptographic algorithms** across **49+ published academic standards and research papers**.
+The system is backed by **1035 automated tests across 38 files** verifying cryptographic correctness against published test vectors from RFCs 4226, 8439, and NIST standard parameters, and implements **18+ distinct cryptographic algorithms** across **49+ published academic standards and research papers**.
 
 ---
 

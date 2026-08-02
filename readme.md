@@ -203,7 +203,7 @@ The application is organized into tabs:
 
 ## Testing
 
-The project includes a comprehensive test suite using `pytest` with **1019 tests** covering all modules.
+The project includes a comprehensive test suite using `pytest` with **1035 tests** covering all modules.
 
 ### Run All Tests
 ```bash
@@ -296,7 +296,7 @@ The project follows an **MVC (Model-View-Controller)** architecture with an even
 | `views/` | View layer (13 files, ~2747 lines) - tabs, dialogs, lock screen, utilities |
 | `components/` | Reusable UI components (8 files) - add friend, hybrid sig exchange, PQC exchange, TOTP dialogs |
 | `src/` | Core utilities (8 files, ~2014 lines) - constants, exceptions, secure string, crypto helpers, anti-tamper, timeout |
-| `tests/` | Test suite (37 files, 1019 tests) |
+| `tests/` | Test suite (38 files, 1035 tests) |
 | `docs/` | Documentation (11 reference files) |
 
 For detailed architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

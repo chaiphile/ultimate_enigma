@@ -65,7 +65,7 @@ components/          8 reusable dialogs
 src/                 Constants, exceptions, helpers
   crypto_task_helper.py  Async crypto task helpers
 security/            Memory security, anti-dump, guarded buffers, lockout
-tests/               37 test files, 1019 tests
+tests/               38 test files, 1035 tests
   encryption/        (empty) – future grouped tests
   friends/           (empty) – future grouped tests
 ```
@@ -148,12 +148,12 @@ pytest tests/ --cov=. --cov-report=html
 - Use fixtures from `conftest.py` for common setup
 - Test both success and failure cases
 
-The test directory contains **37 test files** with **1019 tests**. It includes subdirectories for future grouped tests:
+The test directory contains **38 test files** with **1035 tests**. It includes subdirectories for future grouped tests:
 ```
 tests/
 ├── encryption/          # (empty) – future encryption service tests
 ├── friends/             # (empty) – future friends service tests
-├── test_*.py            # Individual module tests (37 files, 1019 tests)
+├── test_*.py            # Individual module tests (38 files, 1035 tests)
 └── conftest.py          # Shared fixtures
 ```
 
