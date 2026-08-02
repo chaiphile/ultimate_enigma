@@ -12,6 +12,12 @@ from views.utils import friendly_error, flash_widget_text, ToolTip
 
 logger = logging.getLogger(__name__)
 
+AUTO_CLEAR_INTERVALS = (10, 30, 60)
+DEFAULT_AUTO_CLEAR_SECONDS = 30
+AUTO_CLEAR_LABELS = tuple(f"{seconds} s" for seconds in AUTO_CLEAR_INTERVALS)
+COPY_RESULT_LABEL = "Copy Result"
+COPY_FLASH_BASE = "Copied ✓"
+
 class DecryptTab:
     def __init__(self, parent: tk.Widget, encryption_service, clipboard_service, task_queue: Queue,
                  crypto_queue=None) -> None:
@@ -30,6 +36,7 @@ class DecryptTab:
         self.task_queue = task_queue
         self.crypto_queue = crypto_queue
         self.frame = ttk.Frame(parent)
+        self._autoclear_after_id: str | None = None
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -54,14 +61,20 @@ class DecryptTab:
                                bootstyle="secondary-outline")
         paste_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(paste_btn, "Paste encrypted text from clipboard")
+        clip_decrypt_btn = ttk.Button(btn_bar, text="Decrypt from Clipboard",
+                                      command=self.decrypt_from_clipboard,
+                                      bootstyle="success-outline")
+        clip_decrypt_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(clip_decrypt_btn, "Paste encrypted text from clipboard and decrypt it immediately")
         clear_btn = ttk.Button(btn_bar, text="Clear",
                                command=self.clear,
                                bootstyle="secondary-outline")
         clear_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(clear_btn, "Clear input and output text")
-        self.copy_out_btn = ttk.Button(btn_bar, text="Copy Decrypted",
+        self.copy_out_btn = ttk.Button(btn_bar, text=COPY_RESULT_LABEL,
                                        command=self.copy_decrypted,
-                                       bootstyle="info-outline")
+                                       bootstyle="info-outline",
+                                       state="disabled")
         self.copy_out_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(self.copy_out_btn, "Copy the decrypted text to the clipboard")
         self.decrypt_btn = ttk.Button(btn_bar, text="Decrypt Message",
@@ -69,6 +82,24 @@ class DecryptTab:
                                       bootstyle="success")
         self.decrypt_btn.pack(side=tk.RIGHT, padx=5)
         ToolTip(self.decrypt_btn, "Decrypt the message")
+
+        autoclear_bar = ttk.Frame(self.frame)
+        autoclear_bar.pack(fill=tk.X, padx=10, pady=(0, 5))
+
+        self.auto_clear_var = tk.BooleanVar(value=False)
+        autoclear_chk = ttk.Checkbutton(
+            autoclear_bar, text="Auto-clear after",
+            variable=self.auto_clear_var, bootstyle="secondary")
+        autoclear_chk.pack(side=tk.LEFT, padx=(5, 2))
+        ToolTip(autoclear_chk, "Automatically clear sensitive decrypted output after a delay")
+
+        self.auto_clear_seconds_var = tk.StringVar(
+            value=f"{DEFAULT_AUTO_CLEAR_SECONDS} s")
+        autoclear_cb = ttk.Combobox(
+            autoclear_bar, textvariable=self.auto_clear_seconds_var,
+            values=AUTO_CLEAR_LABELS, state="readonly", width=6)
+        autoclear_cb.pack(side=tk.LEFT, padx=(2, 5))
+        ToolTip(autoclear_cb, "Seconds to wait before auto-clearing the decrypted output")
 
         # Output area
         out_frame = ttk.Labelframe(self.frame, text="Decrypted Message",
@@ -114,32 +145,74 @@ class DecryptTab:
             messagebox.showwarning("Nothing to Copy", "There is no decrypted message to copy.")
             return
         if self.clipboard_service.copy(text):
-            flash_widget_text(self.copy_out_btn, "Copied ✓", "Copy Decrypted")
+            flash_text = COPY_FLASH_BASE
+            if self.auto_clear_var.get():
+                flash_text = f"{COPY_FLASH_BASE} (clears in {self.auto_clear_seconds_var.get()})"
+            flash_widget_text(self.copy_out_btn, flash_text, COPY_RESULT_LABEL)
         else:
             messagebox.showerror("Clipboard Error", "Unable to access the clipboard.")
 
-    def paste_from_clipboard(self) -> None:
+    def _load_from_clipboard(self) -> bool:
         text = self.clipboard_service.get()
         if text is None:
             messagebox.showwarning("Clipboard Unavailable",
                                    "Clipboard is empty or inaccessible.")
-            return
+            return False
         if self.recv_input.get("1.0", tk.END).strip():
             if not messagebox.askyesno(
                 "Replace input text?",
                 "The input box contains text. Replace with clipboard content?"
             ):
-                return
+                return False
         self.recv_input.delete("1.0", tk.END)
         self.recv_input.insert("1.0", text)
+        return True
 
-    def clear(self) -> None:
-        self.recv_input.delete("1.0", tk.END)
+    def paste_from_clipboard(self) -> None:
+        self._load_from_clipboard()
+
+    def decrypt_from_clipboard(self) -> None:
+        if self._load_from_clipboard():
+            self.receive_message()
+
+    def _cancel_autoclear(self) -> None:
+        if self._autoclear_after_id is not None:
+            try:
+                self.frame.after_cancel(self._autoclear_after_id)
+            except Exception:
+                logger.debug("auto-clear cancel failed", exc_info=True)
+            self._autoclear_after_id = None
+
+    def _clear_output(self) -> None:
+        self._cancel_autoclear()
         self.decrypted_display.configure(state='normal')
         self.decrypted_display.delete("1.0", tk.END)
         self.decrypted_display.configure(state='disabled')
         self.mode_label.config(text="")
         self.sig_label.config(text="")
+        self._set_copy_enabled(False)
+
+    def _set_copy_enabled(self, enabled: bool) -> None:
+        try:
+            self.copy_out_btn.configure(state="normal" if enabled else "disabled")
+        except Exception:
+            logger.debug("set copy button state failed", exc_info=True)
+
+    def _schedule_autoclear(self) -> None:
+        self._cancel_autoclear()
+        if not self.auto_clear_var.get():
+            return
+        seconds = DEFAULT_AUTO_CLEAR_SECONDS
+        for candidate in AUTO_CLEAR_INTERVALS:
+            if self.auto_clear_seconds_var.get() == f"{candidate} s":
+                seconds = candidate
+                break
+        self._autoclear_after_id = self.frame.after(
+            seconds * 1000, self._clear_output)
+
+    def clear(self) -> None:
+        self.recv_input.delete("1.0", tk.END)
+        self._clear_output()
 
     def receive_message(self) -> None:
         b64_text = self.recv_input.get("1.0", tk.END).strip()
@@ -195,6 +268,7 @@ class DecryptTab:
             self.mode_label.config(text="")
             self.sig_label.config(text="")
 
+        self._cancel_autoclear()
         self._set_busy(True)
         submit_crypto_task(
             crypto_queue=self.crypto_queue,
@@ -236,4 +310,6 @@ class DecryptTab:
         self.decrypted_display.insert(tk.END, text)
         self.decrypted_display.see(tk.END)
         self.decrypted_display.configure(state='disabled')
+        self._set_copy_enabled(True)
+        self._schedule_autoclear()
         self.recv_input.delete("1.0", tk.END)
