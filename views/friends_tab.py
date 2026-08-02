@@ -24,6 +24,15 @@ from components.update_friend_keys_dialog import UpdateFriendKeysDialog
 
 logger = logging.getLogger(__name__)
 
+EMPTY_NO_FRIENDS_TITLE = "No friends yet"
+EMPTY_NO_MATCHES_TEXT = "No matches"
+EMPTY_CTA_LABEL = "➕ Add Friend"
+EMPTY_TITLE_RELY = 0.42
+EMPTY_CTA_RELY = 0.60
+EMPTY_CENTER_RELY = 0.50
+HOVER_BAR_FONT = ("Segoe UI", 8)
+SELECTION_BAR_FONT = ("Segoe UI", 9, "bold")
+
 
 class FriendsTab:
     def __init__(self, parent: tk.Widget, friends_service: FriendsService, style_config=None, trust_chain_service=None) -> None:
@@ -96,6 +105,13 @@ class FriendsTab:
         self.search_entry.pack(side=tk.LEFT, padx=(4, 0))
         self.search_var.trace_add('write', lambda *a: self.filter_list())
 
+        # Selection summary line under the toolbar
+        self._selection_summary_var = tk.StringVar(value="")
+        selection_summary = ttk.Label(self.frame, textvariable=self._selection_summary_var,
+                                      font=SELECTION_BAR_FONT, bootstyle="info",
+                                      anchor="w", padding=(10, 2))
+        selection_summary.pack(fill=tk.X, pady=(0, 4))
+
         # ── Treeview table ──────────────────────────────────────────────
         list_frame = ttk.Frame(self.frame, padding=(10, 0))
         list_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
@@ -153,11 +169,15 @@ class FriendsTab:
             list_frame, text="", font=("Segoe UI", 11),
             bootstyle="secondary", anchor="center", justify="center",
         )
+        self._empty_cta = ttk.Button(list_frame, text=EMPTY_CTA_LABEL,
+                                     command=self.add_friend_dialog,
+                                     bootstyle="success")
 
         # Bindings
         self.tree.bind('<<TreeviewSelect>>', self.on_select)
         self.tree.bind('<Button-3>', self._show_context_menu)  # Right-click
         self.tree.bind('<Motion>', self._on_motion)
+        self.tree.bind('<Leave>', self._on_motion_leave)
         self.tree.bind('<Delete>', lambda e: self.remove_friend_dialog())
         self.tree.bind('<Double-1>', self.on_select)
         self.tree.bind('<Return>', self.on_select)
@@ -229,6 +249,13 @@ class FriendsTab:
                                anchor="w", padding=(10, 2))
         status_bar.pack(fill=tk.X, side=tk.BOTTOM)
 
+        # Hover hint label, separate from the shared status bar
+        self._hover_var = tk.StringVar(value="")
+        hover_bar = ttk.Label(self.frame, textvariable=self._hover_var,
+                              font=HOVER_BAR_FONT, bootstyle="secondary",
+                              anchor="w", padding=(10, 1))
+        hover_bar.pack(fill=tk.X, side=tk.BOTTOM)
+
         self.refresh_list()
 
     # ---- Data refresh ----
@@ -241,6 +268,8 @@ class FriendsTab:
         query = self.search_var.get().lower()
         # Clear existing tooltips
         self._tooltips.clear()
+        self._hover_var.set("")
+        self._selection_summary_var.set("")
 
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -284,6 +313,11 @@ class FriendsTab:
                 "rsa_fp": rsa_fp,
                 "ecdh_fp": ecdh_fp,
                 "name": name,
+                "has_secret": has_secret,
+                "has_pqc_key": bool(friend.get("has_pqc_key")),
+                "has_hybrid_sig_key": bool(friend.get("has_hybrid_sig_key")),
+                "has_ratchet": bool(friend.get("has_ratchet")),
+                "has_ecdh": bool(ecdh_fp),
             }
             row_idx += 1
 
@@ -296,19 +330,38 @@ class FriendsTab:
         """Show a centered placeholder over the table when there are no rows."""
         if count > 0:
             self._empty_label.place_forget()
+            self._empty_cta.place_forget()
             return
         if self._cached_friends:
-            text = "No matches"
+            self._empty_label.config(text=EMPTY_NO_MATCHES_TEXT)
+            self._empty_label.place(relx=0.5, rely=EMPTY_CENTER_RELY, anchor="center")
+            self._empty_cta.place_forget()
         else:
-            text = "No friends yet — click ➕ Add Friend to get started"
-        self._empty_label.config(text=text)
-        self._empty_label.place(relx=0.5, rely=0.5, anchor="center")
+            self._empty_label.config(text=EMPTY_NO_FRIENDS_TITLE)
+            self._empty_label.place(relx=0.5, rely=EMPTY_TITLE_RELY, anchor="center")
+            self._empty_cta.place(relx=0.5, rely=EMPTY_CTA_RELY, anchor="center")
 
     # ---- Hover tooltip ----
     def _on_motion(self, event) -> None:
-        # Intentionally a no-op: previously this overwrote the shared status var
-        # on every mouse move, clobbering selection/action status.
-        return
+        iid = self.tree.identify_row(event.y)
+        if not iid:
+            return
+        data = self._tooltips.get(iid)
+        if not data:
+            return
+        name = data["name"]
+        if not data["has_secret"]:
+            hint = f"{name} • No shared key — key exchange needed"
+        elif data["has_ratchet"]:
+            hint = f"{name} • Double Ratchet active"
+        else:
+            fp = data["rsa_fp"]
+            fp_short = fp[:24] + "…" if len(fp) > 24 else fp
+            hint = f"{name} • RSA fingerprint {fp_short}"
+        self._hover_var.set(hint)
+
+    def _on_motion_leave(self, event) -> None:
+        self._hover_var.set("")
 
     # ---- Context menu ----
     def _show_context_menu(self, event) -> None:
@@ -348,8 +401,10 @@ class FriendsTab:
 
     # ---- Event handlers ----
     def on_select(self, event=None) -> None:
+        self._hover_var.set("")
         name = self._get_selected_name()
         if not name:
+            self._selection_summary_var.set("")
             return
 
         details = self.service.get_friend_details(name)
@@ -383,6 +438,14 @@ class FriendsTab:
         self.detail_pem.config(state='disabled')
 
         self.status_var.set(f"Selected: {name}")
+        self._selection_summary_var.set(self._build_capability_summary(name, details))
+
+    def _build_capability_summary(self, name: str, details: dict) -> str:
+        secret = "✅ Secret" if details["has_shared_secret"] else "❌ No Secret"
+        ecdh = "✅ ECDH" if details.get("ecdh_fingerprint") else "— ECDH"
+        pqc = "✅ PQC" if details.get("has_pqc_key") else "— PQC"
+        ratchet = "✅ Ratchet" if details.get("has_ratchet") else "— Ratchet"
+        return f"Selected: {name}  •  {secret}  •  {ecdh}  •  {pqc}  •  {ratchet}"
 
     def add_friend_dialog(self) -> None:
         parent = self.frame.winfo_toplevel()
