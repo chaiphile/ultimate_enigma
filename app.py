@@ -27,6 +27,7 @@ from controllers.application_controller import ApplicationController
 from controllers.auth_controller import AuthController
 from controllers.service_orchestrator import ServiceOrchestrator
 from services.event_bus import event_bus, Events
+from services.background_agents import BackupReminderAgent
 from services.totp_persistence import TotpPersistence
 from builders.app_builder import AppBuilder, StartupCancelled
 from views.utils import friendly_error
@@ -38,6 +39,12 @@ logger = logging.getLogger(__name__)
 FONT_TITLE = ("Segoe UI", 16, "bold")
 FONT_SUBTITLE = ("Segoe UI", 10)
 FONT_BUTTON = ("Segoe UI", 9, "bold")
+
+# Notification timing (ms) and thresholds for app-level user alerts.
+NOTIFY_TOAST_DURATION_MS = 8000
+NOTIFY_BANNER_DURATION_MS = 10000
+NOTIFY_STATUS_DURATION_MS = 8000
+KEY_ROTATION_WARN_DAYS = 30
 
 
 class EnigmaApp:
@@ -79,6 +86,7 @@ class EnigmaApp:
 
         self._is_locked = False
         self._anomaly_banner = None
+        self._warning_banner = None
 
         from services.backup_service import BackupService
         self._backup_service = BackupService(self.ks)
@@ -113,10 +121,22 @@ class EnigmaApp:
         event_bus.unsubscribe_all(self._on_services_rebuilt)
         event_bus.unsubscribe_all(self._on_trust_changed)
         event_bus.unsubscribe_all(self._on_anomaly_detected)
+        event_bus.unsubscribe_all(self._on_backup_reminder)
+        event_bus.unsubscribe_all(self._on_duress_mode_entered)
+        event_bus.unsubscribe_all(self._on_recovery_share_created)
+        event_bus.unsubscribe_all(self._on_recovery_key_reconstructed)
+        event_bus.unsubscribe_all(self._on_key_info)
+        event_bus.unsubscribe_all(self._on_key_fingerprint)
         # Clean up any active anomaly banner
         if hasattr(self, "_anomaly_banner") and self._anomaly_banner is not None:
             try:
                 self._anomaly_banner.destroy()
+            except Exception:
+                pass
+        # Clean up any active warning banner
+        if hasattr(self, "_warning_banner") and self._warning_banner is not None:
+            try:
+                self._warning_banner.destroy()
             except Exception:
                 pass
         self.root.destroy()
@@ -458,6 +478,44 @@ class EnigmaApp:
             thread_safe=True
         )
 
+        # Backup reminder from the background agent
+        event_bus.subscribe(
+            Events.BACKUP_REMINDER,
+            self._on_backup_reminder,
+            thread_safe=True
+        )
+
+        # Duress mode entry
+        event_bus.subscribe(
+            Events.DURESS_MODE_ENTERED,
+            self._on_duress_mode_entered,
+            thread_safe=True
+        )
+
+        # Recovery key operations
+        event_bus.subscribe(
+            Events.RECOVERY_SHARE_CREATED,
+            self._on_recovery_share_created,
+            thread_safe=True
+        )
+        event_bus.subscribe(
+            Events.RECOVERY_KEY_RECONSTRUCTED,
+            self._on_recovery_key_reconstructed,
+            thread_safe=True
+        )
+
+        # Key inspection warnings (rotation / expiry detection)
+        event_bus.subscribe(
+            Events.KEY_INFO,
+            self._on_key_info,
+            thread_safe=True
+        )
+        event_bus.subscribe(
+            Events.KEY_FINGERPRINT,
+            self._on_key_fingerprint,
+            thread_safe=True
+        )
+
         logger.debug("Event subscriptions registered")
 
     def _on_friend_list_changed(self, **kwargs):
@@ -573,6 +631,177 @@ class EnigmaApp:
                 pass
         self._anomaly_banner = banner
         self.root.after(10000, _dismiss)
+
+    # ------------------------------------------------------------------
+    # App-level notifications (background agent / controller events)
+    # ------------------------------------------------------------------
+    def _on_backup_reminder(self, **kwargs):
+        """Show a non-blocking backup reminder from the background agent."""
+        try:
+            days_since = kwargs.get("days_since")
+            message = BackupReminderAgent.format_reminder_message(days_since)
+            self.root.after(0, self._show_backup_reminder, message)
+        except Exception as e:
+            logger.warning("Backup reminder handler error (non-critical): %s", e)
+
+    def _show_backup_reminder(self, message: str) -> None:
+        """Display the backup reminder as a toast and status flash."""
+        try:
+            ToastNotification(
+                title="Backup Reminder",
+                message=message,
+                duration=NOTIFY_TOAST_DURATION_MS,
+                bootstyle="warning",
+            ).show_toast()
+        except Exception:
+            logger.debug("ToastNotification unavailable", exc_info=True)
+        self._set_status(
+            f"Backup reminder: {message}",
+            clear_after_ms=NOTIFY_STATUS_DURATION_MS,
+        )
+
+    def _on_duress_mode_entered(self, **kwargs):
+        """Show a subtle, non-alarming notice when duress mode is entered."""
+        try:
+            self.root.after(
+                0,
+                self._set_status,
+                "Session active in protected profile.",
+                NOTIFY_STATUS_DURATION_MS,
+            )
+        except Exception as e:
+            logger.warning("Duress mode handler error (non-critical): %s", e)
+
+    def _on_recovery_share_created(self, **kwargs):
+        """Confirm recovery share creation with a brief toast."""
+        try:
+            n = kwargs.get("n")
+            k = kwargs.get("k")
+            if n is not None and k is not None:
+                message = f"Recovery key split into {n} shares (threshold: {k})."
+            else:
+                message = "Recovery key shares created and distributed."
+            self.root.after(0, self._show_info_toast, "Recovery Shares", message)
+        except Exception as e:
+            logger.warning("Recovery share handler error (non-critical): %s", e)
+
+    def _on_recovery_key_reconstructed(self, **kwargs):
+        """Confirm recovery key reconstruction with a brief toast."""
+        try:
+            num_shares = kwargs.get("num_shares")
+            if num_shares is not None:
+                message = f"Recovery key reconstructed from {num_shares} shares."
+            else:
+                message = "Recovery key reconstructed successfully."
+            self.root.after(0, self._show_info_toast, "Recovery Key", message)
+        except Exception as e:
+            logger.warning("Recovery key handler error (non-critical): %s", e)
+
+    def _show_info_toast(self, title: str, message: str) -> None:
+        """Display a brief, non-blocking confirmation toast."""
+        try:
+            ToastNotification(
+                title=title,
+                message=message,
+                duration=NOTIFY_TOAST_DURATION_MS,
+                bootstyle="info",
+            ).show_toast()
+        except Exception:
+            logger.debug("ToastNotification unavailable", exc_info=True)
+        self._set_status(message, clear_after_ms=NOTIFY_STATUS_DURATION_MS)
+
+    def _on_key_info(self, **kwargs):
+        """Handle key info events; warn when rotation/expiry is detected."""
+        try:
+            info = kwargs.get("info") or {}
+            self._warn_on_key_issue(kwargs.get("friend_name"), info)
+        except Exception as e:
+            logger.warning("Key info handler error (non-critical): %s", e)
+
+    def _on_key_fingerprint(self, **kwargs):
+        """Handle key fingerprint events; warn when rotation/expiry is detected."""
+        try:
+            info = kwargs.get("info") or kwargs
+            self._warn_on_key_issue(kwargs.get("friend_name"), info)
+        except Exception as e:
+            logger.warning("Key fingerprint handler error (non-critical): %s", e)
+
+    def _warn_on_key_issue(self, friend_name, info) -> None:
+        """Raise a warning banner when key rotation/expiry issues are detected.
+
+        Tolerates payload variations by probing common field names and
+        ignoring missing or malformed values.
+        """
+        if not isinstance(info, dict):
+            return
+        subject = friend_name or "local key"
+        message = None
+
+        if info.get("expired"):
+            message = f"Key for '{subject}' has expired — rotate immediately."
+        elif info.get("needs_rotation") or info.get("rotation_recommended"):
+            message = (
+                f"Key for '{subject}' is below the security minimum — "
+                f"rotation recommended."
+            )
+        else:
+            days = info.get("days_until_expiry")
+            if days is None:
+                days = info.get("days_to_expiry")
+            if days is None:
+                days = info.get("expires_days")
+            if days is not None:
+                try:
+                    days = int(days)
+                except (TypeError, ValueError):
+                    days = None
+            if days is not None and 0 <= days <= KEY_ROTATION_WARN_DAYS:
+                message = (
+                    f"Key for '{subject}' expires soon (in {days} days) — "
+                    f"rotation recommended."
+                )
+
+        if message:
+            self.root.after(0, self._show_key_warning, message)
+
+    def _show_key_warning(self, message: str) -> None:
+        """Display a warning banner and status flash for key issues."""
+        try:
+            self._show_warning_banner(message)
+        except Exception:
+            logger.debug("Key warning banner failed", exc_info=True)
+        self._set_status(message, clear_after_ms=NOTIFY_STATUS_DURATION_MS)
+
+    def _show_warning_banner(self, message: str) -> None:
+        """Show a warning banner that auto-dismisses after 10 seconds."""
+        # Remove any existing warning banner
+        if hasattr(self, "_warning_banner") and self._warning_banner is not None:
+            try:
+                self._warning_banner.destroy()
+            except Exception:
+                pass
+
+        banner = ttk.Label(
+            self.root,
+            text=message,
+            bootstyle="warning",
+            anchor="center",
+            font=FONT_SUBTITLE,
+            padding=(10, 4),
+        )
+        # Pack just below the header and above the notebook
+        banner.pack(fill=tk.X, padx=0, pady=0, before=self._notebook.master)
+        self._warning_banner = banner
+
+        # Auto-dismiss after 10 seconds
+        def _dismiss():
+            try:
+                if self._warning_banner is banner:
+                    banner.destroy()
+                    self._warning_banner = None
+            except Exception:
+                pass
+        self.root.after(NOTIFY_BANNER_DURATION_MS, _dismiss)
 
     # ------------------------------------------------------------------
     # Background agents
