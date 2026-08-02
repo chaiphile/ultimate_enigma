@@ -20,6 +20,7 @@ from views.file_tab import FileTab
 from views.about_tab import AboutTab
 from views.help_tab import HelpTab
 from views.ntp_tab import NtpTab
+from views.onboarding import ONBOARDING_DELAY_MS, onboarding_seen, show_onboarding
 from views.trust_tab import TrustTab
 from services.trust_chain_service import TrustChainService
 from views.lock_screen import LockScreen
@@ -104,6 +105,15 @@ class EnigmaApp:
             lock_callback=self._emergency_lock,
             unlock_callback=self._request_unlock
         )
+
+        if self._first_run and not onboarding_seen():
+            self.root.after(
+                ONBOARDING_DELAY_MS,
+                lambda: show_onboarding(
+                    self.root, self._notebook,
+                    self.bg, self.fg, self.accent, self.secondary, self.dark,
+                ),
+            )
 
         self._start_background_agents()
 
