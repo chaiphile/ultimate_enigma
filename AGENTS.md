@@ -70,6 +70,8 @@ tools/devtools/  → Optional external code-analysis toolchain config + setup_de
 - Test subdirectories: `tests/encryption/`, `tests/friends/` exist as empty placeholders — no test files created yet.
 - `tests/test_anti_tamper.py` mocks ctypes calls for cross-platform testing.
 - `tests/test_code_analysis_service.py` mocks all subprocess calls — it never requires the external tools to be installed.
+- **The full test suite is SLOW (1000+ tests; takes many minutes).** Do NOT run the entire suite `pytest`/`pytest tests/` as a quick check — you will be waiting a long time. Run only the targeted files/tests affected by your change (e.g. `pytest tests/test_encryption_service.py -q`). Only run the full suite when the user explicitly asks for it.
+- **Runtime Python is Python312**, not whatever `python` resolves to on PATH (which may be a bare venv missing deps). Use the full path: `& "C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe" -m pytest <file> -q` (or its equivalent per-machine path). Check `sys.prefix` first if unsure.
 
 ## Code Analysis Toolchain (optional, dev-only)
 
