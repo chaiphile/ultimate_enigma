@@ -108,3 +108,19 @@ class InsufficientSharesError(ShamirError):
 
 class InvalidShareError(ShamirError):
     """Raised when a share is malformed, corrupted, or has mismatched parameters."""
+
+
+# ---------------------------------------------------------------------------
+# Code Analysis (external dev tools)
+# ---------------------------------------------------------------------------
+
+class CodeAnalysisError(EnigmaError):
+    """Base exception for code-analysis tool operations."""
+
+
+class CodeAnalysisToolNotFoundError(CodeAnalysisError):
+    """Raised when a requested external code-analysis tool is not installed."""
+
+
+class CodeAnalysisToolError(CodeAnalysisError):
+    """Raised when an external tool runs but fails (non-zero exit, bad output)."""

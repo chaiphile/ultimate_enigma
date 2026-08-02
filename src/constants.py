@@ -328,3 +328,35 @@ TRUST_CHAIN_CONSTANTS = {
     "CERT_TYPE_RECOVERY": TRUST_CHAIN.cert_type_recovery,
     "CERT_TYPE_DELEGATION": TRUST_CHAIN.cert_type_delegation,
 }
+
+# ---------------------------------------------------------------------------
+# Code Analysis (external dev tools)
+# ---------------------------------------------------------------------------
+# Configuration for the optional external code-analysis toolchain that this
+# app can wrap: ripgrep, universal-ctags, tree-sitter, semgrep, CodeQL,
+# clangd, and rust-analyzer. These are developer utilities, not part of the
+# runtime security path; the service degrades gracefully when a tool is absent.
+
+@dataclass(frozen=True)
+class CodeAnalysisConfig:
+    tool_timeout_seconds: int = 30
+    search_max_results: int = 500
+    tags_max_results: int = 2000
+    ctags_config_rel: str = "tools/devtools/ctags.cnf"
+    semgrep_config_rel: str = "tools/devtools/semgrep.rules.yaml"
+    rg_ignore_file_rel: str = ".rgignore"
+    clangd_config_rel: str = ".clangd"
+    codeql_languages: Tuple[str, ...] = ("python",)
+
+CODE_ANALYSIS = CodeAnalysisConfig()
+
+CODE_ANALYSIS_CONSTANTS = {
+    "TOOL_TIMEOUT_SECONDS": CODE_ANALYSIS.tool_timeout_seconds,
+    "SEARCH_MAX_RESULTS": CODE_ANALYSIS.search_max_results,
+    "TAGS_MAX_RESULTS": CODE_ANALYSIS.tags_max_results,
+    "CTAGS_CONFIG_REL": CODE_ANALYSIS.ctags_config_rel,
+    "SEMGREP_CONFIG_REL": CODE_ANALYSIS.semgrep_config_rel,
+    "RG_IGNORE_FILE_REL": CODE_ANALYSIS.rg_ignore_file_rel,
+    "CLANGD_CONFIG_REL": CODE_ANALYSIS.clangd_config_rel,
+    "CODEQL_LANGUAGES": tuple(CODE_ANALYSIS.codeql_languages),
+}
