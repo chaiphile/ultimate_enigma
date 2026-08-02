@@ -194,7 +194,8 @@ class EnigmaApp:
             self.service_orchestrator.encryption_service, 
             self.service_orchestrator.friends_service,
             self.service_orchestrator.clipboard_service,
-            self.app_controller.crypto_queue
+            self.app_controller.crypto_queue,
+            global_secret_service=self.service_orchestrator.global_secret_service
         )
         notebook.add(self.encrypt_tab.frame, text="✉️ Encrypt & Send")
 
