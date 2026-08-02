@@ -1,0 +1,21 @@
+# Universal-ctags options for the Ultimate Enigma codebase.
+# Used by the code-analysis service: ctags --options=tools/devtools/ctags.cnf
+# and manually: ctags -o - --output-format=json --options=tools/devtools/ctags.cnf -R .
+
+--languages=Python
+--extras=+q            # qualified tags (class.method)
+--fields=+nzK          # line number, scope name, kind
+--pseudo-tags=+
+
+# Generated / vendored directories never need tags.
+--exclude=build
+--exclude=dist
+--exclude=.venv
+--exclude=venv
+--exclude=__pycache__
+--exclude=.git
+--exclude=.codegraph
+--exclude=.mimocode
+--exclude=tests
+--exclude=*.min.js
+--exclude=*.pyc

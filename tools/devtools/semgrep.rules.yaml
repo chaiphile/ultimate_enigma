@@ -1,0 +1,51 @@
+# Semgrep ruleset for Ultimate Enigma.
+# Used by the code-analysis service (semgrep_scan) and manually:
+#   semgrep scan --config tools/devtools/semgrep.rules.yaml .
+# Validate with: semgrep --validate --config tools/devtools/semgrep.rules.yaml
+
+rules:
+  - id: no-print-statement
+    languages:
+      - python
+    message: Use the `logging` module instead of print(...) per project conventions.
+    severity: WARNING
+    patterns:
+      - pattern: print(...)
+
+  - id: no-eval-exec
+    languages:
+      - python
+    message: eval()/exec() of untrusted input can lead to code execution.
+    severity: ERROR
+    patterns:
+      - pattern-either:
+          - pattern: eval($X)
+          - pattern: exec($X)
+
+  - id: weak-hash-md5-sha1
+    languages:
+      - python
+    message: MD5 and SHA1 are not collision-resistant; use SHA-256+ for security-sensitive hashing.
+    severity: WARNING
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5($X)
+          - pattern: hashlib.sha1($X)
+
+  - id: try-except-pass
+    languages:
+      - python
+    message: Swallowing exceptions with `pass` hides failures; log at minimum.
+    severity: WARNING
+    patterns:
+      - pattern: |
+          except $E:
+              pass
+
+  - id: insecure-deserialization
+    languages:
+      - python
+    message: Loading untrusted pickles can execute arbitrary code.
+    severity: ERROR
+    patterns:
+      - pattern: pickle.load($X)

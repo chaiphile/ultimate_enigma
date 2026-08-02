@@ -1,0 +1,12 @@
+# ripgrep ignore file (in addition to .gitignore).
+# Consumed by rg automatically and by the code-analysis service (search).
+build/
+dist/
+.venv/
+venv/
+__pycache__/
+.codegraph/
+.mimocode/
+*.db
+*.pyc
+*.exe

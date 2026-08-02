@@ -107,6 +107,9 @@ Thumbs.db
 # AI coding assistant artifacts
 .mimocode/
 
+# CodeGraph local index
+.codegraph/
+
 # Demo directory databases
 **/enigma.db
 .demo-alice/

@@ -1,0 +1,12 @@
+# clangd configuration for the Ultimate Enigma repo.
+# clangd auto-loads this file from the project root when present.
+CompileFlags:
+  Add:
+    - -std=c++17
+Diagnostics:
+  ClangTidy:
+    Add:
+      - bugprone-*
+      - performance-*
+    Remove:
+      - modernize-use-trailing-return-type
