@@ -527,13 +527,7 @@ class KeyInspectorAgent:
             pass
 
         if self._key_store.my_pub is not None:
-            try:
-                from services.ecdh_service import ECDHService
-                info["public_key_fingerprint"] = ECDHService.fingerprint(
-                    self._key_store.my_pub
-                )
-            except Exception:
-                pass
+            info["public_key_fingerprint"] = self._local_public_fingerprint()
 
         return info
 
@@ -572,6 +566,18 @@ class KeyInspectorAgent:
         except Exception as e:
             return {"error": str(e)}
 
+    def _local_public_fingerprint(self) -> Optional[str]:
+        """SHA-256 fingerprint of the local RSA public key, or None."""
+        try:
+            if self._key_store is None or self._key_store.my_pub is None:
+                return None
+            from crypto import sha256_fingerprint
+            from key_manager import pubkey_to_pem
+            return sha256_fingerprint(pubkey_to_pem(self._key_store.my_pub).encode())
+        except Exception as e:
+            logger.debug("Could not compute local key fingerprint: %s", e)
+            return None
+
     def get_fingerprint(self, friend_name: Optional[str] = None) -> Optional[str]:
         """Get the fingerprint for a friend's public key or local public key.
 
@@ -587,9 +593,7 @@ class KeyInspectorAgent:
         try:
             from services.ecdh_service import ECDHService
             if friend_name is None:
-                if self._key_store.my_pub is not None:
-                    return ECDHService.fingerprint(self._key_store.my_pub)
-                return None
+                return self._local_public_fingerprint()
 
             if self._friends_service is None:
                 return None
