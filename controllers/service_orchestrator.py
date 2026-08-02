@@ -122,7 +122,22 @@ class ServiceOrchestrator:
         except Exception as e:
             logger.error("Failed to start SystemMonitorAgent: %s", e)
 
-        logger.info("Background agents started: %d/%d", agents_started, 3)
+        try:
+            self.key_inspector_agent.start()
+            agents_started += 1
+        except Exception as e:
+            logger.error("Failed to start KeyInspectorAgent: %s", e)
+
+        total_agents = sum(
+            1 for agent in (
+                self._backup_agent,
+                self.ratchet_maintenance_agent,
+                self.system_monitor_agent,
+                self.key_inspector_agent,
+            )
+            if agent is not None
+        )
+        logger.info("Background agents started: %d/%d", agents_started, total_agents)
 
     def stop_agents(self):
         """Stop all background agents. Call during shutdown."""
@@ -141,6 +156,11 @@ class ServiceOrchestrator:
             self.system_monitor_agent.stop()
         except Exception as e:
             logger.warning("Error stopping SystemMonitorAgent: %s", e)
+
+        try:
+            self.key_inspector_agent.stop()
+        except Exception as e:
+            logger.warning("Error stopping KeyInspectorAgent: %s", e)
 
         logger.info("Background agents stopped")
 

@@ -220,7 +220,15 @@ class RatchetMaintenanceAgent:
             event_bus.publish(Events.RATCHET_LOCKS_CLEANED, removed=removed)
             logger.info("RatchetMaintenance: cleaned %d stale locks", removed)
 
-        # 2. Publish lock stats
+        # 2. Detect potential deadlock in ratchet lock ordering
+        canonical = sorted(active_names, key=lambda n: (n.lower(), n))
+        if self.detect_deadlock(active_names, canonical):
+            event_bus.publish(Events.RATCHET_DEADLOCK_DETECTED, names=active_names)
+            logger.warning(
+                "RatchetMaintenance: potential deadlock detected in ratchet locks"
+            )
+
+        # 3. Publish lock stats
         stats = RatchetService.get_lock_stats()
         event_bus.publish(Events.RATCHET_LOCK_STATS, **stats)
 
@@ -393,17 +401,22 @@ class SystemMonitorAgent:
 # ---------------------------------------------------------------------------
 
 class KeyInspectorAgent:
-    """Provides on-demand key inspection and fingerprinting.
+    """Periodically inspects keys and publishes key info/fingerprint events.
 
-    Unlike other agents, this is not a background thread but a stateless
-    utility that can be called on-demand from UI or diagnostic tools.
+    Runs as a daemon thread at CHECK_INTERVAL (default: 1 hour), checking
+    key expiry/rotation needs and publishing KEY_INFO / KEY_FINGERPRINT
+    events. Also supports on-demand inspection via get_key_info() and
+    get_fingerprint().
 
     Usage::
 
         agent = KeyInspectorAgent(key_store)
-        info = agent.get_key_info("alice")
-        fp = agent.get_fingerprint("alice")
+        agent.start()
+        # ... later ...
+        agent.stop()
     """
+
+    CHECK_INTERVAL = CONCURRENCY_CONSTANTS.get("KEY_INSPECTOR_INTERVAL", 3600)
 
     def __init__(self, key_store=None):
         """
@@ -412,6 +425,65 @@ class KeyInspectorAgent:
         """
         self._key_store = key_store
         self._friends_service = None
+        self._thread: Optional[threading.Thread] = None
+        self._stop_event = threading.Event()
+        self._is_running = False
+
+    @property
+    def is_running(self) -> bool:
+        return self._is_running
+
+    def start(self):
+        """Start the background key inspection thread."""
+        if self._is_running:
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._loop,
+            name="key-inspector-agent",
+            daemon=True,
+        )
+        self._thread.start()
+        self._is_running = True
+        logger.info("KeyInspectorAgent started (interval=%ds)", self.CHECK_INTERVAL)
+
+    def stop(self):
+        """Signal the agent to stop."""
+        if not self._is_running:
+            return
+        self._stop_event.set()
+        if self._thread:
+            self._thread.join(timeout=5.0)
+        self._is_running = False
+        logger.info("KeyInspectorAgent stopped")
+
+    def _loop(self):
+        """Main loop: periodic key inspection cycles."""
+        self._stop_event.wait(timeout=30.0)
+        while not self._stop_event.is_set():
+            try:
+                self._run_key_inspection()
+            except Exception as e:
+                logger.error("KeyInspectorAgent cycle failed: %s", e)
+            self._stop_event.wait(timeout=self.CHECK_INTERVAL)
+
+    def _run_key_inspection(self):
+        """Run a full key inspection cycle for local and friend keys."""
+        self.publish_key_info()
+
+        if self._friends_service is not None:
+            try:
+                friend_names = self._friends_service.get_friend_names()
+            except Exception as e:
+                logger.warning("KeyInspectorAgent could not list friends: %s", e)
+                return
+            for name in friend_names:
+                try:
+                    self.publish_key_info(name)
+                except Exception as e:
+                    logger.warning(
+                        "KeyInspectorAgent inspection failed for '%s': %s", name, e
+                    )
 
     def set_key_store(self, key_store) -> None:
         """Update the KeyStore reference."""
@@ -448,6 +520,11 @@ class KeyInspectorAgent:
             "has_private_key": self._key_store.my_priv is not None,
             "has_global_secret": self._key_store.global_secret is not None,
         }
+
+        try:
+            info["needs_key_rotation"] = self._key_store.needs_key_rotation
+        except Exception:
+            pass
 
         if self._key_store.my_pub is not None:
             try:
@@ -525,8 +602,8 @@ class KeyInspectorAgent:
             logger.warning("Could not get fingerprint for '%s': %s", friend_name, e)
         return None
 
-    def publish_key_info(self, friend_name: Optional[str] = None):
-        """Publish key info event for UI consumption.
+    def publish_key_info(self, friend_name: Optional[str] = None) -> None:
+        """Publish key info and fingerprint events for UI consumption.
 
         Args:
             friend_name: Friend name, or None for local info.
@@ -534,3 +611,4 @@ class KeyInspectorAgent:
         info = self.get_key_info(friend_name)
         fingerprint = self.get_fingerprint(friend_name)
         event_bus.publish(Events.KEY_INFO, friend_name=friend_name, info=info, fingerprint=fingerprint)
+        event_bus.publish(Events.KEY_FINGERPRINT, friend_name=friend_name, fingerprint=fingerprint)
