@@ -285,21 +285,25 @@ class NtpTab:
 
     def _on_ntp_synced(self, **kwargs) -> None:
         """Handle NTP_SYNCED event from background sync."""
-        timestamp = kwargs.get("timestamp")
-        server = kwargs.get("server", "background")
-        if timestamp:
-            ntp_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-            local_dt = datetime.now(timezone.utc)
-            offset_ms = (ntp_dt - local_dt).total_seconds() * 1000
-            self.ntp_time_label.config(text=ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), bootstyle="inverse-success")
-            self.offset_label.config(text=f"{offset_ms:+.2f} ms",
-                                     bootstyle="inverse-success" if abs(offset_ms) < 1000 else "inverse-danger")
-            self.last_sync_label.config(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
-            self.status_indicator.config(text="✅ Background sync completed", bootstyle="inverse-success")
-            if server:
-                self.server_label.config(text=f"{server}:123")
+        def _update_ui():
+            timestamp = kwargs.get("timestamp")
+            server = kwargs.get("server", "background")
+            if timestamp:
+                ntp_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                local_dt = datetime.now(timezone.utc)
+                offset_ms = (ntp_dt - local_dt).total_seconds() * 1000
+                self.ntp_time_label.config(text=ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), bootstyle="inverse-success")
+                self.offset_label.config(text=f"{offset_ms:+.2f} ms",
+                                         bootstyle="inverse-success" if abs(offset_ms) < 1000 else "inverse-danger")
+                self.last_sync_label.config(text=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+                self.status_indicator.config(text="✅ Background sync completed", bootstyle="inverse-success")
+                if server:
+                    self.server_label.config(text=f"{server}:123")
+        self.frame.after(0, _update_ui)
 
     def _on_ntp_sync_failed(self, **kwargs) -> None:
         """Handle NTP_SYNC_FAILED event from background sync."""
-        reason = kwargs.get("reason", "unknown error")
-        self.status_indicator.config(text=f"⚠️ Background sync failed: {reason}", bootstyle="inverse-danger")
+        def _update_ui():
+            reason = kwargs.get("reason", "unknown error")
+            self.status_indicator.config(text=f"⚠️ Background sync failed: {reason}", bootstyle="inverse-danger")
+        self.frame.after(0, _update_ui)

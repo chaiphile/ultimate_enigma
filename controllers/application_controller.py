@@ -10,6 +10,7 @@ import time
 from queue import Queue, Empty
 
 from services.crypto_task_queue import CryptoTaskQueue, TaskPriority
+from services.event_bus import event_bus, Events
 from src.constants import CONCURRENCY_CONSTANTS
 
 logger = logging.getLogger(__name__)
@@ -109,13 +110,21 @@ class ApplicationController:
                             ntp_dt.strftime("%Y-%m-%d %H:%M:%S UTC"), offset_ms
                         )
                         encryption_service.update_ntp_time(t)
+                        event_bus.publish(
+                            Events.NTP_SYNCED, timestamp=t, server="background"
+                        )
 
                     else:
                         logger.warning("NTP sync failed - using system time")
                         encryption_service.update_ntp_time(None)
+                        event_bus.publish(
+                            Events.NTP_SYNC_FAILED,
+                            reason="NTP servers unreachable, using system time",
+                        )
 
                 except Exception as e:
                     logger.error("NTP sync error (non-fatal): %s", e)
+                    event_bus.publish(Events.NTP_SYNC_FAILED, reason=str(e))
                 time.sleep(1800)
         except Exception as e:
             logger.error("NTP sync loop crashed (non-fatal): %s", e)
