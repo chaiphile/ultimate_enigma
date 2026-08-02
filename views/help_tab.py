@@ -135,8 +135,8 @@ class HelpTab:
         scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
 
-        scrollbar.pack(side=tk.LEFT, fill=tk.Y)
-        canvas.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         inner = ttk.Frame(canvas, padding=30)
         canvas.create_window((0, 0), window=inner, anchor="nw")
@@ -151,11 +151,11 @@ class HelpTab:
         ttk.Label(inner, text="📚 User Guide",
                   font=("Segoe UI", 18, "bold"),
                   bootstyle="inverse-primary",
-                  anchor="e").pack(pady=(0, 5), fill=tk.X)
+                  anchor="w").pack(pady=(0, 5), fill=tk.X)
         ttk.Label(inner, text="Complete guide to using the Ultimate Enigma Messenger app",
                   font=("Segoe UI", 10),
                   bootstyle="inverse-secondary",
-                  anchor="e").pack(pady=(0, 25), fill=tk.X)
+                  anchor="w").pack(pady=(0, 25), fill=tk.X)
 
         for section in _GUIDE_SECTIONS:
             sep = ttk.Separator(inner, orient="horizontal")
@@ -173,13 +173,13 @@ class HelpTab:
                     ttk.Label(row, text=label,
                               font=("Segoe UI", 10, "bold"),
                               bootstyle="inverse-primary",
-                              anchor="e", width=40).pack(side=tk.RIGHT)
+                              anchor="w", width=40).pack(side=tk.LEFT)
                 if desc:
                     ttk.Label(row, text=desc,
                               font=("Segoe UI", 9),
                               bootstyle="inverse-secondary",
-                              anchor="e", justify="right",
-                              wraplength=500).pack(side=tk.RIGHT, padx=(5, 0))
+                              anchor="w", justify="left",
+                              wraplength=500).pack(side=tk.LEFT, padx=(0, 5))
 
         # Footer
         sep_end = ttk.Separator(inner, orient="horizontal")
@@ -194,7 +194,7 @@ class HelpTab:
         docs_btn = ttk.Button(link_frame, text="Documentation",
                               command=_open_docs,
                               bootstyle="info-link")
-        docs_btn.pack(side=tk.RIGHT, padx=5)
+        docs_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(docs_btn, "Open the complete application documentation in the browser")
 
         def _open_repo():
@@ -203,12 +203,12 @@ class HelpTab:
         repo_btn = ttk.Button(link_frame, text="GitHub Repository",
                               command=_open_repo,
                               bootstyle="info-link")
-        repo_btn.pack(side=tk.RIGHT, padx=5)
+        repo_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(repo_btn, "Open the source code repository on GitHub")
 
         ttk.Label(link_frame, text="Useful resources:",
                   font=("Segoe UI", 9, "bold"),
-                  bootstyle="inverse-primary").pack(side=tk.RIGHT, padx=(10, 0))
+                  bootstyle="inverse-primary").pack(side=tk.LEFT, padx=(0, 10))
 
         # Mousewheel scrolling
         def _on_mousewheel(event):
