@@ -63,6 +63,22 @@ def _to_bytes(pw):
     return pw.encode()
 
 
+class LockoutError(KeyStoreError):
+    """Raised when an authentication attempt is refused due to an active lockout.
+
+    Carries the remaining lockout time so callers can schedule a non-blocking
+    retry instead of blocking the calling thread with ``time.sleep``.
+    """
+
+    def __init__(self, remaining_seconds: float, locked_until: float) -> None:
+        super().__init__(
+            f"Account is locked. Next attempt allowed in "
+            f"{remaining_seconds:.0f} seconds."
+        )
+        self.remaining_seconds: float = remaining_seconds
+        self.locked_until: float = locked_until
+
+
 class KeyStore:
     def __init__(self):
         self._lock = threading.RLock()
@@ -427,19 +443,28 @@ class KeyStore:
 
         Returns:
             is_valid (bool): True if password matches master or duress password.
+
+        Raises:
+            LockoutError: If an active lockout/backoff delay is pending. The
+                exception carries ``remaining_seconds`` so callers can schedule
+                a non-blocking retry instead of blocking the GUI thread.
         """
         with self._lock:
-            # Enforce any active lockout / backoff delay
+            # Enforce any active lockout / backoff delay. Fail fast instead of
+            # blocking the calling thread with time.sleep(); the raised
+            # LockoutError carries the remaining wait so callers can schedule
+            # a non-blocking retry.
             delay = self._lockout.get_delay()
             if delay > 0:
                 logger.warning(
                     "Account lockout active. %d consecutive failure(s). "
-                    "Waiting %.1f seconds before next attempt.",
+                    "Next attempt allowed in %.1f seconds.",
                     self.failed_attempts, delay
                 )
-                time.sleep(delay)
-                # TODO: This blocks the calling thread. If called from the GUI thread,
-                #       replace with a non-blocking timer / polling approach.
+                raise LockoutError(
+                    remaining_seconds=delay,
+                    locked_until=self._lockout.locked_until,
+                )
 
             # Load both verifiers up front so the DB access pattern is the
             # same regardless of which password (if any) matches.
