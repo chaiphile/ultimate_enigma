@@ -12,6 +12,7 @@ from services.encryption import EncryptionService, EncryptionError
 from services.friends import FriendsService
 from services.clipboard_service import ClipboardService
 from services.pqc_service import is_pqc_available
+from services.global_secret_service import GlobalSecretService
 from src.exceptions import CryptoTimeoutError
 from src.crypto_task_helper import submit_crypto_task
 from views.utils import friendly_error, flash_widget_text, ToolTip
@@ -20,12 +21,17 @@ logger = logging.getLogger(__name__)
 
 # Maximum message size (1 MB) to prevent memory issues
 MAX_MESSAGE_SIZE = 1024 * 1024
+ENCRYPT_SEND_TEXT = "Encrypt & Send"
+BUSY_STATUS_TEXT = "Encrypting…"
+GLOBAL_MODE_TEXT = "Shared Secret (Time-Based)"
+GLOBAL_HINT_TEXT = "Global broadcast — encrypted with your shared secret. Anyone holding the same secret can decrypt it."
+NO_GLOBAL_HINT_TEXT = "Select a friend, or set a global shared secret in the Shared Secret tab to broadcast to everyone who has it."
 
 
 class EncryptTab:
     def __init__(self, parent: tk.Widget, encryption_service: EncryptionService,
                  friends_service: FriendsService, clipboard_service: ClipboardService,
-                 crypto_queue=None) -> None:
+                 crypto_queue=None, global_secret_service: GlobalSecretService = None) -> None:
         """
         Args:
             parent: Notebook widget
@@ -35,14 +41,22 @@ class EncryptTab:
             crypto_queue: Optional CryptoTaskQueue for managed background execution.
                          If provided, replaces ad-hoc threading with pool-based
                          task submission and timeout enforcement.
+            global_secret_service: Optional GlobalSecretService used to enable
+                                   friend-less "broadcast" sends via the global
+                                   shared secret.
         """
         self.service = encryption_service
         self.friends_service = friends_service
         self.clipboard_service = clipboard_service
         self.crypto_queue = crypto_queue
+        self.global_secret_service = global_secret_service
         
         # Store last sent message locally instead of on app instance
         self.last_sent_b64 = ""
+        self._busy = False
+        self._drafts = {}
+        self._current_friend = "(none)"
+        self._mode_overridden = False
         
         self.frame = ttk.Frame(parent)
         self._build_ui()
@@ -64,7 +78,6 @@ class EncryptTab:
                                          bootstyle="primary")
         self.friend_combo.grid(row=0, column=2, padx=5, sticky=tk.W)
         self.friend_combo.bind('<<ComboboxSelected>>', self._on_friend_changed)
-        self._update_friend_list()
 
         # Encryption mode
         ttk.Label(opts, text="Mode:").grid(row=0, column=3, padx=(10, 5), sticky=tk.W)
@@ -79,6 +92,7 @@ class EncryptTab:
         )
         self.mode_combo.grid(row=0, column=4, padx=5, sticky=tk.W)
         self.mode_combo.current(0)
+        self.mode_combo.bind('<<ComboboxSelected>>', self._on_mode_changed)
 
         # Self-destruct controls
         self.destruct_var = tk.BooleanVar(value=False)
@@ -97,14 +111,19 @@ class EncryptTab:
         ttk.Frame(opts).grid(row=0, column=9, padx=5)
 
         # Buttons – always visible on the right
-        clear_btn = ttk.Button(opts, text="Clear", command=self.clear_input,
-                               bootstyle="secondary-outline")
-        clear_btn.grid(row=0, column=11, padx=5, sticky=tk.E)
-        ToolTip(clear_btn, "Delete message text")
+        self.clear_btn = ttk.Button(opts, text="Clear", command=self.clear_input,
+                                    bootstyle="secondary-outline")
+        self.clear_btn.grid(row=0, column=11, padx=5, sticky=tk.E)
+        ToolTip(self.clear_btn, "Delete message text")
         self.send_btn = ttk.Button(opts, text="Encrypt & Send", command=self.send_message,
                                    bootstyle="success")
         self.send_btn.grid(row=0, column=12, padx=5, sticky=tk.E)
         ToolTip(self.send_btn, "Encrypt and send the message to the selected friend")
+
+        # Contextual hint (e.g. global-broadcast guidance when no friend chosen)
+        self.hint_label = ttk.Label(self.frame, text="", bootstyle="warning",
+                                    anchor="w", padding=(12, 0))
+        self.hint_label.pack(fill=tk.X, padx=10, pady=(0, 2))
 
         # Message input
         msg_frame = ttk.Labelframe(self.frame, text="Write your message",
@@ -114,8 +133,9 @@ class EncryptTab:
             msg_frame, height=8, wrap=tk.WORD
         )
         self.msg_input.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        # Keyboard shortcuts: Ctrl+Enter sends, Escape clears
+        # Keyboard shortcuts: Ctrl+Enter / Alt+Return sends, Escape clears
         self.msg_input.bind("<Control-Return>", lambda e: (self.send_message(), "break")[1])
+        self.msg_input.bind("<Alt-Return>", lambda e: (self.send_message(), "break")[1])
         self.msg_input.bind("<Escape>", lambda e: (self.clear_input(), "break")[1])
 
         # Sent messages log
@@ -135,15 +155,34 @@ class EncryptTab:
                                    bootstyle="info-outline")
         self.copy_btn.pack(side=tk.LEFT, padx=5)
         ToolTip(self.copy_btn, "Copy the last message sent to the clipboard")
-        clear_log_btn = ttk.Button(btn_bar, text="Clear Log", command=self.clear_log,
-                                   bootstyle="secondary-outline")
-        clear_log_btn.pack(side=tk.LEFT, padx=5)
-        ToolTip(clear_log_btn, "Clear the history of sent messages")
+        self.clear_log_btn = ttk.Button(btn_bar, text="Clear Log", command=self.clear_log,
+                                        bootstyle="secondary-outline")
+        self.clear_log_btn.pack(side=tk.LEFT, padx=5)
+        ToolTip(self.clear_log_btn, "Clear the history of sent messages")
+
+        self._update_friend_list()
+        self.focus_compose()
 
     def _set_busy(self, busy: bool) -> None:
+        self._busy = busy
         try:
-            self.send_btn.configure(state="disabled" if busy else "normal")
-            self.frame.winfo_toplevel().configure(cursor="watch" if busy else "")
+            if busy:
+                self.send_btn.configure(state="disabled")
+                self.mode_combo.configure(state="disabled")
+                self.clear_btn.configure(state="disabled")
+                self.clear_log_btn.configure(state="disabled")
+                self.msg_input.configure(state="disabled")
+                self.frame.winfo_toplevel().configure(cursor="watch")
+                flash_widget_text(self.send_btn, BUSY_STATUS_TEXT, ENCRYPT_SEND_TEXT)
+            else:
+                self.send_btn.configure(text=ENCRYPT_SEND_TEXT)
+                self.frame.winfo_toplevel().configure(cursor="")
+                mode_state, _ = self._mode_info_for(self.friend_combo.get())
+                self.mode_combo.configure(state=mode_state)
+                self.clear_btn.configure(state="normal")
+                self.clear_log_btn.configure(state="normal")
+                self.msg_input.configure(state="normal")
+                self._update_send_state()
         except Exception:
             logger.debug("set_busy failed", exc_info=True)
 
@@ -166,41 +205,112 @@ class EncryptTab:
         names = ["(none)"] + self.friends_service.get_friend_names()
         self.friend_combo['values'] = names
         self.friend_combo.current(0)
+        if self._current_friend != "(none)":
+            self._drafts[self._current_friend] = self.msg_input.get("1.0", tk.END)
+            self._current_friend = "(none)"
+            text = self._drafts.get("(none)", "")
+            self.msg_input.delete("1.0", tk.END)
+            if text:
+                self.msg_input.insert("1.0", text)
+        mode_state, recommended = self._mode_info_for("(none)")
+        self.mode_combo.set(recommended)
+        self.mode_combo.config(state=mode_state)
+        self._mode_overridden = False
+        self._update_hint()
+        self._update_send_state()
 
-    def _on_friend_changed(self, event=None) -> None:
+    def _on_friend_changed(self, event: tk.Event = None) -> None:
         choice = self.friend_combo.get()
+        if not choice:
+            choice = "(none)"
+        self._swap_friend(self._current_friend, choice)
+        mode_state, recommended = self._mode_info_for(choice)
+        # A manual mode override only makes sense while the new friend can
+        # actually use it; when the friend is stuck with the fallback mode
+        # (state "disabled") a stale override would be sent and fail.
+        if choice == "(none)" or not self._mode_overridden or mode_state == "disabled":
+            self.mode_combo.set(recommended)
+        self.mode_combo.config(state=mode_state)
+        self._update_hint()
+        self._update_send_state()
+
+    def _on_mode_changed(self, event: tk.Event = None) -> None:
+        self._mode_overridden = True
+
+    def _has_global_secret(self) -> bool:
+        try:
+            return bool(self.global_secret_service
+                        and self.global_secret_service.has_secret())
+        except Exception:
+            logger.debug("global secret check failed", exc_info=True)
+            return False
+
+    def _update_hint(self) -> None:
+        try:
+            friend = self.friend_combo.get()
+            if friend and friend != "(none)":
+                self.hint_label.config(text="", bootstyle="warning")
+                return
+            if self._has_global_secret():
+                self.hint_label.config(text=GLOBAL_HINT_TEXT, bootstyle="warning")
+            else:
+                self.hint_label.config(text=NO_GLOBAL_HINT_TEXT, bootstyle="secondary")
+        except Exception:
+            logger.debug("update hint failed", exc_info=True)
+
+    def _swap_friend(self, old: str, new: str) -> None:
+        self._drafts[old] = self.msg_input.get("1.0", tk.END)
+        self._current_friend = new
+        text = self._drafts.get(new, "")
+        self.msg_input.delete("1.0", tk.END)
+        if text:
+            self.msg_input.insert("1.0", text)
+            self.msg_input.mark_set(tk.INSERT, tk.END)
+            self.msg_input.see(tk.END)
+
+    def _mode_info_for(self, choice: str) -> tuple[str, str]:
         if not choice or choice == "(none)":
-            self.mode_combo.config(state="disabled")
-            self.mode_combo.set("Double Ratchet (XChaCha20)")
-            return
-
-        # Use service to check capabilities — priority: Ratchet > PQC > Shared Secret > RSA
+            if self._has_global_secret():
+                return "readonly", GLOBAL_MODE_TEXT
+            return "disabled", GLOBAL_MODE_TEXT
         has_ratchet = self.friends_service.has_active_ratchet(choice)
-        has_secret = self.friends_service.friend_has_secret(choice)
         has_pqc = self.friends_service.friend_has_pqc_key(choice)
-
+        has_secret = self.friends_service.friend_has_secret(choice)
         if has_ratchet:
-            # Double Ratchet active – use XChaCha20-Poly1305 forward-secret encryption
-            self.mode_combo.config(state="readonly")
-            self.mode_combo.set("Double Ratchet (XChaCha20)")
-        elif has_pqc and self._pqc_available:
-            # PQC key available – default to PQC mode
-            self.mode_combo.config(state="readonly")
-            self.mode_combo.set("Post-Quantum (Hybrid KEM)")
-        elif has_secret:
-            self.mode_combo.config(state="readonly")
-            self.mode_combo.set("Shared Secret (Time-Based)")
-        else:
-            self.mode_combo.config(state="disabled")
-            self.mode_combo.set("Public Key (RSA)")
+            return "readonly", "Double Ratchet (XChaCha20)"
+        if has_pqc and self._pqc_available:
+            return "readonly", "Post-Quantum (Hybrid KEM)"
+        if has_secret:
+            return "readonly", GLOBAL_MODE_TEXT
+        return "disabled", "Public Key (RSA)"
+
+    def _update_send_state(self) -> None:
+        try:
+            if not hasattr(self, "send_btn"):
+                return
+            friend = self.friend_combo.get()
+            text = self.msg_input.get("1.0", tk.END).strip()
+            has_target = (bool(friend) and friend != "(none)") or self._has_global_secret()
+            valid = has_target and bool(text) and not self._busy
+            self.send_btn.configure(state="normal" if valid else "disabled")
+        except Exception:
+            logger.debug("update_send_state failed", exc_info=True)
+
+    def focus_compose(self) -> None:
+        try:
+            self.msg_input.focus_set()
+            self.msg_input.mark_set(tk.INSERT, tk.END)
+            self.msg_input.see(tk.END)
+        except Exception:
+            logger.debug("focus_compose failed", exc_info=True)
 
     def clear_input(self) -> None:
         self.msg_input.delete("1.0", tk.END)
+        self._update_send_state()
 
     def send_message(self) -> None:
         plaintext = self.msg_input.get("1.0", tk.END).strip()
         if not plaintext:
-            messagebox.showwarning("Empty Message", "Please type a message.")
             return
         
         # Validate message size
@@ -215,6 +325,14 @@ class EncryptTab:
 
         friend_choice = self.friend_combo.get()
         friend_name = None if friend_choice in ("(none)", "") else friend_choice
+
+        if friend_name is None and not self._has_global_secret():
+            messagebox.showwarning(
+                "No Recipient",
+                "Choose a friend, or set a global shared secret in the "
+                "Shared Secret tab to broadcast to everyone who has it."
+            )
+            return
 
         # Parse mode from combo selection
         mode_text = self.mode_combo.get()
@@ -309,6 +427,7 @@ class EncryptTab:
         self.sent_log.see(tk.END)
         self.sent_log.configure(state='disabled')
         self.msg_input.delete("1.0", tk.END)
+        self._update_send_state()
 
     def copy_last_sent(self) -> None:
         if self.last_sent_b64:
