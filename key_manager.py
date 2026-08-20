@@ -63,6 +63,46 @@ def _to_bytes(pw):
     return pw.encode()
 
 
+def _migrate_ratchet_blobs(conn, old_key: bytes, new_key: bytes) -> int:
+    """Re-encrypt legacy HKDF-encrypted ratchet blobs with a new random key.
+
+    Legacy blobs were AES-GCM encrypted with HKDF(master_password). Plain
+    JSON blobs (pre-encryption) are left untouched; the ratchet service
+    re-encrypts them on next save.
+
+    Returns:
+        Number of blobs migrated.
+    """
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    rows = conn.execute(
+        "SELECT name, ratchet_state_json FROM friends "
+        "WHERE ratchet_state_json IS NOT NULL"
+    ).fetchall()
+    migrated = 0
+    for friend_name, blob in rows:
+        if not blob or blob.startswith('{'):
+            continue
+        try:
+            raw = base64.b64decode(blob)
+            nonce, ct = raw[:12], raw[12:]
+            plaintext = AESGCM(old_key).decrypt(nonce, ct, None)
+            new_nonce = secrets.token_bytes(12)
+            new_blob = base64.b64encode(
+                new_nonce + AESGCM(new_key).encrypt(new_nonce, plaintext, None)
+            ).decode('ascii')
+            conn.execute(
+                "UPDATE friends SET ratchet_state_json=? WHERE name=?",
+                (new_blob, friend_name)
+            )
+            migrated += 1
+        except Exception as e:
+            logger.warning(
+                "ratchet blob migration failed for '%s': %s", friend_name, e
+            )
+    return migrated
+
+
 class LockoutError(KeyStoreError):
     """Raised when an authentication attempt is refused due to an active lockout.
 
@@ -103,7 +143,7 @@ class KeyStore:
         self.my_hybrid_sig_combined_pub: Optional[bytes] = None  # Combined public key bytes
         self.friends_hybrid_sig_pubs: Dict[str, tuple] = {}  # name -> (ed_pub_bytes, dil_pub_bytes)
         self._rsa_key_bytes: Optional[GuardedBuffer] = None
-        self._ratchet_storage_key: Optional[bytes] = None  # Derived from master password during load()
+        self._ratchet_storage_key: Optional[bytes] = None  # Random 32-byte key, Argon2id-wrapped with master password
 
     # ---------- Persistent lockout helpers ----------
 
@@ -398,42 +438,72 @@ class KeyStore:
             "yes" if self.my_hybrid_sig_combined_pub else "no",
         )
 
-        # Derive ratchet storage key from master password (never persisted).
-        # This key is distinct from global_secret so an attacker with DB
-        # access alone cannot derive it.
+        # Ratchet storage key: random 32-byte key encrypted at rest with the
+        # master password (Argon2id via database.encrypt_secret). The key
+        # never depends on the password, so persisted ratchet blobs survive
+        # restarts and password changes; change_password() rotates only the
+        # encrypted wrapper. Legacy DBs used HKDF(master_password, salt) —
+        # migrate on first load so existing blobs stay readable.
         pw_bytes = password.encode() if isinstance(password, str) else (
             password.to_bytes() if isinstance(password, SecureString) else password
         )
-        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-        from cryptography.hazmat.primitives import hashes as _hashes
-        import base64 as _b64
-        import secrets as _secrets
+        # A corrupt/tampered ratchet_storage_key wrapper must fail unlock like
+        # any other corrupted secret — not raise out of load().
+        try:
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+            from cryptography.hazmat.primitives import hashes as _hashes
+            import base64 as _b64
+            import secrets as _secrets
 
-        # NOTE: open a fresh connection here. The connection used above is
-        # already closed in the finally block, so reusing it silently failed
-        # and left the salt as None — meaning the storage key degenerated to
-        # HKDF(password, salt=None) on every run, defeating the salt.
-        with closing(database.get_connection()) as _salt_conn:
-            _salt_row = _salt_conn.execute(
-                "SELECT value FROM settings WHERE key='ratchet_hkdf_salt'"
-            ).fetchone()
-            if _salt_row:
-                _ratchet_salt = _b64.b64decode(_salt_row[0])
-            else:
-                _ratchet_salt = _secrets.token_bytes(32)
-                _salt_conn.execute(
-                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                    ("ratchet_hkdf_salt", _b64.b64encode(_ratchet_salt).decode())
-                )
-                _salt_conn.commit()
+            with closing(database.get_connection()) as _rs_conn:
+                _rs_row = _rs_conn.execute(
+                    "SELECT value FROM settings WHERE key='ratchet_storage_key'"
+                ).fetchone()
+                if _rs_row:
+                    _ratchet_key = database.decrypt_secret(
+                        json.loads(_rs_row[0]), password
+                    )
+                else:
+                    _ratchet_key = _secrets.token_bytes(32)
+                    _legacy_row = _rs_conn.execute(
+                        "SELECT value FROM settings WHERE key='ratchet_hkdf_salt'"
+                    ).fetchone()
+                    if _legacy_row:
+                        _legacy_salt = _b64.b64decode(_legacy_row[0])
+                        _legacy_key = HKDF(
+                            algorithm=_hashes.SHA256(),
+                            length=32,
+                            salt=_legacy_salt,
+                            info=b"enigma-ratchet-storage-key-v1",
+                        ).derive(pw_bytes)
+                        _migrate_ratchet_blobs(
+                            _rs_conn, _legacy_key, _ratchet_key
+                        )
+                        # Wipe the derived legacy key; it is an immutable
+                        # bytes object, so re-encode to a mutable buffer first.
+                        _legacy_key_tmp = bytearray(_legacy_key)
+                        for _i in range(len(_legacy_key_tmp)):
+                            _legacy_key_tmp[_i] = 0
+                    _rs_conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        (
+                            "ratchet_storage_key",
+                            json.dumps(database.encrypt_secret(_ratchet_key, password)),
+                        )
+                    )
+                    _rs_conn.execute(
+                        "DELETE FROM settings WHERE key='ratchet_hkdf_salt'"
+                    )
+                    _rs_conn.commit()
+        except (ValueError, TypeError, json.JSONDecodeError) as e:
+            logger.error("Failed to load ratchet storage key: %s", e)
+            self.wipe()
+            if isinstance(pw_bytes, bytearray):
+                for i in range(len(pw_bytes)):
+                    pw_bytes[i] = 0
+            return False
 
-        _hkdf = HKDF(
-            algorithm=_hashes.SHA256(),
-            length=32,
-            salt=_ratchet_salt,
-            info=b"enigma-ratchet-storage-key-v1",
-        )
-        self._ratchet_storage_key = _hkdf.derive(pw_bytes)
+        self._ratchet_storage_key = _ratchet_key
         # Wipe intermediate password bytes
         if isinstance(pw_bytes, bytearray):
             for i in range(len(pw_bytes)):
@@ -1193,6 +1263,17 @@ class KeyStore:
                         (json.dumps(new_totp_enc),)
                     )
 
+                # Ratchet storage key: same key, re-encrypted wrapper under
+                # the new password so persisted blobs stay decryptable.
+                if self._ratchet_storage_key is not None:
+                    new_rs_enc = database.encrypt_secret(
+                        self._ratchet_storage_key, new_password
+                    )
+                    conn.execute(
+                        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                        ("ratchet_storage_key", json.dumps(new_rs_enc)),
+                    )
+
                 conn.commit()
 
                 # --- 4. Update in-memory state ---
@@ -1328,6 +1409,23 @@ class KeyStore:
                 # --- 6. Clear duress verifier ---
                 conn.execute("DELETE FROM settings WHERE key='duress_verifier'")
 
+                # --- 6b. Fresh ratchet storage key + clear stale blobs ---
+                # Old blobs are encrypted with the previous key and tied to
+                # the old global secret; they cannot be recovered.
+                new_rs_key = secrets.token_bytes(32)
+                conn.execute(
+                    "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                    (
+                        "ratchet_storage_key",
+                        json.dumps(database.encrypt_secret(new_rs_key, new_password)),
+                    )
+                )
+                conn.execute("DELETE FROM settings WHERE key='ratchet_hkdf_salt'")
+                conn.execute(
+                    "UPDATE friends SET ratchet_state_json=NULL "
+                    "WHERE ratchet_state_json IS NOT NULL"
+                )
+
                 conn.commit()
                 conn.close()
 
@@ -1341,6 +1439,7 @@ class KeyStore:
                 self.global_secret = gs_gb
                 self._duress_mode = False
                 self._needs_rotation = False
+                self._ratchet_storage_key = new_rs_key
 
                 # Reload hybrid signing keys into memory
                 if _HYBRID_SIG_AVAILABLE:
@@ -1377,7 +1476,7 @@ class KeyStore:
                     self.global_secret.wipe_and_free()
                 self.global_secret = None
 
-            # Wipe ratchet storage key (derived from master password)
+            # Wipe ratchet storage key (random key re-wrapped on password change)
             if self._ratchet_storage_key is not None:
                 ba = bytearray(self._ratchet_storage_key)
                 for i in range(len(ba)):

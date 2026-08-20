@@ -3,6 +3,7 @@
 import json
 import os
 import secrets
+import base64
 import tempfile
 import pytest
 from pathlib import Path
@@ -114,6 +115,132 @@ class TestKeyStoreLoad:
 
     def test_friends_initially_empty(self, initialized_keystore):
         assert initialized_keystore.friends == []
+
+    def test_ratchet_storage_key_survives_reload(self, password):
+        """The random ratchet storage key is persisted wrapped; a later unlock
+        decrypts the same key so blobs remain readable."""
+        init_db(password)
+        ks = KeyStore()
+        assert ks.load(password) is True
+        key1 = ks._ratchet_storage_key
+        assert key1 is not None and len(key1) == 32
+
+        ks2 = KeyStore()
+        assert ks2.load(password) is True
+        assert ks2._ratchet_storage_key == key1
+
+    def test_migrates_legacy_ratchet_blobs(self, password):
+        """A legacy DB (HKDF-derived storage key + AES-GCM blobs) must be
+        migrated to the random-key wrapper on first load, keeping blobs
+        decryptable."""
+        import json as _json
+        import base64 as _b64
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        from cryptography.hazmat.primitives import hashes as _hashes
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        from contextlib import closing
+
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.backends import default_backend as _backend
+
+        init_db(password)
+        pem = pubkey_to_pem(
+            rsa.generate_private_key(65537, 3072, _backend()).public_key()
+        )
+        salt = secrets.token_bytes(32)
+        legacy_key = HKDF(
+            algorithm=_hashes.SHA256(),
+            length=32,
+            salt=salt,
+            info=b"enigma-ratchet-storage-key-v1",
+        ).derive(password.encode())
+        with closing(database.get_connection()) as conn:
+            # Pre-encrypt a ratchet blob with the legacy key.
+            nonce = secrets.token_bytes(12)
+            blob = base64.b64encode(
+                nonce + AESGCM(legacy_key).encrypt(nonce, b'{"root_key":"ab"}', None)
+            ).decode("ascii")
+            conn.execute(
+                "INSERT INTO friends (name, public_key_pem, ratchet_state_json) "
+                "VALUES (?, ?, ?)",
+                ("LegacyF", pem, blob),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("ratchet_hkdf_salt", _b64.b64encode(salt).decode()),
+            )
+            conn.commit()
+
+        ks = KeyStore()
+        assert ks.load(password) is True
+        assert ks._ratchet_storage_key is not None
+
+        with closing(database.get_connection()) as conn:
+            # Legacy salt must be gone; blob must be re-wrapped under the new key.
+            salt_row = conn.execute(
+                "SELECT 1 FROM settings WHERE key='ratchet_hkdf_salt'"
+            ).fetchone()
+            assert salt_row is None
+            blob_row = conn.execute(
+                "SELECT ratchet_state_json FROM friends WHERE name=?",
+                ("LegacyF",),
+            ).fetchone()
+            assert blob_row and not blob_row[0].startswith("{")
+            raw = _b64.b64decode(blob_row[0])
+            plain = AESGCM(ks._ratchet_storage_key).decrypt(
+                raw[:12], raw[12:], None
+            )
+            assert plain == b'{"root_key":"ab"}'
+
+    def test_corrupt_ratchet_storage_key_wrapper_fails_closed(self, password):
+        """A tampered wrapper must make load() return False, not raise."""
+        import json as _json
+        from contextlib import closing
+
+        init_db(password)
+        ks = KeyStore()
+        assert ks.load(password) is True
+
+        with closing(database.get_connection()) as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ("ratchet_storage_key", _json.dumps({"kdf": "argon2id",
+                                                     "salt": "A" * 10,
+                                                     "nonce": "A" * 10,
+                                                     "ct": "A" * 10})),
+            )
+            conn.commit()
+
+        ks2 = KeyStore()
+        # Must return False (auth failed) rather than raise KeyStoreError.
+        assert ks2.load(password) is False
+
+    def test_ratchet_storage_key_survives_password_change(self, password):
+        """change_password() must re-wrap the storage key (blobs stay readable
+        under the new password), not derive a new one."""
+        import json as _json
+        from contextlib import closing
+
+        new_password = "DifferentPassword456!"
+        # Hybrid-signing/Kyber keys are not re-wrapped by change_password()
+        # (pre-existing gap), so disable them to keep this test focused on the
+        # ratchet storage key.
+        with patch("key_manager._HYBRID_SIG_AVAILABLE", False):
+            init_db(password)
+            ks = KeyStore()
+            assert ks.load(password) is True
+            key_before = ks._ratchet_storage_key
+
+            assert ks.change_password(
+                old_password=password, new_password=new_password
+            ) is True
+
+            # In-memory key unchanged; a fresh login under the new password
+            # must decrypt the wrapper to the same key.
+            assert ks._ratchet_storage_key == key_before
+            ks2 = KeyStore()
+            assert ks2.load(new_password) is True
+            assert ks2._ratchet_storage_key == key_before
 
 
 # ---------------------------------------------------------------------------

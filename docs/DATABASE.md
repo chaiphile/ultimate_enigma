@@ -198,7 +198,7 @@ CREATE TABLE IF NOT EXISTS settings (
 | `last_backup_ts` | text | Unix timestamp of last versioned backup | `BackupService._record_backup_timestamp()` |
 | `sqlcipher_db_key` | JSON | Per-machine DB encryption key (encrypted) | `init_db()` |
 | `my_name` | text | User's display name for ratchet envelope sender identity | `set_my_name()` |
-| `ratchet_hkdf_salt` | TEXT | HKDF salt for ratchet storage key derivation | `init_db()` |
+| `ratchet_storage_key` | JSON | Random 32-byte ratchet at-rest key, Argon2id-wrapped with master password | `KeyStore.load()` |
 
 #### Key Lifecycle
 

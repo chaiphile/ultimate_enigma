@@ -287,7 +287,7 @@ SQLite database at `~/.ultimate_enigma/enigma.db` with WAL mode and foreign keys
 | `key` | TEXT PK | Setting name |
 | `value` | TEXT NOT NULL | Setting value (JSON for encrypted data) |
 
-Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_private_key_encrypted`, `legacy_key_expiry`, `kyber_priv_encrypted`, `pqc_combined_pub_b64`, `pqc_x25519_priv_encrypted`, `ed25519_priv_encrypted`, `dilithium_priv_encrypted`, `hybrid_sig_combined_pub_b64`, `totp_secret_encrypted`, `totp_setup_complete`, `totp_enabled`, `lockout_data`, `duress_verifier`, `last_backup_ts`, `my_name`, `sqlcipher_db_key`, `ratchet_hkdf_salt`
+Known keys: `public_key`, `private_key_encrypted`, `global_secret`, `legacy_private_key_encrypted`, `legacy_key_expiry`, `kyber_priv_encrypted`, `pqc_combined_pub_b64`, `pqc_x25519_priv_encrypted`, `ed25519_priv_encrypted`, `dilithium_priv_encrypted`, `hybrid_sig_combined_pub_b64`, `totp_secret_encrypted`, `totp_setup_complete`, `totp_enabled`, `lockout_data`, `duress_verifier`, `last_backup_ts`, `my_name`, `sqlcipher_db_key`, `ratchet_storage_key`
 
 #### `trust_certificates`
 | Column | Type | Description |

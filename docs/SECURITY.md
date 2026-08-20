@@ -120,9 +120,9 @@ All previously immutable `bytes` secrets now stored in `GuardedBuffer`:
 
 #### Ratchet Storage Key (SEC-06)
 - Ratchet states are encrypted at rest with AES-256-GCM before DB storage
-- The storage key is derived from the **master password** via HKDF-SHA256 (domain: `enigma-ratchet-storage-key-v1`)
-- Key is derived during `KeyStore.load()` and held only in memory (`KeyStore._ratchet_storage_key`)
-- Never persisted to disk — an attacker with DB access alone cannot recover ratchet state
+- The storage key is a **random 32-byte** value, wrapped with the master password via Argon2id (`database.encrypt_secret`) and persisted under the `ratchet_storage_key` setting
+- Because the key itself does not depend on the password, persisted ratchet blobs survive restarts **and** master-password changes (`change_password()` re-wraps the wrapper; `reset_with_recovery_key()` generates a fresh key and clears stale blobs)
+- Security rests on master-password strength: an attacker with DB access alone cannot unwrap the key
 
 #### Startup Initialization (`main.py`)
 - `raise_mlock_limit(64MB)` called before any other imports
