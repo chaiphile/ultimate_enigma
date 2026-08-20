@@ -368,7 +368,8 @@ def init_db():
                     public_key_pem TEXT NOT NULL,
                     has_shared_secret INTEGER NOT NULL DEFAULT 0,
                     shared_secret_encrypted TEXT,   -- JSON: {salt, nonce, ct}
-                    x25519_public_key_b64 TEXT       -- NEW: raw 32-byte X25519 public key as Base64
+                    x25519_public_key_b64 TEXT,      -- raw 32-byte X25519 public key as Base64
+                    ecdh_priv_encrypted TEXT         -- JSON: our own X25519 private (encrypted with master password)
                 );
                 CREATE TABLE IF NOT EXISTS trust_certificates (
                     cert_id TEXT PRIMARY KEY,
@@ -414,6 +415,7 @@ def init_db():
                 "ALTER TABLE friends ADD COLUMN capabilities_json TEXT",
                 "ALTER TABLE friends ADD COLUMN pqc_combined_pub_b64 TEXT",
                 "ALTER TABLE friends ADD COLUMN hybrid_sig_pub_b64 TEXT",
+                "ALTER TABLE friends ADD COLUMN ecdh_priv_encrypted TEXT",
             ]:
                 try:
                     conn.execute(col_sql)
@@ -549,10 +551,10 @@ def migrate_secrets_to_argon2id(password) -> int:
 
             # Migrate friend shared secrets
             rows = conn.execute(
-                "SELECT name, shared_secret_encrypted FROM friends "
+                "SELECT name, shared_secret_encrypted, ecdh_priv_encrypted FROM friends "
                 "WHERE has_shared_secret=1 AND shared_secret_encrypted IS NOT NULL"
             ).fetchall()
-            for name, sec_json in rows:
+            for name, sec_json, ecdh_json in rows:
                 if not sec_json:
                     continue
                 enc_dict = json.loads(sec_json)
@@ -569,6 +571,22 @@ def migrate_secrets_to_argon2id(password) -> int:
                     except (ValueError, TypeError) as e:
                         logger.warning(
                             "Could not migrate secret for '%s': %s", name, e
+                        )
+                if ecdh_json:
+                    try:
+                        ecdh_dict = json.loads(ecdh_json)
+                        if ecdh_dict.get("kdf") != "argon2id":
+                            plain = decrypt_secret(ecdh_dict, password)
+                            new_enc = encrypt_secret(plain, password)
+                            conn.execute(
+                                "UPDATE friends SET ecdh_priv_encrypted=? WHERE name=?",
+                                (json.dumps(new_enc), name)
+                            )
+                            migrated += 1
+                            logger.info("Migrated ECDH private for '%s' to Argon2id", name)
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
+                        logger.warning(
+                            "Could not migrate ECDH private for '%s': %s", name, e
                         )
 
             conn.commit()

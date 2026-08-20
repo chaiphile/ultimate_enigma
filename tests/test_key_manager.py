@@ -193,6 +193,45 @@ class TestFriendManagement:
         initialized_keystore.save_friend("XUser", pem, x25519_pub_b64=x_b64)
         assert initialized_keystore.friends_x25519.get("XUser") == x_b64
 
+    def test_ecdh_priv_persisted_and_survives_reload(
+        self, initialized_keystore, password
+    ):
+        """Regression: our ECDH X25519 private must survive a reload so the
+        Double Ratchet can re-derive the agreed root key after restart."""
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+
+        priv = rsa.generate_private_key(65537, 3072, default_backend())
+        pem = pubkey_to_pem(priv.public_key())
+        secret = secrets.token_bytes(32)
+        ecdh_priv = X25519PrivateKey.generate()
+        ecdh_bytes = ecdh_priv.private_bytes(
+            serialization.Encoding.Raw,
+            serialization.PrivateFormat.Raw,
+            serialization.NoEncryption(),
+        )
+        initialized_keystore.save_friend(
+            "EcdhUser",
+            pem,
+            shared_secret=secret,
+            password=password,
+            ecdh_priv_bytes=ecdh_bytes,
+        )
+        assert initialized_keystore.get_friend_ecdh_priv("EcdhUser") == ecdh_bytes
+
+        # Fresh KeyStore, same password: private must come back decryptable.
+        ks2 = KeyStore()
+        assert ks2.load(password) is True
+        assert ks2.get_friend_ecdh_priv("EcdhUser") == ecdh_bytes
+        assert ks2.get_friend_secret("EcdhUser") == secret
+
+    def test_ecdh_priv_requires_password(self, initialized_keystore):
+        priv = rsa.generate_private_key(65537, 3072, default_backend())
+        pem = pubkey_to_pem(priv.public_key())
+        with pytest.raises(ValueError, match="Master password required"):
+            initialized_keystore.save_friend(
+                "EcdhNoPw", pem, ecdh_priv_bytes=b"\x00" * 32
+            )
+
 
 # ---------------------------------------------------------------------------
 # Tests: KeyStore.update_global_secret

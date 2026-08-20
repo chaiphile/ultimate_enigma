@@ -9,6 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.x25519 import (
     X25519PrivateKey,
     X25519PublicKey,
 )
+from cryptography.hazmat.primitives import serialization
 
 from services.double_ratchet import RatchetState
 
@@ -49,6 +50,55 @@ def alice_bob_pair(shared_secret):
 # ---------------------------------------------------------------------------
 
 class TestInitialization:
+    def test_independent_clients_agree_after_ecdh(self):
+        """Regression: two separate clients, each holding only their own ECDH
+        private + the peer's public + the shared secret (as after a real ECDH
+        exchange), must derive matching ratchet state.
+
+        Previously both roles generated fresh X25519 keypairs at init time, so
+        root keys diverged and every header failed AEAD.
+        """
+        shared_secret = secrets.token_bytes(32)
+
+        # Simulate a real ECDH exchange: each side generates its private, holds
+        # its own private byte string (what we now persist), and learns only the
+        # peer's public.
+        alice_priv = X25519PrivateKey.generate()
+        bob_priv = X25519PrivateKey.generate()
+        alice_priv_bytes = alice_priv.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+        bob_priv_bytes = bob_priv.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        # Alice knows Bob's pub; Bob knows Alice's pub (not each other's privs).
+        bob_pub = bob_priv.public_key()
+        alice_pub = alice_priv.public_key()
+
+        # Alice initializes as initiator on her machine...
+        alice_state = RatchetState()
+        alice_local = X25519PrivateKey.from_private_bytes(alice_priv_bytes)
+        alice_state.initialize_as_alice(bob_pub, shared_secret, alice_local)
+
+        # ...and Bob initializes as responder on his machine, using the persisted
+        # private whose public Alice saw. Fresh keys (None) would diverge.
+        bob_state = RatchetState()
+        bob_local = X25519PrivateKey.from_private_bytes(bob_priv_bytes)
+        bob_state.initialize_as_bob(alice_pub, shared_secret, bob_local)
+
+        # Shared root key means Alice's first message decrypts on Bob.
+        header, ct = alice_state.encrypt(b"post-ecdh hello")
+        assert bob_state.decrypt(header, ct) == b"post-ecdh hello"
+
+        # And Bob's reply round-trips back.
+        h2, ct2 = bob_state.encrypt(b"reply")
+        assert alice_state.decrypt(h2, ct2) == b"reply"
+
     def test_initialize_as_alice(self, shared_secret):
         state = RatchetState()
         bob_pub = X25519PrivateKey.generate().public_key()

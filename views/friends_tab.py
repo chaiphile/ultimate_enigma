@@ -489,7 +489,7 @@ class FriendsTab:
         if result is None:
             return
 
-        new_secret, friend_x25519_b64 = result
+        new_secret, friend_x25519_b64, ecdh_priv_bytes = result
         if not new_secret:
             return
 
@@ -508,6 +508,7 @@ class FriendsTab:
                 new_secret=new_secret,
                 master_password=pw,
                 x25519_pub_b64=friend_x25519_b64,
+                ecdh_priv_bytes=ecdh_priv_bytes,
             )
 
         def on_done(_):

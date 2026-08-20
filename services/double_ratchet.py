@@ -91,15 +91,22 @@ class RatchetState:
         mk = hmac_module.new(ck, b'\x01', hashlib.sha256).digest()
         return new_ck, mk
 
-    def initialize_as_alice(self, bob_dh_pub: X25519PublicKey, shared_secret: bytes):
+    def initialize_as_alice(self, bob_dh_pub: X25519PublicKey, shared_secret: bytes,
+                            local_dh_priv: X25519PrivateKey = None):
         """Initialize the ratchet as Alice (the initiator).
-        
+
         Args:
             bob_dh_pub: Bob's initial DH public key
             shared_secret: Initial shared secret from X3DH or similar handshake
+            local_dh_priv: Alice's DH private key (whose public key was already
+                          shared with Bob). If None, a new key is generated.
         """
-        # Generate our initial DH key pair
-        self.dh_priv = X25519PrivateKey.generate()
+        # Use the DH key whose public key Bob already saw so both parties agree
+        # on the same DH pair. Fall back to fresh generation for backward compat.
+        if local_dh_priv is not None:
+            self.dh_priv = local_dh_priv
+        else:
+            self.dh_priv = X25519PrivateKey.generate()
         self.dh_pub_remote = bob_dh_pub
         
         # Perform initial DH exchange to get root key

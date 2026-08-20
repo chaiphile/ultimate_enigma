@@ -149,6 +149,7 @@ class FriendCrudService:
                 current_pem = pubkey_to_pem(pub)
                 break
         x25519 = self._ks.friends_x25519.get(name)
+        ecdh_priv = self._ks.get_friend_ecdh_priv(name)
         caps = dict(self._ks.friends_capabilities.get(name, {})) or None
         pqc_b64 = None
         if name in self._ks.friends_pqc_combined_pub:
@@ -164,6 +165,7 @@ class FriendCrudService:
         return {
             "pem": current_pem,
             "x25519": x25519,
+            "ecdh_priv": ecdh_priv,
             "caps": caps,
             "pqc_b64": pqc_b64,
             "hybrid_sig_b64": hybrid_sig_b64,
@@ -175,10 +177,14 @@ class FriendCrudService:
         new_secret: bytes,
         master_password: str,
         x25519_pub_b64: Optional[str] = None,
+        ecdh_priv_bytes: Optional[bytes] = None,
     ) -> None:
-        """Replace the shared secret (and optionally the ECDH key) for an existing friend.
+        """Replace the shared secret (and optionally the ECDH keys) for an existing friend.
 
-        Preserves all existing public keys (PQC, hybrid sig, capabilities).
+        ``ecdh_priv_bytes`` is our own X25519 private key (whose public key the
+        friend saw during the exchange). It must persist so the Double Ratchet can
+        re-derive the agreed root key. Preserves all existing public keys (PQC,
+        hybrid sig, capabilities).
         """
         if not self.friend_exists(name):
             raise FriendsServiceError(f"Friend '{name}' not found")
@@ -196,6 +202,7 @@ class FriendCrudService:
             capabilities=existing["caps"],
             pqc_combined_pub_b64=existing["pqc_b64"],
             hybrid_sig_pub_b64=existing["hybrid_sig_b64"],
+            ecdh_priv_bytes=ecdh_priv_bytes if ecdh_priv_bytes is not None else existing["ecdh_priv"],
         )
 
     def update_friend_pub_keys(
@@ -264,6 +271,7 @@ class FriendCrudService:
             capabilities=existing["caps"],
             pqc_combined_pub_b64=new_pqc_b64 if new_pqc_b64 is not None else existing["pqc_b64"],
             hybrid_sig_pub_b64=new_hybrid_sig_b64 if new_hybrid_sig_b64 is not None else existing["hybrid_sig_b64"],
+            ecdh_priv_bytes=existing["ecdh_priv"],
         )
 
     def get_my_public_info(self) -> Dict:
@@ -303,6 +311,10 @@ class FriendCrudService:
     def get_friend_x25519_key(self, name: str) -> Optional[str]:
         """Return the X25519 public key (Base64) for a friend, or None if not stored."""
         return self._ks.friends_x25519.get(name)
+
+    def get_friend_ecdh_priv(self, name: str) -> Optional[bytes]:
+        """Return our own X25519 private bytes for a friend, or None."""
+        return self._ks.get_friend_ecdh_priv(name)
 
     def get_friend_capabilities(self, name: str) -> Dict:
         """Return the capabilities dict for a friend, or empty dict if none."""

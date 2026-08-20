@@ -91,6 +91,7 @@ class KeyStore:
         self.global_secret: Optional[bytearray] = None   # changed to bytearray for secure wiping
         self.friends: List[Tuple[str, object, Optional[bytearray]]] = []   # (name, pub, shared_secret or None)
         self.friends_x25519: Dict[str, str] = {}   # name -> Base64 of raw X25519 public key
+        self.friends_ecdh_priv: Dict[str, GuardedBuffer] = {}  # name -> our own X25519 private (guarded)
         self.friends_capabilities: Dict[str, dict] = {}  # name -> {"double_ratchet": bool, ...}
         self.friends_pqc_combined_pub: Dict[str, bytes] = {}  # name -> raw combined_pub bytes
         self.my_kyber_priv: Optional[bytes] = None   # Local Kyber secret key (raw bytes)
@@ -323,15 +324,16 @@ class KeyStore:
             rows = conn.execute(
                 "SELECT name, public_key_pem, has_shared_secret, shared_secret_encrypted, "
                 "x25519_public_key_b64, capabilities_json, pqc_combined_pub_b64, "
-                "hybrid_sig_pub_b64 "
+                "hybrid_sig_pub_b64, ecdh_priv_encrypted "
                 "FROM friends"
             ).fetchall()
             self.friends.clear()
             self.friends_x25519.clear()
+            self.friends_ecdh_priv.clear()
             self.friends_capabilities.clear()
             self.friends_pqc_combined_pub.clear()
             self.friends_hybrid_sig_pubs.clear()
-            for name, pem, has_sec, sec_json, x_b64, cap_json, pqc_pub_b64, hybrid_sig_b64 in rows:
+            for name, pem, has_sec, sec_json, x_b64, cap_json, pqc_pub_b64, hybrid_sig_b64, ecdh_priv_json in rows:
                 pub = _pem_to_pubkey(pem)
                 secret = None
                 if has_sec and sec_json:
@@ -346,6 +348,18 @@ class KeyStore:
                 self.friends.append((name, pub, secret))
                 if x_b64:
                     self.friends_x25519[name] = x_b64
+                if ecdh_priv_json:
+                    try:
+                        ecdh_dict = json.loads(ecdh_priv_json)
+                        decrypted = database.decrypt_secret(ecdh_dict, password)
+                        gb = GuardedBuffer(len(decrypted))
+                        gb.write(bytes(decrypted) if isinstance(decrypted, bytearray) else decrypted)
+                        self.friends_ecdh_priv[name] = gb
+                    except (ValueError, TypeError, json.JSONDecodeError) as e:
+                        logger.warning(
+                            "Could not decrypt ECDH private for friend '%s': %s",
+                            name, e,
+                        )
                 if cap_json:
                     try:
                         self.friends_capabilities[name] = json.loads(cap_json)
@@ -576,7 +590,8 @@ class KeyStore:
                     password: Union[str, bytes, SecureString] = "", x25519_pub_b64: Optional[str] = None,
                     capabilities: Optional[dict] = None,
                     pqc_combined_pub_b64: Optional[str] = None,
-                    hybrid_sig_pub_b64: Optional[str] = None) -> None:
+                    hybrid_sig_pub_b64: Optional[str] = None,
+                    ecdh_priv_bytes: Optional[bytes] = None) -> None:
         """Save a friend; if shared_secret is provided, password must be the master password (non-empty).
         x25519_pub_b64 is the Base64 of the raw 32-byte X25519 public key.
         capabilities is an optional dict of supported features (e.g. {"double_ratchet": True}).
@@ -596,6 +611,13 @@ class KeyStore:
             has_sec = 0
             sec_enc_json = None
 
+        if ecdh_priv_bytes is not None:
+            if not password:
+                raise ValueError("Master password required to encrypt friend ECDH private key")
+            ecdh_enc_json = json.dumps(database.encrypt_secret(ecdh_priv_bytes, password))
+        else:
+            ecdh_enc_json = None
+
         cap_json = json.dumps(capabilities) if capabilities else None
         with closing(database.get_connection()) as conn:
             # Preserve existing ratchet_state_json when updating a friend row.
@@ -610,10 +632,11 @@ class KeyStore:
                 "INSERT OR REPLACE INTO friends "
                 "(name, public_key_pem, has_shared_secret, shared_secret_encrypted, "
                 "x25519_public_key_b64, capabilities_json, ratchet_state_json, "
-                "pqc_combined_pub_b64, hybrid_sig_pub_b64) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "pqc_combined_pub_b64, hybrid_sig_pub_b64, ecdh_priv_encrypted) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (name, pem, has_sec, sec_enc_json, x25519_pub_b64, cap_json,
-                 existing_ratchet_json, pqc_combined_pub_b64, hybrid_sig_pub_b64)
+                 existing_ratchet_json, pqc_combined_pub_b64, hybrid_sig_pub_b64,
+                 ecdh_enc_json)
             )
             conn.commit()
         pub = _pem_to_pubkey(pem)
@@ -629,6 +652,12 @@ class KeyStore:
             self.friends_x25519[name] = x25519_pub_b64
         else:
             self.friends_x25519.pop(name, None)
+        if ecdh_priv_bytes is not None:
+            ecdh_gb = GuardedBuffer(len(ecdh_priv_bytes))
+            ecdh_gb.write(bytes(ecdh_priv_bytes) if isinstance(ecdh_priv_bytes, bytearray) else ecdh_priv_bytes)
+            self.friends_ecdh_priv[name] = ecdh_gb
+        else:
+            self.friends_ecdh_priv.pop(name, None)
         if capabilities:
             self.friends_capabilities[name] = capabilities
         else:
@@ -656,6 +685,7 @@ class KeyStore:
             conn.commit()
         self.friends = [(n, p, s) for (n, p, s) in self.friends if n != name]
         self.friends_x25519.pop(name, None)
+        self.friends_ecdh_priv.pop(name, None)
         self.friends_capabilities.pop(name, None)
         self.friends_pqc_combined_pub.pop(name, None)
         self.friends_hybrid_sig_pubs.pop(name, None)
@@ -669,6 +699,13 @@ class KeyStore:
                     return bytes(s.read())
                 return bytes(s)
         return None
+
+    def get_friend_ecdh_priv(self, name: str) -> Optional[bytes]:
+        """Return our own X25519 private key bytes for a friend, or None."""
+        gb = self.friends_ecdh_priv.get(name)
+        if gb is None:
+            return None
+        return bytes(gb.read())
 
     # ---------- PQC Hybrid KEM key management ----------
 
@@ -1080,14 +1117,14 @@ class KeyStore:
 
                 # Friend shared secrets
                 friend_rows = conn.execute(
-                    "SELECT name, shared_secret_encrypted FROM friends "
+                    "SELECT name, shared_secret_encrypted, ecdh_priv_encrypted FROM friends "
                     "WHERE has_shared_secret=1 AND shared_secret_encrypted IS NOT NULL"
                 ).fetchall()
                 # Process each friend: decrypt, re-encrypt, and store in
                 # GuardedBuffer without accumulating raw plaintext.
                 friend_updates = {}
                 friend_plain = None
-                for fname, sec_json in friend_rows:
+                for fname, sec_json, ecdh_json in friend_rows:
                     if not sec_json:
                         continue
                     try:
@@ -1106,6 +1143,20 @@ class KeyStore:
                             "change_password: could not decrypt secret for '%s': %s",
                             fname, e
                         )
+                    if ecdh_json:
+                        try:
+                            ecdh_dict = json.loads(ecdh_json)
+                            ecdh_plain = database.decrypt_secret(ecdh_dict, old_password)
+                            new_ecdh_enc = database.encrypt_secret(ecdh_plain, new_password)
+                            conn.execute(
+                                "UPDATE friends SET ecdh_priv_encrypted=? WHERE name=?",
+                                (json.dumps(new_ecdh_enc), fname)
+                            )
+                        except (ValueError, TypeError, json.JSONDecodeError) as e:
+                            logger.warning(
+                                "change_password: could not decrypt ECDH private for '%s': %s",
+                                fname, e
+                            )
 
                 # TOTP secret (optional)
                 totp_plain = None
@@ -1163,6 +1214,9 @@ class KeyStore:
                     else:
                         updated_friends.append((name, pub, sec))
                 self.friends = updated_friends
+                # ECDH privates were re-encrypted with new password; the
+                # in-memory guarded blobs are password-independent, so leave
+                # self.friends_ecdh_priv unchanged.
 
                 logger.info("Master password changed successfully (%d friend secrets re-encrypted)",
                             len(friend_updates))
@@ -1262,7 +1316,8 @@ class KeyStore:
 
                 # --- 4. Clear friend shared secrets (can't decrypt without old password) ---
                 conn.execute(
-                    "UPDATE friends SET has_shared_secret=0, shared_secret_encrypted=NULL"
+                    "UPDATE friends SET has_shared_secret=0, shared_secret_encrypted=NULL, "
+                    "ecdh_priv_encrypted=NULL"
                 )
 
                 # --- 5. Clear TOTP (can't decrypt without old password) ---
@@ -1299,6 +1354,7 @@ class KeyStore:
 
                 # Clear friend secrets from memory
                 self.friends = [(name, pub_key, None) for name, pub_key, _ in self.friends]
+                self.friends_ecdh_priv.clear()
 
                 # Set master password in database module
                 database.set_master_password(new_password)
@@ -1339,6 +1395,10 @@ class KeyStore:
             self.friends = wiped_friends
 
             self.friends_x25519.clear()
+            for gb in self.friends_ecdh_priv.values():
+                if isinstance(gb, GuardedBuffer):
+                    gb.wipe_and_free()
+            self.friends_ecdh_priv.clear()
             self.friends_capabilities.clear()
             self.friends_pqc_combined_pub.clear()
             if self.my_kyber_priv is not None:

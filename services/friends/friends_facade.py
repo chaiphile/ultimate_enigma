@@ -69,13 +69,15 @@ class FriendsService:
         new_secret: bytes,
         master_password: str,
         x25519_pub_b64: Optional[str] = None,
+        ecdh_priv_bytes: Optional[bytes] = None,
     ) -> None:
-        """Replace the shared secret (and optionally the ECDH key) for an existing friend."""
+        """Replace the shared secret (and optionally the ECDH keys) for an existing friend."""
         self._crud.update_shared_secret(
             name=name,
             new_secret=new_secret,
             master_password=master_password,
             x25519_pub_b64=x25519_pub_b64,
+            ecdh_priv_bytes=ecdh_priv_bytes,
         )
 
     def update_friend_pub_keys(

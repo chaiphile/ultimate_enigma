@@ -5,13 +5,15 @@ from tkinter import messagebox
 import ttkbootstrap as ttk
 
 from services.ecdh_service import ECDHService      # pure crypto service
+from cryptography.hazmat.primitives import serialization
 from views.utils import init_modal, flash_widget_text, ToolTip
 
 
 def perform_ecdh(parent, purpose="friend"):
     """
     Opens an ECDH key exchange dialog.
-    Returns a tuple (derived_shared_secret, friend_x25519_pubkey_b64) or None if cancelled.
+    Returns a tuple (derived_shared_secret, friend_x25519_pubkey_b64, our_ecdh_priv_bytes)
+    or None if cancelled.
     """
     # 1. Generate ephemeral key pair using the service
     priv = ECDHService.generate_private_key()
@@ -91,7 +93,7 @@ def perform_ecdh(parent, purpose="friend"):
 
     friend_pub_var.trace_add('write', compute_fingerprint)
 
-    result = {"secret": None, "friend_b64": None}
+    result = {"secret": None, "friend_b64": None, "priv_bytes": None}
 
     def confirm():
         friend_b64 = friend_pub_var.get().strip()
@@ -119,6 +121,13 @@ def perform_ecdh(parent, purpose="friend"):
 
         result["secret"] = derived_key
         result["friend_b64"] = friend_b64
+        # Our own X25519 private — its public key went to the friend. Must be
+        # persisted so a later Double Ratchet init re-derives the same root key.
+        result["priv_bytes"] = priv.private_bytes(
+            encoding=serialization.Encoding.Raw,
+            format=serialization.PrivateFormat.Raw,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
         dlg.destroy()
 
     verify_btn = ttk.Button(dlg, text="Verify & Compute Shared Secret", command=confirm,
@@ -135,4 +144,4 @@ def perform_ecdh(parent, purpose="friend"):
     parent.wait_window(dlg)
     if result["secret"] is None:
         return None
-    return result["secret"], result["friend_b64"]
+    return result["secret"], result["friend_b64"], result["priv_bytes"]

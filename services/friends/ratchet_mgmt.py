@@ -67,12 +67,21 @@ class FriendRatchetManager:
         except ValueError as e:
             raise FriendsServiceError(f"Invalid X25519 key for '{name}': {e}")
 
+        # Our own X25519 private from the ECDH exchange. Without it the ratchet
+        # re-derives a fresh DH keypair that diverges from the peer's — every
+        # header fails AEAD and decrypts are impossible.
+        local_dh_priv_bytes = self.crud.get_friend_ecdh_priv(name)
+
         # Initialize based on role
         try:
             if role == "alice":
-                RatchetService.init_ratchet_alice(name, peer_dh_pub_bytes, secret)
+                RatchetService.init_ratchet_alice(
+                    name, peer_dh_pub_bytes, secret, local_dh_priv_bytes
+                )
             elif role == "bob":
-                RatchetService.init_ratchet_bob(name, peer_dh_pub_bytes, secret)
+                RatchetService.init_ratchet_bob(
+                    name, peer_dh_pub_bytes, secret, local_dh_priv_bytes
+                )
             else:
                 raise FriendsServiceError(f"Invalid role '{role}'. Use 'alice' or 'bob'.")
         except RatchetInitError as e:
@@ -97,6 +106,7 @@ class FriendRatchetManager:
                 password=master_password,
                 x25519_pub_b64=x_b64,
                 capabilities=caps,
+                ecdh_priv_bytes=self.crud.get_friend_ecdh_priv(name),
             )
 
     def reset_ratchet(self, name: str, master_password: str = "") -> bool:
@@ -141,5 +151,6 @@ class FriendRatchetManager:
                 password=master_password,
                 x25519_pub_b64=x_b64,
                 capabilities=caps if caps else None,
+                ecdh_priv_bytes=self.crud.get_friend_ecdh_priv(name),
             )
         return deleted

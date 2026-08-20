@@ -22,7 +22,7 @@ import threading
 import time
 from typing import Optional, Tuple, Dict, List
 
-from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives import hashes
@@ -575,7 +575,8 @@ class RatchetService:
     def init_ratchet_alice(
         friend_name: str,
         bob_dh_pub_bytes: bytes,
-        shared_secret: bytes
+        shared_secret: bytes,
+        local_dh_priv_bytes: Optional[bytes] = None,
     ) -> RatchetState:
         """Initialize a new Double Ratchet session as Alice (initiator).
 
@@ -588,6 +589,10 @@ class RatchetService:
             bob_dh_pub_bytes: Bob's X25519 DH public key as raw 32 bytes.
             shared_secret: The initial shared secret from key agreement
                           (e.g., derived from Hybrid KEM encapsulation).
+            local_dh_priv_bytes: Our own X25519 private key whose public key
+                Bob already saw during the ECDH exchange. Required to re-derive
+                the agreed root key. If None, a fresh key is generated (which
+                diverges from Bob's — do not pass None after an exchange).
 
         Returns:
             The initialized RatchetState instance.
@@ -597,8 +602,12 @@ class RatchetService:
         """
         try:
             bob_dh_pub = X25519PublicKey.from_public_bytes(bob_dh_pub_bytes)
+            local_dh_priv = (
+                X25519PrivateKey.from_private_bytes(local_dh_priv_bytes)
+                if local_dh_priv_bytes is not None else None
+            )
             state = RatchetState()
-            state.initialize_as_alice(bob_dh_pub, shared_secret)
+            state.initialize_as_alice(bob_dh_pub, shared_secret, local_dh_priv)
             RatchetService.save_ratchet_state(friend_name, state)
             RatchetService._ensure_ratchet_capability(friend_name)
             logger.info("Initialized ratchet as Alice for '%s'", friend_name)
@@ -618,7 +627,8 @@ class RatchetService:
     def init_ratchet_bob(
         friend_name: str,
         alice_dh_pub_bytes: bytes,
-        shared_secret: bytes
+        shared_secret: bytes,
+        local_dh_priv_bytes: Optional[bytes] = None,
     ) -> RatchetState:
         """Initialize a new Double Ratchet session as Bob (responder).
 
@@ -631,6 +641,10 @@ class RatchetService:
             alice_dh_pub_bytes: Alice's X25519 DH public key as raw 32 bytes.
             shared_secret: The initial shared secret from key agreement
                           (e.g., derived from Hybrid KEM decapsulation).
+            local_dh_priv_bytes: Our own X25519 private key whose public key
+                Alice already saw during the ECDH exchange. Required to re-derive
+                the agreed root key. If None, a fresh key is generated (which
+                diverges from Alice's — do not pass None after an exchange).
 
         Returns:
             The initialized RatchetState instance.
@@ -640,8 +654,12 @@ class RatchetService:
         """
         try:
             alice_dh_pub = X25519PublicKey.from_public_bytes(alice_dh_pub_bytes)
+            local_dh_priv = (
+                X25519PrivateKey.from_private_bytes(local_dh_priv_bytes)
+                if local_dh_priv_bytes is not None else None
+            )
             state = RatchetState()
-            state.initialize_as_bob(alice_dh_pub, shared_secret)
+            state.initialize_as_bob(alice_dh_pub, shared_secret, local_dh_priv)
             RatchetService.save_ratchet_state(friend_name, state)
             RatchetService._ensure_ratchet_capability(friend_name)
             logger.info("Initialized ratchet as Bob for '%s'", friend_name)
